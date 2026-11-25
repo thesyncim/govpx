@@ -2172,13 +2172,29 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	if speedFeatureCPUUsed >= 8 && bestSet && best.skipTxfm == encoder.SkipTxfmAcDc {
 		xSkip = true
 	}
-	if intra, intraFires := e.vp9NonrdEstimateIntraFallback(inter, tile,
-		miRows, miCols, miRow, miCol, bsize, qindex, rdmult,
-		above, left, sourceVariance, bestInterScore, forceSkipLowTempVar, xSkip,
-		sceneChangeDetected, highNumBlocksWithMotion,
-		contentState, zeroTempSADSource,
-		pickPred, pickPredStride, pickPredOriginMiRow,
-		pickPredOriginMiCol, skipEncode, preIntraCapture); intraFires {
+	intraParams := vp9NonrdIntraFallbackParams{
+		tile:                    tile,
+		miRows:                  miRows,
+		miCols:                  miCols,
+		miRow:                   miRow,
+		miCol:                   miCol,
+		bsize:                   bsize,
+		qindex:                  qindex,
+		rdmult:                  rdmult,
+		sourceVariance:          sourceVariance,
+		bestInterScore:          bestInterScore,
+		forceSkipLowTempVar:     forceSkipLowTempVar,
+		xSkip:                   xSkip,
+		sceneChangeDetected:     sceneChangeDetected,
+		highNumBlocksWithMotion: highNumBlocksWithMotion,
+		contentState:            contentState,
+		zeroTempSADSource:       zeroTempSADSource,
+		pickPredStride:          pickPredStride,
+		pickPredOriginMiRow:     pickPredOriginMiRow,
+		pickPredOriginMiCol:     pickPredOriginMiCol,
+		skipEncode:              skipEncode,
+	}
+	if intra, intraFires := e.vp9NonrdEstimateIntraFallback(inter, above, left, pickPred, preIntraCapture, intraParams); intraFires {
 		// libvpx: vp9_pickmode.c:2637-2647 — if intra wins, replace
 		// best_pickmode's mode/ref/tx/skip state with the intra entry.
 		best = vp9InterModeDecision{

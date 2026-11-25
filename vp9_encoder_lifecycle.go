@@ -13,8 +13,6 @@ import (
 type VP9Encoder struct {
 	opts     VP9EncoderOptions
 	closed   bool
-	temporal temporalState
-	rc       vp9RateControlState
 	twoPass  vp9TwoPassState
 	cyclicAQ encoder.CyclicRefreshState
 	// cyclicCountMapSnap* reuse buffers for saveVP9CyclicRefreshMapsForCounts
@@ -564,6 +562,9 @@ type VP9Encoder struct {
 	countArfFrameUsageMiRows   int
 	countArfFrameUsageMiStride int
 
+	// vp9NmvCostCache contains pointer fields, so keep it above interPredictor.
+	vp9NmvCostCache vp9NmvCostCache
+
 	// interPredictor is placed as the last pointer-containing field so Go's
 	// GC stops scanning VP9Encoder at VP9Decoder's ~4 KiB PtrBytes and skips
 	// both VP9Decoder's ~40 KiB tail and all ~150 KiB of VP9Encoder's pure-value
@@ -571,6 +572,8 @@ type VP9Encoder struct {
 	interPredictor VP9Decoder
 
 	// --- Pure value / pointer-free tail (beyond Go GC PtrBytes: 0 scan cost) ---
+	temporal               temporalState
+	rc                     vp9RateControlState
 	lfi                    vp9dec.LoopFilterInfoN
 	lfRefDeltas            [vp9dec.MaxRefLfDeltas]int8
 	lfModeDeltas           [vp9dec.MaxModeLfDeltas]int8
@@ -594,7 +597,6 @@ type VP9Encoder struct {
 	fc                     vp9dec.FrameContext
 	vp9NonrdModeCostFc     vp9dec.FrameContext
 	vp9NonrdMvCostFc       vp9dec.FrameContext
-	vp9NmvCostCache        vp9NmvCostCache
 	vp9CoeffTokenCosts     encoder.FrameCoeffTokenCostTable
 	intraScratch           vp9dec.IntraPredictorScratch
 	modeScratch            [1024]byte

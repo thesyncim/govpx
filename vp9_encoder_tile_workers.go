@@ -44,16 +44,10 @@ type vp9CountTileSeed struct {
 }
 
 type vp9CountTileJob struct {
-	partitionProbs [common.PartitionContexts][common.PartitionTypes - 1]uint8
-	seg            vp9dec.SegmentationParams
-	baseMi         vp9dec.NeighborMi
-	tile           vp9dec.TileBounds
-	keyHeader      vp9dec.UncompressedHeader
-	key            vp9KeyframeEncodeState
-	inter          vp9InterEncodeState
-	worker         *VP9Encoder
-	rowWorkerPool  *vp9RowWorkerPool
-	rowMTSync      *vp9RowMTSync
+	// Pointer fields grouped first to minimize PtrBytes.
+	worker        *VP9Encoder
+	rowWorkerPool *vp9RowWorkerPool
+	rowMTSync     *vp9RowMTSync
 	// prepSrc, counts, tokenFrame and the geometry fields below let the job
 	// body run the per-worker frame preparation (the multi-megabyte
 	// *worker = *src state copy, counts zeroing and token-frame arming) on
@@ -61,51 +55,59 @@ type vp9CountTileJob struct {
 	// struct; the preparation reads the shared encoder state, which is
 	// immutable while count jobs are in flight, so the copies parallelize
 	// across tile columns instead of serializing on the dispatcher.
-	prepSrc      *VP9Encoder
-	counts       *encoder.FrameCounts
-	tokenFrame   *encoder.TokenFrameBuffer
-	width        int
-	height       int
-	tileCol      int
-	collectToken bool
-	miRows       int
-	miCols       int
-	txMode       common.TxMode
-	kind         vp9ModeTreeKind
-	hasKey       bool
-	hasInter     bool
-}
-
-type vp9EncodeTileJob struct {
+	prepSrc        *VP9Encoder
+	counts         *encoder.FrameCounts
+	tokenFrame     *encoder.TokenFrameBuffer
+	key            vp9KeyframeEncodeState
+	inter          vp9InterEncodeState
 	partitionProbs [common.PartitionContexts][common.PartitionTypes - 1]uint8
 	seg            vp9dec.SegmentationParams
 	baseMi         vp9dec.NeighborMi
 	tile           vp9dec.TileBounds
 	keyHeader      vp9dec.UncompressedHeader
-	key            vp9KeyframeEncodeState
-	inter          vp9InterEncodeState
-	worker         *VP9Encoder
+	width          int
+	height         int
+	tileCol        int
+	collectToken   bool
+	miRows         int
+	miCols         int
+	txMode         common.TxMode
+	kind           vp9ModeTreeKind
+	hasKey         bool
+	hasInter       bool
+}
+
+type vp9EncodeTileJob struct {
+	// Pointer fields grouped first to minimize PtrBytes.
+	worker *VP9Encoder
 	// prepSrc is consumed by the vp9TileWorkerJobEncodePrep epoch: each
 	// helper copies the shared encoder state into its private worker on its
 	// own goroutine while the dispatcher is quiescent, so the per-frame
 	// multi-megabyte worker preparation parallelizes instead of running
 	// serially on the dispatcher. Tile column 0 encodes on the shared
 	// encoder itself and needs no preparation.
-	prepSrc       *VP9Encoder
-	output        []byte
-	rowMTSync     *vp9RowMTSync
-	replayTokens  bool
-	replayFrame   *encoder.TokenFrameBuffer
-	replayTileRow int
-	replayTileCol int
-	miRows        int
-	miCols        int
-	size          int
-	txMode        common.TxMode
-	kind          vp9ModeTreeKind
-	err           error
-	hasKey        bool
-	hasInter      bool
+	prepSrc        *VP9Encoder
+	output         []byte
+	rowMTSync      *vp9RowMTSync
+	replayFrame    *encoder.TokenFrameBuffer
+	err            error
+	key            vp9KeyframeEncodeState
+	inter          vp9InterEncodeState
+	partitionProbs [common.PartitionContexts][common.PartitionTypes - 1]uint8
+	seg            vp9dec.SegmentationParams
+	baseMi         vp9dec.NeighborMi
+	tile           vp9dec.TileBounds
+	keyHeader      vp9dec.UncompressedHeader
+	replayTokens   bool
+	replayTileRow  int
+	replayTileCol  int
+	miRows         int
+	miCols         int
+	size           int
+	txMode         common.TxMode
+	kind           vp9ModeTreeKind
+	hasKey         bool
+	hasInter       bool
 }
 
 type vp9TileWorkerPool struct {

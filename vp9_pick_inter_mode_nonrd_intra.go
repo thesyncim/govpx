@@ -69,16 +69,52 @@ func (e *VP9Encoder) vp9UseModelYrdLargeBlock(bsize common.BlockSize,
 // 1717-1720 (intra_cost_penalty + inter_mode_thresh), vp9_pickmode.c:2566
 // (intra_mode_list loop), vp9_pickmode.c:2607-2647 (per-mode score +
 // best-rdc update).
-func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
-	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize, qindex int, rdmult int,
+type vp9NonrdIntraFallbackParams struct {
+	tile                    vp9dec.TileBounds
+	miRows                  int
+	miCols                  int
+	miRow                   int
+	miCol                   int
+	bsize                   common.BlockSize
+	qindex                  int
+	rdmult                  int
+	sourceVariance          uint
+	bestInterScore          uint64
+	contentState            encoder.ContentStateSB
+	pickPredStride          int
+	pickPredOriginMiRow     int
+	pickPredOriginMiCol     int
+	forceSkipLowTempVar     bool
+	xSkip                   bool
+	sceneChangeDetected     bool
+	highNumBlocksWithMotion bool
+	zeroTempSADSource       bool
+	skipEncode              bool
+}
+
+func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(
+	inter *vp9InterEncodeState,
 	above, left *vp9dec.NeighborMi,
-	sourceVariance uint, bestInterScore uint64, forceSkipLowTempVar bool, xSkip bool,
-	sceneChangeDetected, highNumBlocksWithMotion bool,
-	contentState encoder.ContentStateSB, zeroTempSADSource bool,
-	pickPred []byte, pickPredStride, pickPredOriginMiRow, pickPredOriginMiCol int,
-	skipEncode bool, preIntraCapture *vp9NonrdPredBuffer,
+	pickPred []byte,
+	preIntraCapture *vp9NonrdPredBuffer,
+	p vp9NonrdIntraFallbackParams,
 ) (vp9InterIntraDecision, bool) {
+	tile := p.tile
+	miRows, miCols, miRow, miCol := p.miRows, p.miCols, p.miRow, p.miCol
+	bsize := p.bsize
+	qindex, rdmult := p.qindex, p.rdmult
+	sourceVariance := p.sourceVariance
+	bestInterScore := p.bestInterScore
+	forceSkipLowTempVar := p.forceSkipLowTempVar
+	xSkip := p.xSkip
+	sceneChangeDetected := p.sceneChangeDetected
+	highNumBlocksWithMotion := p.highNumBlocksWithMotion
+	contentState := p.contentState
+	zeroTempSADSource := p.zeroTempSADSource
+	pickPredStride := p.pickPredStride
+	pickPredOriginMiRow := p.pickPredOriginMiRow
+	pickPredOriginMiCol := p.pickPredOriginMiCol
+	skipEncode := p.skipEncode
 	if inter == nil || inter.img == nil {
 		return vp9InterIntraDecision{}, false
 	}

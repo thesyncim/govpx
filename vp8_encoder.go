@@ -626,8 +626,6 @@ type VP8Encoder struct {
 
 	timing   timingState
 	sourceTS encoderSourceTimestampState
-	rc       rateControlState
-	temporal temporalState
 	oracleTraceHolder
 
 	closed        bool
@@ -1030,14 +1028,18 @@ type VP8Encoder struct {
 	rdPickerCoefProbsActive        *vp8tables.CoefficientProbs
 	rdPickerCoefTokenCostsActive   *vp8enc.CoefficientTokenCostTable
 	interRDCoeffCacheScratchTarget *interRDCoeffCacheState
-	interCoefTokenRecords          vp8enc.InterCoefficientTokenRecords
-	interCoefTokenRecordsValid     bool
 	fastInterLoopCtx               fastInterModeLoopContext
 	// interRDCoeffCacheSlots carries predictorRef *vp8common.Image, so keep it
 	// above the pure-value tables below to minimize VP8Encoder PtrBytes.
 	interRDCoeffCacheSlots  [2]interRDCoeffCacheState
 	interRDCoeffCacheWinner uint8
+	// interCoefTokenRecords has only 48B of PtrBytes inside a 4 KiB struct,
+	// so placing it last before the pure-value tail skips scanning its 4 KiB tail.
+	interCoefTokenRecords      vp8enc.InterCoefficientTokenRecords
+	interCoefTokenRecordsValid bool
 	// Pointer-free threshold / histogram tables grouped below PtrBytes.
+	rc                              rateControlState
+	temporal                        temporalState
 	savedContext                    savedCodingContext
 	interRDThreshMult               [libvpxInterModeCount]int
 	interRDThreshTouched            [libvpxInterModeCount]bool
