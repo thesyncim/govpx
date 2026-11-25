@@ -49,13 +49,15 @@ func subpelStats16(src []byte, ss int, ref []byte, rs, w, h int, fx, fy [2]int16
 			var sum0, sum1 archsimd.Int16x8
 			row0 := src[x : x+17]
 			prev := archsimd.LoadUint8x16Array((*[16]byte)(row0[0:16])).Average(archsimd.LoadUint8x16Array((*[16]byte)(row0[1:17])))
+			prevH := prev.HiToLo()
 			so, ro := ss+x, x
 			for range h {
 				row := src[so : so+17]
 				cur := archsimd.LoadUint8x16Array((*[16]byte)(row[0:16])).Average(archsimd.LoadUint8x16Array((*[16]byte)(row[1:17])))
+				curH := cur.HiToLo()
 				v0 := prev.MulWidenLo(uy0).Add(cur.MulWidenLo(uy1)).Add(uround).ShiftAllRight(7)
-				v1 := prev.HiToLo().MulWidenLo(uy0).Add(cur.HiToLo().MulWidenLo(uy1)).Add(uround).ShiftAllRight(7)
-				prev = cur
+				v1 := prevH.MulWidenLo(uy0).Add(curH.MulWidenLo(uy1)).Add(uround).ShiftAllRight(7)
+				prev, prevH = cur, curH
 				r := archsimd.LoadUint8x16Array((*[16]byte)(ref[ro : ro+16]))
 				d0 := v0.BitsToInt16().Sub(r.ExtendLo8ToUint16().BitsToInt16())
 				d1 := v1.BitsToInt16().Sub(r.HiToLo().ExtendLo8ToUint16().BitsToInt16())
@@ -119,19 +121,17 @@ func subpelStats16(src []byte, ss int, ref []byte, rs, w, h int, fx, fy [2]int16
 			var sum0, sum1 archsimd.Int16x8
 			row0 := src[x : x+17]
 			r0, r1 := archsimd.LoadUint8x16Array((*[16]byte)(row0[0:16])), archsimd.LoadUint8x16Array((*[16]byte)(row0[1:17]))
-			h0 := r0.MulWidenLo(ux0).Add(r1.MulWidenLo(ux1)).Add(uround).ShiftAllRight(7)
-			h1 := r0.HiToLo().MulWidenLo(ux0).Add(r1.HiToLo().MulWidenLo(ux1)).Add(uround).ShiftAllRight(7)
-			prev := h0.ReshapeToUint8s().ConcatEven(h1.ReshapeToUint8s())
+			prevLo := r0.MulWidenLo(ux0).Add(r1.MulWidenLo(ux1)).Add(uround).ShiftAllRight(7).TruncToUint8()
+			prevHi := r0.HiToLo().MulWidenLo(ux0).Add(r1.HiToLo().MulWidenLo(ux1)).Add(uround).ShiftAllRight(7).TruncToUint8()
 			so, ro := ss+x, x
 			for range h {
 				row := src[so : so+17]
 				r0, r1 = archsimd.LoadUint8x16Array((*[16]byte)(row[0:16])), archsimd.LoadUint8x16Array((*[16]byte)(row[1:17]))
-				h0 = r0.MulWidenLo(ux0).Add(r1.MulWidenLo(ux1)).Add(uround).ShiftAllRight(7)
-				h1 = r0.HiToLo().MulWidenLo(ux0).Add(r1.HiToLo().MulWidenLo(ux1)).Add(uround).ShiftAllRight(7)
-				cur := h0.ReshapeToUint8s().ConcatEven(h1.ReshapeToUint8s())
-				v0 := prev.MulWidenLo(uy0).Add(cur.MulWidenLo(uy1)).Add(uround).ShiftAllRight(7).BitsToInt16()
-				v1 := prev.HiToLo().MulWidenLo(uy0).Add(cur.HiToLo().MulWidenLo(uy1)).Add(uround).ShiftAllRight(7).BitsToInt16()
-				prev = cur
+				curLo := r0.MulWidenLo(ux0).Add(r1.MulWidenLo(ux1)).Add(uround).ShiftAllRight(7).TruncToUint8()
+				curHi := r0.HiToLo().MulWidenLo(ux0).Add(r1.HiToLo().MulWidenLo(ux1)).Add(uround).ShiftAllRight(7).TruncToUint8()
+				v0 := prevLo.MulWidenLo(uy0).Add(curLo.MulWidenLo(uy1)).Add(uround).ShiftAllRight(7).BitsToInt16()
+				v1 := prevHi.MulWidenLo(uy0).Add(curHi.MulWidenLo(uy1)).Add(uround).ShiftAllRight(7).BitsToInt16()
+				prevLo, prevHi = curLo, curHi
 				r := archsimd.LoadUint8x16Array((*[16]byte)(ref[ro : ro+16]))
 				d0 := v0.Sub(r.ExtendLo8ToUint16().BitsToInt16())
 				d1 := v1.Sub(r.HiToLo().ExtendLo8ToUint16().BitsToInt16())

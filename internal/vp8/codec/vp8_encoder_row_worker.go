@@ -163,7 +163,8 @@ type rowWorkerPool struct {
 	workerCount  int
 	required     int
 	abort        atomic.Int32
-	doneCount    atomic.Int32
+	remaining    atomic.Int32
+	doneWake     chan struct{}
 	workerErrors []error
 
 	// shutdown closes when the encoder is finalized.
@@ -187,6 +188,7 @@ func newRowWorkerPool(threads int, mbRows int, mbCols int) *rowWorkerPool {
 		rowProgress:  make([]paddedAtomicInt64, mbRows),
 		syncRange:    encoderThreadSyncRange(mbCols),
 		wakeSlots:    make([]workerWakeSlot, threads),
+		doneWake:     make(chan struct{}, 1),
 		workerErrors: make([]error, threads),
 		shutdown:     make(chan struct{}),
 	}
@@ -229,7 +231,9 @@ func (p *rowWorkerPool) workerLoop(workerIndex int) {
 		default:
 			p.runThreadedInterFrameWorker(workerIndex)
 		}
-		p.doneCount.Add(1)
+		if p.remaining.Add(-1) == 0 {
+			p.doneWake <- struct{}{}
+		}
 	}
 }
 
@@ -237,7 +241,7 @@ func (p *rowWorkerPool) startHelperWorkers() {
 	if p == nil || p.workerCount <= 1 {
 		return
 	}
-	p.doneCount.Store(0)
+	p.remaining.Store(int32(p.workerCount - 1))
 	p.dispatchEpoch++
 	epoch := p.dispatchEpoch
 	for workerIndex := 1; workerIndex < p.workerCount; workerIndex++ {
@@ -249,13 +253,7 @@ func (p *rowWorkerPool) waitHelperWorkers() {
 	if p == nil || p.workerCount <= 1 {
 		return
 	}
-	want := int32(p.workerCount - 1)
-	for spins := 0; p.doneCount.Load() < want; spins++ {
-		runtimeProcYield(30)
-		if spins >= rowWorkerIdleSchedulerBackoff && spins%rowWorkerIdleSchedulerBackoff == 0 {
-			runtime.Gosched()
-		}
-	}
+	<-p.doneWake
 }
 
 type rowWorkerJob uint8
@@ -467,7 +465,11 @@ func (p *rowWorkerPool) resetForEncoderReset() {
 	p.workerCount = 0
 	p.required = 0
 	p.abort.Store(0)
-	p.doneCount.Store(0)
+	p.remaining.Store(0)
+	select {
+	case <-p.doneWake:
+	default:
+	}
 	for i := range p.workerErrors {
 		p.workerErrors[i] = nil
 	}

@@ -291,14 +291,24 @@ func LoopFilterSimpleVertical16(s []byte, stride int, blimit byte) bool {
 	}
 	// Gather 16x4 bytes (rows 0..15, columns [p1, p0, q0, q1]) into 4 Uint32x4
 	// vectors and transpose into column vectors p1, p0, q0, q1.
-	s0 := s[0*stride:]
-	s1 := s[1*stride:]
-	s2 := s[2*stride:]
-	s3 := s[3*stride:]
-	s4 := s[4*stride:]
-	s5 := s[5*stride:]
-	s6 := s[6*stride:]
-	s7 := s[7*stride:]
+	_ = s[15*stride+3]
+	o1 := stride
+	o2 := o1 + stride
+	o3 := o2 + stride
+	o4 := o3 + stride
+	o5 := o4 + stride
+	o6 := o5 + stride
+	o7 := o6 + stride
+	o8 := o7 + stride
+	o9 := o8 + stride
+	o10 := o9 + stride
+	o11 := o10 + stride
+	o12 := o11 + stride
+	o13 := o12 + stride
+	o14 := o13 + stride
+	o15 := o14 + stride
+	s0, s1, s2, s3 := s[0:], s[o1:], s[o2:], s[o3:]
+	s4, s5, s6, s7 := s[o4:], s[o5:], s[o6:], s[o7:]
 	r0 := archsimd.LoadUint32x4Array(&[4]uint32{
 		binary.LittleEndian.Uint32(s0), binary.LittleEndian.Uint32(s4),
 		binary.LittleEndian.Uint32(s2), binary.LittleEndian.Uint32(s6),
@@ -307,14 +317,8 @@ func LoopFilterSimpleVertical16(s []byte, stride int, blimit byte) bool {
 		binary.LittleEndian.Uint32(s1), binary.LittleEndian.Uint32(s5),
 		binary.LittleEndian.Uint32(s3), binary.LittleEndian.Uint32(s7),
 	}).ReshapeToUint8s()
-	s8 := s[8*stride:]
-	s9 := s[9*stride:]
-	s10 := s[10*stride:]
-	s11 := s[11*stride:]
-	s12 := s[12*stride:]
-	s13 := s[13*stride:]
-	s14 := s[14*stride:]
-	s15 := s[15*stride:]
+	s8, s9, s10, s11 := s[o8:], s[o9:], s[o10:], s[o11:]
+	s12, s13, s14, s15 := s[o12:], s[o13:], s[o14:], s[o15:]
 	r2 := archsimd.LoadUint32x4Array(&[4]uint32{
 		binary.LittleEndian.Uint32(s8), binary.LittleEndian.Uint32(s12),
 		binary.LittleEndian.Uint32(s10), binary.LittleEndian.Uint32(s14),

@@ -386,6 +386,34 @@ func fillBoolFast(buf []byte, pos int, value uint64, count int) (uint64, int, in
 	return value, count + n, pos + (n >> 3)
 }
 
+func vp8ReadBoolNoFill(prob uint8, value uint64, rng uint32, count int) (uint8, uint64, uint32, int) {
+	split := uint32(1 + (((rng - 1) * uint32(prob)) >> 8))
+	bigsplit := uint64(split) << (valueSize - 8)
+	nextRange := split
+	bit := uint8(0)
+	if value >= bigsplit {
+		nextRange = rng - split
+		value -= bigsplit
+		bit = 1
+	}
+	shift := uint32(bits.LeadingZeros8(uint8(nextRange))) & 7
+	return bit, value << shift, nextRange << shift, count - int(shift)
+}
+
+func vp8ReadSignedCoeffNoFill(coeff int, value uint64, rng uint32, count int) (int16, uint64, uint32, int) {
+	split := (rng + 1) >> 1
+	bigsplit := uint64(split) << (valueSize - 8)
+	nextRange := split
+	var m16 int16
+	if value >= bigsplit {
+		nextRange = rng - split
+		value -= bigsplit
+		m16 = -1
+	}
+	v := int16(coeff)
+	return (v ^ m16) - m16, value << 1, nextRange << 1, count - 1
+}
+
 func (d *Decoder) ReadVP8MacroblockCoeffs(
 	probs *tables.CoefficientProbs, is4x4 bool,
 	aboveY1 *[4]uint8, leftY1 *[4]uint8,
@@ -401,41 +429,6 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 	buf := d.buf
 	fastLimit := len(buf) - vp8BlockFastMargin
 
-	readBoolNoFill := func(prob uint8) uint8 {
-		rng0 := rng
-		split := uint32(1 + (((rng0 - 1) * uint32(prob)) >> 8))
-		bigsplit := uint64(split) << (valueSize - 8)
-		nextRange := split
-		bit := uint8(0)
-		if value >= bigsplit {
-			nextRange = rng0 - split
-			value -= bigsplit
-			bit = 1
-		}
-		shift := uint32(bits.LeadingZeros8(uint8(nextRange))) & 7
-		rng = nextRange << shift
-		value <<= shift
-		count -= int(shift)
-		return bit
-	}
-	readSignedCoeffNoFill := func(coeff int) int16 {
-		rng0 := rng
-		split := (rng0 + 1) >> 1
-		bigsplit := uint64(split) << (valueSize - 8)
-		nextRange := split
-		var m16 int16
-		if value >= bigsplit {
-			nextRange = rng0 - split
-			value -= bigsplit
-			m16 = -1
-		}
-		rng = nextRange << 1
-		value <<= 1
-		count--
-		v := int16(coeff)
-		return (v ^ m16) - m16
-	}
-
 	skipDC := 0
 	lumaType := 3
 	idx := 0
@@ -445,6 +438,7 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 		idx = -1 // decode the Y2 block first
 	}
 
+	var bit uint8
 	for ; idx < 24; idx++ {
 		if pos > fastLimit {
 			d.value = value
@@ -491,7 +485,8 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 		if count < 24 {
 			value, count, pos = fillBoolFast(buf, pos, value, count)
 		}
-		if readBoolNoFill(p[0]) == 0 {
+		bit, value, rng, count = vp8ReadBoolNoFill(p[0], value, rng, count)
+		if bit == 0 {
 			*aP = 0
 			*lP = 0
 			if idx < 0 {
@@ -511,7 +506,8 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 	walk:
 		for {
 			nn++
-			if readBoolNoFill(p[1]) == 0 {
+			bit, value, rng, count = vp8ReadBoolNoFill(p[1], value, rng, count)
+			if bit == 0 {
 				if nn == 16 {
 					nonzeros = 16
 					break walk
@@ -524,62 +520,76 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 			}
 			v := 0
 			tokenClass := uint8(2)
-			if readBoolNoFill(p[2]) == 0 {
+			bit, value, rng, count = vp8ReadBoolNoFill(p[2], value, rng, count)
+			if bit == 0 {
 				tokenClass = 1
 				v = 1
 			} else {
 				if count < 32 {
 					value, count, pos = fillBoolFast(buf, pos, value, count)
 				}
-				if readBoolNoFill(p[3]) == 0 {
-					if readBoolNoFill(p[4]) == 0 {
+				bit, value, rng, count = vp8ReadBoolNoFill(p[3], value, rng, count)
+				if bit == 0 {
+					bit, value, rng, count = vp8ReadBoolNoFill(p[4], value, rng, count)
+					if bit == 0 {
 						v = 2
 					} else {
-						v = 3 + int(readBoolNoFill(p[5]))
+						bit, value, rng, count = vp8ReadBoolNoFill(p[5], value, rng, count)
+						v = 3 + int(bit)
 					}
 				} else {
 					if count < 32 {
 						value, count, pos = fillBoolFast(buf, pos, value, count)
 					}
-					if readBoolNoFill(p[6]) == 0 {
-						if readBoolNoFill(p[7]) == 0 {
-							v = 5 + int(readBoolNoFill(159))
+					bit, value, rng, count = vp8ReadBoolNoFill(p[6], value, rng, count)
+					if bit == 0 {
+						bit, value, rng, count = vp8ReadBoolNoFill(p[7], value, rng, count)
+						if bit == 0 {
+							bit, value, rng, count = vp8ReadBoolNoFill(159, value, rng, count)
+							v = 5 + int(bit)
 						} else {
-							v = 7 + 2*int(readBoolNoFill(165))
-							v += int(readBoolNoFill(145))
+							bit, value, rng, count = vp8ReadBoolNoFill(165, value, rng, count)
+							v = 7 + 2*int(bit)
+							bit, value, rng, count = vp8ReadBoolNoFill(145, value, rng, count)
+							v += int(bit)
 						}
 					} else {
-						bit1 := int(readBoolNoFill(p[8]))
-						bit0 := int(readBoolNoFill(p[9+bit1]))
-						cat := 2*bit1 + bit0
+						var b1, b0 uint8
+						b1, value, rng, count = vp8ReadBoolNoFill(p[8], value, rng, count)
+						b0, value, rng, count = vp8ReadBoolNoFill(p[9+b1], value, rng, count)
+						cat := 2*int(b1) + int(b0)
 						switch cat {
 						case 0:
 							for _, prob := range tables.Cat3Prob {
 								if count < 0 {
 									value, count, pos = fillBoolFast(buf, pos, value, count)
 								}
-								v += v + int(readBoolNoFill(prob))
+								bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
+								v += v + int(bit)
 							}
 						case 1:
 							for _, prob := range tables.Cat4Prob {
 								if count < 0 {
 									value, count, pos = fillBoolFast(buf, pos, value, count)
 								}
-								v += v + int(readBoolNoFill(prob))
+								bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
+								v += v + int(bit)
 							}
 						case 2:
 							for _, prob := range tables.Cat5Prob {
 								if count < 0 {
 									value, count, pos = fillBoolFast(buf, pos, value, count)
 								}
-								v += v + int(readBoolNoFill(prob))
+								bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
+								v += v + int(bit)
 							}
 						default:
 							for _, prob := range tables.Cat6Prob {
 								if count < 0 {
 									value, count, pos = fillBoolFast(buf, pos, value, count)
 								}
-								v += v + int(readBoolNoFill(prob))
+								bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
+								v += v + int(bit)
 							}
 						}
 						v += 3 + (8 << cat)
@@ -591,7 +601,7 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 			}
 
 			j := tables.DefaultZigZag1D[(nn-1)&15]
-			out[j&15] = readSignedCoeffNoFill(v)
+			out[j&15], value, rng, count = vp8ReadSignedCoeffNoFill(v, value, rng, count)
 			if nn == 16 {
 				nonzeros = 16
 				break walk
@@ -600,7 +610,8 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 			if count < 24 {
 				value, count, pos = fillBoolFast(buf, pos, value, count)
 			}
-			if readBoolNoFill(p[0]) == 0 {
+			bit, value, rng, count = vp8ReadBoolNoFill(p[0], value, rng, count)
+			if bit == 0 {
 				nonzeros = nn
 				break walk
 			}

@@ -1681,25 +1681,36 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 // tryConsumeVP9ZeroEOB checks whether the next inter tx block's DC EOB bit is 0
 // (all-zero block) without entering DecodeCoefsState. When bit==1 or a refill
 // is needed, rs is left untouched so DecodeCoefsState runs identically.
-func tryConsumeVP9ZeroEOB(rs *bitstream.ReaderState, prob uint32) bool {
+// consumeVP9FirstEOB consumes the initial c==0 EOB bit directly from rs.
+// Returns 0 if EOB=0 (skip block), 1 if EOB=1 (caller should invoke
+// DecodeCoefsStateAfterEOB), or -1 if near end-of-buffer (caller falls back to
+// DecodeCoefsState).
+func consumeVP9FirstEOB(rs *bitstream.ReaderState, prob uint32) int {
 	if rs.Count < 0 {
 		buf, _, _, pos := rs.BitView()
 		if len(buf)-pos < 8 {
-			return false
+			return -1
 		}
 		var newPos int
 		rs.Value, rs.Count, newPos = bitstream.FillFast(buf, pos, rs.Value, rs.Count)
 		rs.CommitPos(newPos)
 	}
 	split := (rs.Range*prob + (256 - prob)) >> 8
-	if rs.Value >= uint64(split)<<56 {
-		return false
+	bigsplit := uint64(split) << 56
+	if rs.Value >= bigsplit {
+		rng := rs.Range - split
+		val := rs.Value - bigsplit
+		shift := uint32(bits.LeadingZeros8(uint8(rng))) & 7
+		rs.Range = rng << shift
+		rs.Value = val << shift
+		rs.Count -= int32(shift)
+		return 1
 	}
 	shift := uint32(bits.LeadingZeros8(uint8(split))) & 7
 	rs.Range = split << shift
 	rs.Value <<= shift
 	rs.Count -= int32(shift)
-	return true
+	return 0
 }
 
 func (d *VP9Decoder) readVP9InterResiduePlane(
@@ -1736,14 +1747,26 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 				if lv != 0 {
 					initCtx++
 				}
-				if coefCounts == nil && tryConsumeVP9ZeroEOB(rs, uint32(dcProbs[initCtx][0])) {
-					aCtx[cc] = 0
-					lv = 0
-					continue
+				var eob int
+				if coefCounts == nil {
+					first := consumeVP9FirstEOB(rs, uint32(dcProbs[initCtx][0]))
+					if first == 0 {
+						aCtx[cc] = 0
+						lv = 0
+						continue
+					}
+					if first == 1 {
+						eob = vp9dec.DecodeCoefsStateAfterEOB(rs, common.Tx4x4, planeType, 1, dequant,
+							initCtx, so, &d.fc.CoefProbs, &d.dqcoeff, &d.coefTokenCache)
+					} else {
+						eob = vp9dec.DecodeCoefsState(rs, common.Tx4x4, planeType, 1, dequant,
+							initCtx, so, &d.fc.CoefProbs, nil, &d.dqcoeff, &d.coefTokenCache)
+					}
+				} else {
+					eob = vp9dec.DecodeCoefsState(rs, common.Tx4x4, planeType, 1, dequant,
+						initCtx, so, &d.fc.CoefProbs, coefCounts,
+						&d.dqcoeff, &d.coefTokenCache)
 				}
-				eob := vp9dec.DecodeCoefsState(rs, common.Tx4x4, planeType, 1, dequant,
-					initCtx, so, &d.fc.CoefProbs, coefCounts,
-					&d.dqcoeff, &d.coefTokenCache)
 				eobTotal += eob
 				hasResidue := uint8(0)
 				if eob > 0 {
@@ -1781,15 +1804,27 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 				if lv != 0 {
 					initCtx++
 				}
-				if coefCounts == nil && tryConsumeVP9ZeroEOB(rs, uint32(dcProbs[initCtx][0])) {
-					aCtx[cc] = 0
-					aCtx[cc+1] = 0
-					lv = 0
-					continue
+				var eob int
+				if coefCounts == nil {
+					first := consumeVP9FirstEOB(rs, uint32(dcProbs[initCtx][0]))
+					if first == 0 {
+						aCtx[cc] = 0
+						aCtx[cc+1] = 0
+						lv = 0
+						continue
+					}
+					if first == 1 {
+						eob = vp9dec.DecodeCoefsStateAfterEOB(rs, common.Tx8x8, planeType, 1, dequant,
+							initCtx, so, &d.fc.CoefProbs, &d.dqcoeff, &d.coefTokenCache)
+					} else {
+						eob = vp9dec.DecodeCoefsState(rs, common.Tx8x8, planeType, 1, dequant,
+							initCtx, so, &d.fc.CoefProbs, nil, &d.dqcoeff, &d.coefTokenCache)
+					}
+				} else {
+					eob = vp9dec.DecodeCoefsState(rs, common.Tx8x8, planeType, 1, dequant,
+						initCtx, so, &d.fc.CoefProbs, coefCounts,
+						&d.dqcoeff, &d.coefTokenCache)
 				}
-				eob := vp9dec.DecodeCoefsState(rs, common.Tx8x8, planeType, 1, dequant,
-					initCtx, so, &d.fc.CoefProbs, coefCounts,
-					&d.dqcoeff, &d.coefTokenCache)
 				eobTotal += eob
 				hasResidue := uint8(0)
 				if eob > 0 {
@@ -1831,17 +1866,29 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 				if lv != 0 {
 					initCtx++
 				}
-				if coefCounts == nil && tryConsumeVP9ZeroEOB(rs, uint32(dcProbs[initCtx][0])) {
-					aCtx[cc] = 0
-					aCtx[cc+1] = 0
-					aCtx[cc+2] = 0
-					aCtx[cc+3] = 0
-					lv = 0
-					continue
+				var eob int
+				if coefCounts == nil {
+					first := consumeVP9FirstEOB(rs, uint32(dcProbs[initCtx][0]))
+					if first == 0 {
+						aCtx[cc] = 0
+						aCtx[cc+1] = 0
+						aCtx[cc+2] = 0
+						aCtx[cc+3] = 0
+						lv = 0
+						continue
+					}
+					if first == 1 {
+						eob = vp9dec.DecodeCoefsStateAfterEOB(rs, common.Tx16x16, planeType, 1, dequant,
+							initCtx, so, &d.fc.CoefProbs, &d.dqcoeff, &d.coefTokenCache)
+					} else {
+						eob = vp9dec.DecodeCoefsState(rs, common.Tx16x16, planeType, 1, dequant,
+							initCtx, so, &d.fc.CoefProbs, nil, &d.dqcoeff, &d.coefTokenCache)
+					}
+				} else {
+					eob = vp9dec.DecodeCoefsState(rs, common.Tx16x16, planeType, 1, dequant,
+						initCtx, so, &d.fc.CoefProbs, coefCounts,
+						&d.dqcoeff, &d.coefTokenCache)
 				}
-				eob := vp9dec.DecodeCoefsState(rs, common.Tx16x16, planeType, 1, dequant,
-					initCtx, so, &d.fc.CoefProbs, coefCounts,
-					&d.dqcoeff, &d.coefTokenCache)
 				eobTotal += eob
 				hasResidue := uint8(0)
 				if eob > 0 {
@@ -1889,16 +1936,28 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 				if lv != 0 {
 					initCtx++
 				}
-				if coefCounts == nil && tryConsumeVP9ZeroEOB(rs, uint32(dcProbs[initCtx][0])) {
-					for i := range 8 {
-						aCtx[cc+i] = 0
+				var eob int
+				if coefCounts == nil {
+					first := consumeVP9FirstEOB(rs, uint32(dcProbs[initCtx][0]))
+					if first == 0 {
+						for i := range 8 {
+							aCtx[cc+i] = 0
+						}
+						lv = 0
+						continue
 					}
-					lv = 0
-					continue
+					if first == 1 {
+						eob = vp9dec.DecodeCoefsStateAfterEOB(rs, txSize, planeType, 1, dequant,
+							initCtx, so, &d.fc.CoefProbs, &d.dqcoeff, &d.coefTokenCache)
+					} else {
+						eob = vp9dec.DecodeCoefsState(rs, txSize, planeType, 1, dequant,
+							initCtx, so, &d.fc.CoefProbs, nil, &d.dqcoeff, &d.coefTokenCache)
+					}
+				} else {
+					eob = vp9dec.DecodeCoefsState(rs, txSize, planeType, 1, dequant,
+						initCtx, so, &d.fc.CoefProbs, coefCounts,
+						&d.dqcoeff, &d.coefTokenCache)
 				}
-				eob := vp9dec.DecodeCoefsState(rs, txSize, planeType, 1, dequant,
-					initCtx, so, &d.fc.CoefProbs, coefCounts,
-					&d.dqcoeff, &d.coefTokenCache)
 				eobTotal += eob
 				hasResidue := uint8(0)
 				if eob > 0 {
