@@ -281,6 +281,40 @@ func LoopFilterSimpleHorizontal16(s []byte, stride int, blimit byte) bool {
 	return true
 }
 
+// LoopFilterSimpleHorizontal3Inner16 filters the 3 inner 4-row horizontal
+// subblock edges of a 16x16 macroblock (offsets 0, 4*stride, 8*stride from s,
+// where s points at row yOff+2*stride) in one call with shared constants.
+func LoopFilterSimpleHorizontal3Inner16(s []byte, stride int, blimit byte) bool {
+	if stride < 16 || blimit >= 255 || 11*stride+16 > len(s) {
+		return false
+	}
+	blimV := archsimd.BroadcastUint8x16(blimit)
+	bias := archsimd.BroadcastUint8x16(128)
+	c4 := archsimd.BroadcastInt8x16(4)
+	c3 := archsimd.BroadcastInt8x16(3)
+	off := 0
+	for range 3 {
+		e := s[off:]
+		p1 := archsimd.LoadUint8x16Array((*[16]byte)(e[0:16]))
+		p0 := archsimd.LoadUint8x16Array((*[16]byte)(e[stride : stride+16]))
+		q0 := archsimd.LoadUint8x16Array((*[16]byte)(e[2*stride : 2*stride+16]))
+		q1 := archsimd.LoadUint8x16Array((*[16]byte)(e[3*stride : 3*stride+16]))
+		d0, d3 := lfAbsByte(p0, q0), lfAbsByte(p1, q1)
+		need := lfByteLE(d0.AddSaturated(d0).AddSaturated(lfByteHalf(d3)), blimV)
+		bits := need.ToInt8x16().ToBits().ReshapeToUint64s()
+		if bits.GetElem(0)|bits.GetElem(1) != 0 {
+			p1c, p0c, q0c, q1c := p1.Xor(bias).BitsToInt8(), p0.Xor(bias).BitsToInt8(), q0.Xor(bias).BitsToInt8(), q1.Xor(bias).BitsToInt8()
+			f := lfFilterDelta(p1c.SubSaturated(q1c), p0c, q0c).Masked(need)
+			f1 := lfByteShift3(f.AddSaturated(c4))
+			f2 := lfByteShift3(f.AddSaturated(c3))
+			p0c.AddSaturated(f2).ToBits().Xor(bias).StoreArray((*[16]byte)(e[stride : stride+16]))
+			q0c.SubSaturated(f1).ToBits().Xor(bias).StoreArray((*[16]byte)(e[2*stride : 2*stride+16]))
+		}
+		off += 4 * stride
+	}
+	return true
+}
+
 // LoopFilterSimpleVertical16 applies the VP8 simple 16-pixel vertical edge
 // filter directly in byte-domain SIMD. s points at column p1 (2 cols left of edge).
 // Uses direct 4-byte row loads + 4x uint64 transposed stores (4 UMOVs instead

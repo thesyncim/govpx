@@ -53,8 +53,8 @@ Ratio is `govpx / libvpx` core time (`< 1.00×` = govpx faster):
 | VP9 good 720p, 1T (`-cpu-used 4`) | **22.15 ms** (45.1 fps) | 53.17 ms (18.8 fps) | **0.42×** | PSNR +0.55 dB, SSIM +0.0003 |
 | VP9 realtime 720p, 1T (`-cpu-used 8`) | **8.61 ms** (116.1 fps) | 8.95 ms (111.7 fps) | **0.96×** | PSNR −4.32 dB vs libvpx on panning |
 | VP9 realtime 720p, 4T `-row-mt` (`-cpu-used 8`, 4 Mbps) | **4.67 ms** (214.3 fps) | 4.51 ms (221.5 fps) | **1.03×** | PSNR −3.93 dB, zero-spin workers |
-| VP8 decode 720p, 1T (120 frames) | **1.65 ms** (605.6 fps) | 1.22 ms (819.6 fps) | **1.35×** | p50 1.51 ms, 0.00 allocs/frame |
-| VP9 decode 720p, 1T (120 frames) | **0.85 ms** (1,178.4 fps) | 0.62 ms (1,600.5 fps) | **1.36×** | p50 0.81 ms, 0.00 allocs/frame |
+| VP8 decode 720p, 1T (120 frames) | **1.20 ms** (832.7 fps) | 0.96 ms (1,046.2 fps) | **1.25×** | p50 1.19 ms, 0.00 allocs/frame |
+| VP9 decode 720p, 1T (120 frames) | **0.82 ms** (1,214.6 fps) | 0.65 ms (1,533.4 fps) | **1.26×** | p50 0.76 ms, 0.00 allocs/frame |
 
 Performance depends on CPU, content, resolution, bitrate, and mode — reproduce
 on synthetic patterns or your own `.y4m` / `.ivf` files with `cmd/govpx-bench`

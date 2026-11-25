@@ -545,41 +545,35 @@ fastLoop:
 					value, count, pos = bitstream.FillFast(buf, pos, value, count)
 				}
 				bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
-				if bit != 0 {
-					v = -v
-				}
-				dqcoeff[int(scan[c])&1023] = int16(v)
+				sign := -int(bit)
+				dqcoeff[int(scan[c])&1023] = int16((v ^ sign) - sign)
 			} else {
+				idx := int(scan[c]) & 1023
 				bit, value, rng, count = vpxReadNoFill(uint32(p[1]), value,
 					rng, count)
 				if bit != 0 {
-					tokenCache[int(scan[c])&1023] = 3
+					tokenCache[idx] = 3
 					bit, value, rng, count = vpxReadNoFill(uint32(p[2]),
 						value, rng, count)
 					v := ((3 + int(bit)) * int(dqv)) >> dqShift
 					bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
-					if bit != 0 {
-						v = -v
-					}
-					dqcoeff[int(scan[c])&1023] = int16(v)
+					sign := -int(bit)
+					dqcoeff[idx] = int16((v ^ sign) - sign)
 				} else {
-					tokenCache[int(scan[c])&1023] = 2
+					tokenCache[idx] = 2
 					v := (2 * int(dqv)) >> dqShift
 					bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
-					if bit != 0 {
-						v = -v
-					}
-					dqcoeff[int(scan[c])&1023] = int16(v)
+					sign := -int(bit)
+					dqcoeff[idx] = int16((v ^ sign) - sign)
 				}
 			}
 		} else {
-			tokenCache[int(scan[c])&1023] = 1
+			idx := int(scan[c]) & 1023
+			tokenCache[idx] = 1
 			v := int(dqv) >> dqShift
 			bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
-			if bit != 0 {
-				v = -v
-			}
-			dqcoeff[int(scan[c])&1023] = int16(v)
+			sign := -int(bit)
+			dqcoeff[idx] = int16((v ^ sign) - sign)
 		}
 
 		c++

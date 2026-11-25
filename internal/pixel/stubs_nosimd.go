@@ -82,6 +82,7 @@ func LoopFilterMacroInternal16(p []byte, step, outer, mblimit, blimit, limit, th
 
 func LoopFilter(_ []byte, _ int, _ int, _ int, _ int, _ int, _ int, _ int, _ int) bool { return false }
 func LoopFilterSimpleHorizontal16(_ []byte, _ int, _ byte) bool                        { return false }
+func LoopFilterSimpleHorizontal3Inner16(_ []byte, _ int, _ byte) bool                  { return false }
 func LoopFilterSimpleVertical16(_ []byte, _ int, _ byte) bool                          { return false }
 func LoopFilterUV8(_, _ []byte, _, _, _, _, _, _ int) bool                             { return false }
 

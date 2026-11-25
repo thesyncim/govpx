@@ -522,9 +522,11 @@ func applySimpleLoopFilterMB(img *common.Image, row int, col int, yOff int, mode
 		dsp.LoopFilterSimpleHorizontalEdge(img.Y[yOff-2*img.YStride:], img.YStride, mblim)
 	}
 	if !skipLF {
-		dsp.LoopFilterSimpleHorizontalEdge(img.Y[yOff+2*img.YStride:], img.YStride, blim)
-		dsp.LoopFilterSimpleHorizontalEdge(img.Y[yOff+6*img.YStride:], img.YStride, blim)
-		dsp.LoopFilterSimpleHorizontalEdge(img.Y[yOff+10*img.YStride:], img.YStride, blim)
+		if !pixel.LoopFilterSimpleHorizontal3Inner16(img.Y[yOff+2*img.YStride:], img.YStride, blim) {
+			dsp.LoopFilterSimpleHorizontalEdge(img.Y[yOff+2*img.YStride:], img.YStride, blim)
+			dsp.LoopFilterSimpleHorizontalEdge(img.Y[yOff+6*img.YStride:], img.YStride, blim)
+			dsp.LoopFilterSimpleHorizontalEdge(img.Y[yOff+10*img.YStride:], img.YStride, blim)
+		}
 	}
 }
 
