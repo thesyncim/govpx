@@ -122,8 +122,25 @@ func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0
 				}
 				return true
 			}
-			for y := range h {
-				so, do := y*ss, y*ds
+			if w == 16 {
+				so, do := 0, 0
+				y := 0
+				for ; y+1 < h; y += 2 {
+					r0 := src[so : so+17]
+					r1 := src[so+ss : so+ss+17]
+					archsimd.LoadUint8x16Array((*[16]byte)(r0[0:16])).Average(archsimd.LoadUint8x16Array((*[16]byte)(r0[1:17]))).StoreArray((*[16]byte)(dst[do : do+16]))
+					archsimd.LoadUint8x16Array((*[16]byte)(r1[0:16])).Average(archsimd.LoadUint8x16Array((*[16]byte)(r1[1:17]))).StoreArray((*[16]byte)(dst[do+ds : do+ds+16]))
+					so += 2 * ss
+					do += 2 * ds
+				}
+				if y < h {
+					row := src[so : so+17]
+					archsimd.LoadUint8x16Array((*[16]byte)(row[0:16])).Average(archsimd.LoadUint8x16Array((*[16]byte)(row[1:17]))).StoreArray((*[16]byte)(dst[do : do+16]))
+				}
+				return true
+			}
+			so, do := 0, 0
+			for range h {
 				x := 0
 				for ; x+16 <= w; x += 16 {
 					row := src[so+x : so+x+17]
@@ -133,6 +150,8 @@ func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0
 					a, b := load8(src[so+x:]), load8(src[so+x+1:])
 					storeBytes8(dst[do+x:], a.Average(b))
 				}
+				so += ss
+				do += ds
 			}
 			return true
 		}
@@ -187,6 +206,25 @@ func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0
 			if y < h {
 				a, b := load8(src[so-ss:]), load8(src[so:])
 				storeBytes8(dst[do:], a.Average(b))
+			}
+			return true
+		}
+		if w == 16 {
+			a := archsimd.LoadUint8x16Array((*[16]byte)(src[0:16]))
+			so, do := ss, 0
+			y := 0
+			for ; y+1 < h; y += 2 {
+				b := archsimd.LoadUint8x16Array((*[16]byte)(src[so : so+16]))
+				c := archsimd.LoadUint8x16Array((*[16]byte)(src[so+ss : so+ss+16]))
+				a.Average(b).StoreArray((*[16]byte)(dst[do : do+16]))
+				b.Average(c).StoreArray((*[16]byte)(dst[do+ds : do+ds+16]))
+				a = c
+				so += 2 * ss
+				do += 2 * ds
+			}
+			if y < h {
+				b := archsimd.LoadUint8x16Array((*[16]byte)(src[so : so+16]))
+				a.Average(b).StoreArray((*[16]byte)(dst[do : do+16]))
 			}
 			return true
 		}
@@ -281,8 +319,21 @@ func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0
 			}
 			return true
 		}
-		for y := range h {
-			so, do := y*ss, y*ds
+		if w == 16 {
+			so, do := 0, 0
+			for range h {
+				row := src[so : so+17]
+				a, b := archsimd.LoadUint8x16Array((*[16]byte)(row[0:16])), archsimd.LoadUint8x16Array((*[16]byte)(row[1:17]))
+				lo := a.MulWidenLo(c0).Add(b.MulWidenLo(c1)).Add(bias).ShiftAllRight(7)
+				hi := a.HiToLo().MulWidenLo(c0).Add(b.HiToLo().MulWidenLo(c1)).Add(bias).ShiftAllRight(7)
+				lo.ReshapeToUint8s().ConcatEven(hi.ReshapeToUint8s()).StoreArray((*[16]byte)(dst[do : do+16]))
+				so += ss
+				do += ds
+			}
+			return true
+		}
+		so, do := 0, 0
+		for range h {
 			x := 0
 			for ; x+16 <= w; x += 16 {
 				row := src[so+x : so+x+17]
@@ -296,6 +347,8 @@ func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0
 				lo := a.MulWidenLo(c0).Add(b.MulWidenLo(c1)).Add(bias).ShiftAllRight(7)
 				storeBytes8(dst[do+x:], lo.TruncToUint8())
 			}
+			so += ss
+			do += ds
 		}
 		return true
 	}
@@ -358,16 +411,34 @@ func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0
 		}
 		return true
 	}
+	if w == 16 {
+		a := archsimd.LoadUint8x16Array((*[16]byte)(src[0:16]))
+		ah := a.HiToLo()
+		so, do := ss, 0
+		for range h {
+			b := archsimd.LoadUint8x16Array((*[16]byte)(src[so : so+16]))
+			bh := b.HiToLo()
+			lo := a.MulWidenLo(c0).Add(b.MulWidenLo(c1)).Add(bias).ShiftAllRight(7)
+			hi := ah.MulWidenLo(c0).Add(bh.MulWidenLo(c1)).Add(bias).ShiftAllRight(7)
+			lo.ReshapeToUint8s().ConcatEven(hi.ReshapeToUint8s()).StoreArray((*[16]byte)(dst[do : do+16]))
+			a, ah = b, bh
+			so += ss
+			do += ds
+		}
+		return true
+	}
 	for x := 0; x < w; {
 		if x+16 <= w {
 			a := archsimd.LoadUint8x16Array((*[16]byte)(src[x : x+16]))
+			ah := a.HiToLo()
 			so, do := ss+x, x
 			for range h {
 				b := archsimd.LoadUint8x16Array((*[16]byte)(src[so : so+16]))
+				bh := b.HiToLo()
 				lo := a.MulWidenLo(c0).Add(b.MulWidenLo(c1)).Add(bias).ShiftAllRight(7)
-				hi := a.HiToLo().MulWidenLo(c0).Add(b.HiToLo().MulWidenLo(c1)).Add(bias).ShiftAllRight(7)
+				hi := ah.MulWidenLo(c0).Add(bh.MulWidenLo(c1)).Add(bias).ShiftAllRight(7)
 				lo.ReshapeToUint8s().ConcatEven(hi.ReshapeToUint8s()).StoreArray((*[16]byte)(dst[do : do+16]))
-				a = b
+				a, ah = b, bh
 				so += ss
 				do += ds
 			}

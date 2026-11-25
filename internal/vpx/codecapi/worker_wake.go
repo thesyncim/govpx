@@ -1,15 +1,14 @@
 package codecapi
 
 import (
-	"runtime"
 	"sync/atomic"
 )
 
 const EncoderCacheLineSize = 64
 
 const (
-	RowWorkerIdleSpinBudget       = 65536
-	VP9WorkerIdleSpinBudget       = 16384
+	RowWorkerIdleSpinBudget       = 2048
+	VP9WorkerIdleSpinBudget       = 2048
 	RowWorkerIdleSchedulerBackoff = 4096
 	WorkerWakeShutdownEpoch       = ^uint64(0)
 )
@@ -95,7 +94,8 @@ func (s *WorkerWakeSlot) Wait(seenEpoch uint64, spinBudget int) (uint64, bool) {
 		return WorkerWakeShutdownEpoch, false
 	}
 	seenMasked := seenEpoch & workerWakeEpochMask
-	for spins := range spinBudget {
+	fastSpins := min(spinBudget, 4096)
+	for range fastSpins {
 		cur := s.word.Load()
 		st := unpackWakeState(cur)
 		if st == workerWakeClosed || st == workerWakeUninitialized {
@@ -104,10 +104,7 @@ func (s *WorkerWakeSlot) Wait(seenEpoch uint64, spinBudget int) (uint64, bool) {
 		if ep := unpackWakeEpoch(cur); ep != seenMasked {
 			return ep, true
 		}
-		RuntimeProcYield(30)
-		if spins >= RowWorkerIdleSchedulerBackoff && spins%RowWorkerIdleSchedulerBackoff == 0 {
-			runtime.Gosched()
-		}
+		RuntimeProcYield(10)
 	}
 	for {
 		cur := s.word.Load()

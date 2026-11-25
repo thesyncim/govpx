@@ -14,6 +14,42 @@ func CopyBlock(src []byte, ss int, dst []byte, ds, w, h int) {
 	}
 }
 
+func ExtendPlaneBorder(full []byte, origin, stride, width, height, borderX, borderY int) bool {
+	if len(full) == 0 || stride <= 0 || width <= 0 || height <= 0 || borderX <= 0 || borderY <= 0 {
+		return false
+	}
+	if origin < borderY*stride+borderX || origin+(height-1+borderY)*stride+width+borderX > len(full) {
+		return false
+	}
+	rowStart := origin
+	for range height {
+		leftFill := full[rowStart]
+		leftDst := full[rowStart-borderX : rowStart]
+		for i := range leftDst {
+			leftDst[i] = leftFill
+		}
+		rightFill := full[rowStart+width-1]
+		rightDst := full[rowStart+width : rowStart+width+borderX]
+		for i := range rightDst {
+			rightDst[i] = rightFill
+		}
+		rowStart += stride
+	}
+	span := width + 2*borderX
+	topSrc := full[origin-borderX : origin-borderX+span]
+	for y := 1; y <= borderY; y++ {
+		dstStart := origin - y*stride - borderX
+		copy(full[dstStart:dstStart+span], topSrc)
+	}
+	botOrigin := origin + (height-1)*stride
+	botSrc := full[botOrigin-borderX : botOrigin-borderX+span]
+	for y := 1; y <= borderY; y++ {
+		dstStart := botOrigin + y*stride - borderX
+		copy(full[dstStart:dstStart+span], botSrc)
+	}
+	return true
+}
+
 // DCPairNative is false outside the native SIMD selection; public DSP retains
 // its original libvpx v1.16.0 idctllm.c dispatch and scalar fallback.
 const DCPairNative = false

@@ -45,16 +45,16 @@ Ratio is `govpx / libvpx` core time (`< 1.00×` = govpx faster):
 
 | Workload | govpx | libvpx (C + asm) | Ratio (core) | Notes |
 | --- | ---: | ---: | ---: | --- |
-| **Standard suite geomean** (`-suite standard -suite-runs 3`) | — | — | **0.86×** | 1.16× encode fps, 0/0 drops |
-| — VP8 realtime 720p, 1T (`rt-720p-2m-60f`) | **7.27 ms** (137.5 fps) | 6.57 ms (152.2 fps) | **1.11×** | PSNR −0.13 dB, SSIM −0.0036 |
-| — VP8 good 1080p, 1T (`good-1080p-8m-60f`) | **8.18 ms** (122.2 fps) | 12.20 ms (82.0 fps) | **0.67×** | 0.58× rate, PSNR +1.91 dB |
+| **Standard suite geomean** (`-suite standard -suite-runs 3`) | — | — | **0.84×** | 1.20× encode fps, 0/0 drops |
+| — VP8 realtime 720p, 1T (`rt-720p-2m-60f`) | **7.19 ms** (139.0 fps) | 6.88 ms (145.4 fps) | **1.05×** | PSNR −0.13 dB, SSIM −0.0036 |
+| — VP8 good 1080p, 1T (`good-1080p-8m-60f`) | **11.50 ms** (87.0 fps) | 17.19 ms (58.2 fps) | **0.67×** | 0.58× rate, PSNR +1.91 dB |
 | VP8 realtime 720p, 4T (`-cpu-used -8`) | **1.77 ms** (564.6 fps) | 2.06 ms (485.2 fps) | **0.86×** | PSNR +0.24 dB, 0.07 allocs/frame |
-| VP8 realtime 720p, 1T (`-cpu-used -8`, denoise off) | **3.80 ms** (263.2 fps) | 3.82 ms (262.1 fps) | **1.00×** | PSNR +1.44 dB, 0.91× bytes |
-| VP9 good 720p, 1T (`-cpu-used 4`) | **15.66 ms** (63.8 fps) | 34.41 ms (29.1 fps) | **0.46×** | PSNR −0.28 dB, SSIM −0.0001 |
-| VP9 realtime 720p, 1T (`-cpu-used 8`) | **6.98 ms** (143.2 fps) | 7.02 ms (142.4 fps) | **0.99×** | PSNR −4.32 dB vs libvpx on panning |
-| VP9 realtime 720p, 4T `-row-mt` (`-cpu-used 8`, 4 Mbps) | **2.84 ms** (351.7 fps) | 2.46 ms (406.9 fps) | **1.16×** | PSNR −3.93 dB, 0.53 allocs/frame |
-| VP8 decode 720p, 1T (120 frames) | **1.80 ms** (556.6 fps) | 1.40 ms (715.6 fps) | **1.29×** | p50 1.82 ms, 0.00 allocs/frame |
-| VP9 decode 720p, 1T (120 frames) | **1.19 ms** (842.4 fps) | 0.84 ms (1,195.4 fps) | **1.42×** | p50 1.18 ms, 0.00 allocs/frame |
+| VP8 realtime 720p, 1T (`-cpu-used -8`, denoise off) | **5.20 ms** (192.4 fps) | 5.39 ms (185.5 fps) | **0.96×** | PSNR +1.44 dB, 0.91× bytes |
+| VP9 good 720p, 1T (`-cpu-used 4`) | **22.15 ms** (45.1 fps) | 53.17 ms (18.8 fps) | **0.42×** | PSNR +0.55 dB, SSIM +0.0003 |
+| VP9 realtime 720p, 1T (`-cpu-used 8`) | **8.61 ms** (116.1 fps) | 8.95 ms (111.7 fps) | **0.96×** | PSNR −4.32 dB vs libvpx on panning |
+| VP9 realtime 720p, 4T `-row-mt` (`-cpu-used 8`, 4 Mbps) | **4.67 ms** (214.3 fps) | 4.51 ms (221.5 fps) | **1.03×** | PSNR −3.93 dB, zero-spin workers |
+| VP8 decode 720p, 1T (120 frames) | **1.65 ms** (605.6 fps) | 1.22 ms (819.6 fps) | **1.35×** | p50 1.51 ms, 0.00 allocs/frame |
+| VP9 decode 720p, 1T (120 frames) | **0.85 ms** (1,178.4 fps) | 0.62 ms (1,600.5 fps) | **1.36×** | p50 0.81 ms, 0.00 allocs/frame |
 
 Performance depends on CPU, content, resolution, bitrate, and mode — reproduce
 on synthetic patterns or your own `.y4m` / `.ivf` files with `cmd/govpx-bench`
