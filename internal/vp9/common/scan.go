@@ -18,9 +18,38 @@ const MaxNeighbors = 2
 // internal/vp9/tables storage; ScanOrder values themselves carry no
 // allocation cost at use time.
 type ScanOrder struct {
-	Scan      []int16
-	IScan     []int16
-	Neighbors []int16
+	Scan             []int16
+	IScan            []int16
+	Neighbors        []int16
+	ScanArr          *[1024]int16
+	NeighborsArr     *[2048]int16
+	ScanNeighborsArr *[2048]int16
+}
+
+func init() {
+	initScanOrder := func(so *ScanOrder) {
+		var sa [1024]int16
+		var na [2048]int16
+		var sna [2048]int16
+		copy(sa[:], so.Scan)
+		copy(na[:], so.Neighbors)
+		for k, nb := range so.Neighbors {
+			if k < len(sna) && int(nb) >= 0 && int(nb) < len(so.IScan) {
+				sna[k] = so.IScan[nb] - 1
+			}
+		}
+		so.ScanArr = &sa
+		so.NeighborsArr = &na
+		so.ScanNeighborsArr = &sna
+	}
+	for i := range DefaultScanOrders {
+		initScanOrder(&DefaultScanOrders[i])
+	}
+	for i := range ScanOrders {
+		for j := range ScanOrders[i] {
+			initScanOrder(&ScanOrders[i][j])
+		}
+	}
 }
 
 // DefaultScanOrders is libvpx's vp9_default_scan_orders, indexed by

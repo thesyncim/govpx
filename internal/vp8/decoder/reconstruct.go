@@ -222,17 +222,27 @@ func dequantIDCTAddMacroblock(tokens *MacroblockTokens, dequant *common.Macroblo
 // the same promotion ConvertMacroblockCoefficients applied when it staged
 // tokens (max(eob, 1) on the 16 luma blocks).
 func dequantIDCTAddMacroblockRaw(qcoeff *[25][16]int16, eob *[25]uint8, lumaEOBFloor uint8, dequant *common.MacroblockDequant, is4x4 bool, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int) {
-	if !is4x4 && eob[24] == 1 {
+	if !is4x4 && eob[24] > 0 {
 		e0 := binary.LittleEndian.Uint64(eob[0:8])
 		e1 := binary.LittleEndian.Uint64(eob[8:16])
 		if (e0|e1)&0xFEFEFEFEFEFEFEFE == 0 {
-			dc := (qcoeff[24][0]*dequant.Y2[0] + 3) >> 3
-			delta := (int(int32(dc)*int32(dequant.Y1DC[0])) + 4) >> 3
-			if delta != 0 {
-				pixel.AddConstant16x16InPlace(y, yStride, delta)
+			if eob[24] == 1 {
+				dc := (qcoeff[24][0]*dequant.Y2[0] + 3) >> 3
+				delta := (int(int32(dc)*int32(dequant.Y1DC[0])) + 4) >> 3
+				if delta != 0 {
+					pixel.AddConstant16x16InPlace(y, yStride, delta)
+				}
+				dequantIDCTAddChromaBlocks(qcoeff, eob, &dequant.UV, u, uStride, v, vStride)
+				return
 			}
-			dequantIDCTAddChromaBlocks(qcoeff, eob, &dequant.UV, u, uStride, v, vStride)
-			return
+			if dequant.Y1DC[0] == 1 {
+				var y2, dcs [16]int16
+				dsp.DequantizeBlockDisjoint(&qcoeff[24], &dequant.Y2, &y2)
+				dsp.InverseWalsh4x4To16(&y2, &dcs)
+				pixel.AddLumaDC16x16InPlace(y, yStride, &dcs)
+				dequantIDCTAddChromaBlocks(qcoeff, eob, &dequant.UV, u, uStride, v, vStride)
+				return
+			}
 		}
 	}
 	yDequant := &dequant.Y1

@@ -262,29 +262,28 @@ func decodeInterMacroblockAt(br *boolcoder.Decoder, mbRow int, mbCol int, mbRows
 }
 
 func ReadInterReferenceFrame(br *boolcoder.Decoder, modeHeader ModeHeader) common.MVReferenceFrame {
-	if br.ReadBool(modeHeader.ProbIntra) == 0 {
-		return common.IntraFrame
-	}
-	if br.ReadBool(modeHeader.ProbLast) != 0 {
-		return common.MVReferenceFrame(2 + br.ReadBool(modeHeader.ProbGolden))
-	}
-	return common.LastFrame
+	return common.MVReferenceFrame(br.ReadVP8InterRefFrame(
+		modeHeader.ProbIntra, modeHeader.ProbLast, modeHeader.ProbGolden))
 }
 
 func ReadInterPredictionMode(br *boolcoder.Decoder, counts InterModeCounts) common.MBPredictionMode {
-	if br.ReadBool(tables.InterModeContexts[counts.Intra][0]) == 0 {
+	switch br.ReadVP8InterMode(
+		tables.InterModeContexts[counts.Intra][0],
+		tables.InterModeContexts[counts.Nearest][1],
+		tables.InterModeContexts[counts.Near][2],
+		tables.InterModeContexts[counts.Split][3],
+	) {
+	case 0:
 		return common.ZeroMV
-	}
-	if br.ReadBool(tables.InterModeContexts[counts.Nearest][1]) == 0 {
+	case 1:
 		return common.NearestMV
-	}
-	if br.ReadBool(tables.InterModeContexts[counts.Near][2]) == 0 {
+	case 2:
 		return common.NearMV
-	}
-	if br.ReadBool(tables.InterModeContexts[counts.Split][3]) != 0 {
+	case 4:
 		return common.SplitMV
+	default:
+		return common.NewMV
 	}
-	return common.NewMV
 }
 
 func decodeKeyFrameMacroblockMode(br *boolcoder.Decoder, above *MacroblockMode, left *MacroblockMode, out *MacroblockMode) {

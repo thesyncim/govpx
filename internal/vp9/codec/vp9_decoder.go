@@ -296,6 +296,7 @@ type VP9Decoder struct {
 	dq              vp9dec.DequantTables
 	dqcoeff         [1024]int16
 	coefTokenCache  [1024]uint8
+	coefProbsPacked vp9dec.PackedFrameCoefProbs
 	intraScratch    vp9dec.IntraPredictorScratch
 	convolveScratch dsp.Convolve8Scratch
 	counts          vp9dec.FrameCounts
@@ -1046,6 +1047,7 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 			return err
 		}
 		d.prepareVP9CurrentFrameMvs(&hdr)
+		vp9dec.PackFrameCoefProbs(&d.coefProbsPacked, &d.fc.CoefProbs)
 		if err := d.parseVP9InterModeTiles(packet[compEnd:], &hdr, compHeader); err != nil {
 			return err
 		}
@@ -1483,7 +1485,11 @@ func (d *VP9Decoder) prepareVP9CurrentFrameMvs(hdr *vp9dec.UncompressedHeader) {
 	miRows := int((hdr.Height + 7) >> 3)
 	miCols := int((hdr.Width + 7) >> 3)
 	need := miRows * miCols
-	d.curFrameMvs = buffers.EnsureLenZeroed(d.curFrameMvs, need)
+	if d.opts.DecodeTileRowSet || d.opts.DecodeTileColSet {
+		d.curFrameMvs = buffers.EnsureLenZeroed(d.curFrameMvs, need)
+	} else {
+		d.curFrameMvs = buffers.EnsureLen(d.curFrameMvs, need)
+	}
 	d.usePrevFrameMvs = d.lastHeaderValid &&
 		!hdr.ErrorResilientMode &&
 		hdr.Width == d.lastHeader.Width &&

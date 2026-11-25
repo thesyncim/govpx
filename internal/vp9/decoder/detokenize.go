@@ -156,46 +156,34 @@ func readCoeffBits(r *bitstream.ReaderState, probs []uint8, n int,
 	return val, value, rng, count
 }
 
-// vpxReadNoFill is the arithmetic body of vpx_read (vpx_dsp/bitreader.h)
-// after the vpx_reader_fill step. Callers perform libvpx's
-// `if (r->count < 0) vpx_reader_fill(r)` check first; splitting the rare
-// refill out keeps this body within the Go inliner budget so per-token
-// reads stay call-free, matching libvpx's static INLINE vpx_read.
+// vpxReadNoFill is the 100% branchless arithmetic body of vpx_read
+// (vpx_dsp/bitreader.h) after the refill check. Using arithmetic masking avoids
+// the multi-assignment `if` that causes Go's arm64 backend to emit a
+// conditional branch (and suffer ~14-cycle mispredicts on 50/50 coefficient
+// bits), while LeadingZeros8 keeps the AST cost well below Go's 80-node
+// inliner budget so every call site inlines unconditionally.
 func vpxReadNoFill(prob uint32,
 	value uint64, rng uint32, count int32,
 ) (uint32, uint64, uint32, int32) {
-	split := (rng*prob + (256 - prob)) >> 8
-	bigsplit := uint64(split) << (64 - 8)
-	nextRange := split
-	var bit uint32
-	if value >= bigsplit {
-		nextRange = rng - split
-		value -= bigsplit
-		bit = 1
-	}
-
-	shift := uint32(bits.LeadingZeros8(uint8(nextRange)))
-	return bit, value << shift, nextRange << shift, count - int32(shift)
+	s := 1 + (((rng - 1) * prob) >> 8)
+	m := ^uint32(int32(uint32(value>>56)-s) >> 31)
+	nr := s ^ (((rng - s) ^ s) & m)
+	sh := uint32(bits.LeadingZeros8(uint8(nr)))
+	return m & 1, (value - uint64(s&m)<<56) << sh, nr << sh, count - int32(sh)
 }
 
-// vpxReadBitNoFill is vpxReadNoFill at prob=128 — one equally-likely
+// vpxReadBitNoFill is branchless vpxReadNoFill at prob=128 — one equally-likely
 // bit, mirroring vpx_read_bit. The caller performs the fill check.
 func vpxReadBitNoFill(
 	value uint64, rng uint32, count int32,
 ) (uint32, uint64, uint32, int32) {
-	split := (rng + 1) >> 1
-	bigsplit := uint64(split) << (64 - 8)
-	nextRange := split
-	var bit uint32
-	if value >= bigsplit {
-		nextRange = rng - split
-		value -= bigsplit
-		bit = 1
-	}
-
-	// nextRange is always in [64, 128]; shift is 0 iff nextRange == 128, else 1.
-	shift := uint32(1) - (nextRange >> 7)
-	return bit, value << shift, nextRange << shift, count - int32(shift)
+	r64 := uint64(rng)
+	split := (r64 + 1) >> 1
+	mask := ^uint64(int64((value>>56)-split) >> 63)
+	value -= (split << 56) & mask
+	nextRange := split ^ ((split ^ (r64 - split)) & mask)
+	shift := uint64(1) - (nextRange >> 7)
+	return uint32(mask & 1), value << shift, uint32(nextRange << shift), count - int32(shift)
 }
 
 // getCoefContext mirrors get_coef_context from vp9_scan.h. Looks up
@@ -355,6 +343,300 @@ func DecodeCoefsStateAfterEOB(
 		dequant, ctx, so.Scan, so.Neighbors, fc, dqcoeff, tokenCache, true)
 }
 
+// PackedFrameCoefProbs packs each [band][ctx][3]uint8 probability triple into a
+// single uint32 (p0 | p1<<8 | p2<<16) in a power-of-2 [64]uint32 table indexed
+// by (band<<3)|ctx. This replaces two bounds checks, two address multiplies
+// (*18 and *3), and three byte loads with a single unchecked 32-bit load per
+// coefficient.
+type PackedFrameCoefProbs [common.TxSizes][CoefPlaneTypes][CoefRefTypes][64]uint32
+
+// PackFrameCoefProbs packs fc into dst once per frame before tile decoding.
+func PackFrameCoefProbs(dst *PackedFrameCoefProbs, fc *FrameCoefProbs) {
+	for tx := range common.TxSizes {
+		for pt := range CoefPlaneTypes {
+			for rt := range CoefRefTypes {
+				for band := range CoefBands {
+					row := band << 3
+					for ctx := range CoefContexts {
+						p := &fc[tx][pt][rt][band][ctx]
+						dst[tx][pt][rt][row|ctx] = uint32(p[0]) | uint32(p[1])<<8 | uint32(p[2])<<16
+					}
+				}
+			}
+		}
+	}
+}
+
+// FastCoefPlaneCtx holds per-plane read-only decode state hoisted outside the
+// per-transform-block loop in readVP9InterResiduePlane.
+type FastCoefPlaneCtx struct {
+	R                *bitstream.ReaderState
+	TxSize           common.TxSize
+	PlaneType        int
+	IsInter          int
+	Dequant          [2]int16
+	Scan             []int16
+	Neighbors        []int16
+	ScanArr          *[1024]int16
+	ScanNeighborsArr *[2048]int16
+	FC               *FrameCoefProbs
+	PackedModel      *[64]uint32
+	DQCoeff          *[1024]int16
+	TokenCache       *[1024]uint8
+}
+
+// DecodeCoefsFastPlaneAfterEOB decodes a counts-less transform block whose
+// initial c==0 EOB bit was already consumed as 1, using pre-hoisted plane
+// context, power-of-2 packed uint32 probabilities, and scan-order tokenCache.
+func DecodeCoefsFastPlaneAfterEOB(
+	a *FastCoefPlaneCtx,
+	buf []byte, pos int,
+	value uint64, rng uint32, count int32,
+	ctx int,
+) (int, int, uint64, uint32, int32) {
+	txSize := a.TxSize
+	maxEob := maxEobForTxSize(txSize)
+	bt := bandTranslatePadded(txSize)
+	dqShift := uint(0)
+	if txSize == common.Tx32x32 {
+		dqShift = 1
+	}
+	dqv := a.Dequant[0]
+	dqvAC := a.Dequant[1]
+	dq1 := int(dqv) >> dqShift
+	dq1AC := int(dqvAC) >> dqShift
+
+	model := a.PackedModel
+	scanArr := a.ScanArr
+	snArr := a.ScanNeighborsArr
+	dqcoeff := a.DQCoeff
+	scanCache := a.TokenCache
+	fastLimit := len(buf) - coefFastMargin
+
+	c := 0
+	slowResume := false
+	slowSkipEob := false
+	var p32, bit uint32
+	if pos > fastLimit {
+		slowResume = true
+		slowSkipEob = true
+		goto doneFast
+	}
+	p32 = model[(int(bt[0])<<3|ctx)&63]
+	if count < 24 {
+		value, count, pos = bitstream.FillFast(buf, pos, value, count)
+	}
+
+fastLoop:
+	for {
+		bit, value, rng, count = vpxReadNoFill((p32>>8)&0xFF, value, rng, count)
+		if bit == 0 {
+			dqv = dqvAC
+			dq1 = dq1AC
+			for {
+				scanCache[c&1023] = 0
+				c++
+				if c >= maxEob {
+					break fastLoop
+				}
+				c2 := (c << 1) & 2046
+				ctx = (1 + int(scanCache[int(snArr[c2])&1023]) + int(scanCache[int(snArr[c2+1])&1023])) >> 1
+				p32 = model[(int(bt[c&1023])<<3|ctx)&63]
+				if count < 16 {
+					if pos > fastLimit {
+						slowResume = true
+						slowSkipEob = true
+						break fastLoop
+					}
+					value, count, pos = bitstream.FillFast(buf, pos, value, count)
+				}
+				bit, value, rng, count = vpxReadNoFill((p32>>8)&0xFF, value, rng, count)
+				if bit != 0 {
+					break
+				}
+			}
+		}
+
+		bit, value, rng, count = vpxReadNoFill((p32>>16)&0xFF, value, rng, count)
+		if bit != 0 {
+			var val int
+			p := &tables.Pareto8Full[((p32>>16)&0xFF)-1]
+			if count < 32 {
+				value, count, pos = bitstream.FillFast(buf, pos, value, count)
+			}
+			bit, value, rng, count = vpxReadNoFill(uint32(p[0]), value, rng, count)
+			if bit != 0 {
+				bit, value, rng, count = vpxReadNoFill(uint32(p[3]), value, rng, count)
+				if bit != 0 {
+					scanCache[c&1023] = 5
+					if count < 32 {
+						value, count, pos = bitstream.FillFast(buf, pos, value, count)
+					}
+					bit, value, rng, count = vpxReadNoFill(uint32(p[5]), value, rng, count)
+					if bit != 0 {
+						bit, value, rng, count = vpxReadNoFill(uint32(p[7]), value, rng, count)
+						if bit != 0 {
+							val = cat6MinVal
+							for i := range cat6Bits8 {
+								if count < 0 {
+									value, count, pos = bitstream.FillFast(buf, pos, value, count)
+								}
+								bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat6Prob[i]), value, rng, count)
+								val += val - cat6MinVal + int(bit)
+							}
+						} else {
+							val = cat5MinVal
+							for i := range 5 {
+								if count < 0 {
+									value, count, pos = bitstream.FillFast(buf, pos, value, count)
+								}
+								bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat5Prob[i]), value, rng, count)
+								val += val - cat5MinVal + int(bit)
+							}
+						}
+					} else {
+						bit, value, rng, count = vpxReadNoFill(uint32(p[6]), value, rng, count)
+						if bit != 0 {
+							val = cat4MinVal
+							for i := range 4 {
+								if count < 0 {
+									value, count, pos = bitstream.FillFast(buf, pos, value, count)
+								}
+								bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat4Prob[i]), value, rng, count)
+								val += val - cat4MinVal + int(bit)
+							}
+						} else {
+							val = cat3MinVal
+							for i := range 3 {
+								if count < 0 {
+									value, count, pos = bitstream.FillFast(buf, pos, value, count)
+								}
+								bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat3Prob[i]), value, rng, count)
+								val += val - cat3MinVal + int(bit)
+							}
+						}
+					}
+				} else {
+					scanCache[c&1023] = 4
+					bit, value, rng, count = vpxReadNoFill(uint32(p[4]), value, rng, count)
+					if bit != 0 {
+						val = cat2MinVal
+						for i := range 2 {
+							if count < 0 {
+								value, count, pos = bitstream.FillFast(buf, pos, value, count)
+							}
+							bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat2Prob[i]), value, rng, count)
+							val += val - cat2MinVal + int(bit)
+						}
+					} else {
+						if count < 0 {
+							value, count, pos = bitstream.FillFast(buf, pos, value, count)
+						}
+						bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat1Prob[0]), value, rng, count)
+						val = cat1MinVal + int(bit)
+					}
+				}
+				v := (val * int(dqv)) >> dqShift
+				if count < 0 {
+					value, count, pos = bitstream.FillFast(buf, pos, value, count)
+				}
+				bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
+				sign := -int(bit)
+				dqcoeff[int(scanArr[c&1023])&1023] = int16((v ^ sign) - sign)
+			} else {
+				idx := int(scanArr[c&1023]) & 1023
+				bit, value, rng, count = vpxReadNoFill(uint32(p[1]), value, rng, count)
+				if bit != 0 {
+					scanCache[c&1023] = 3
+					bit, value, rng, count = vpxReadNoFill(uint32(p[2]), value, rng, count)
+					v := ((3 + int(bit)) * int(dqv)) >> dqShift
+					bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
+					sign := -int(bit)
+					dqcoeff[idx] = int16((v ^ sign) - sign)
+				} else {
+					scanCache[c&1023] = 2
+					v := (2 * int(dqv)) >> dqShift
+					bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
+					sign := -int(bit)
+					dqcoeff[idx] = int16((v ^ sign) - sign)
+				}
+			}
+		} else {
+			scanCache[c&1023] = 1
+			bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
+			sign := -int(bit)
+			dqcoeff[int(scanArr[c&1023])&1023] = int16((dq1 ^ sign) - sign)
+		}
+
+		c++
+		if c >= maxEob {
+			break
+		}
+		c2 := (c << 1) & 2046
+		ctx = (1 + int(scanCache[int(snArr[c2])&1023]) + int(scanCache[int(snArr[c2+1])&1023])) >> 1
+		dqv = dqvAC
+		dq1 = dq1AC
+		if pos > fastLimit {
+			slowResume = true
+			break
+		}
+		p32 = model[(int(bt[c&1023])<<3|ctx)&63]
+		if count < 24 {
+			value, count, pos = bitstream.FillFast(buf, pos, value, count)
+		}
+		bit, value, rng, count = vpxReadNoFill(p32&0xFF, value, rng, count)
+		if bit == 0 {
+			break
+		}
+	}
+
+doneFast:
+	if !slowResume {
+		return c, pos, value, rng, count
+	}
+	return decodeCoefsFastPlaneSlowTail(a, pos, value, rng, count, c, ctx, dqv, slowSkipEob)
+}
+
+//go:noinline
+func decodeCoefsFastPlaneSlowTail(
+	a *FastCoefPlaneCtx,
+	pos int, value uint64, rng uint32, count int32,
+	c, ctx int, dqv int16, slowSkipEob bool,
+) (int, int, uint64, uint32, int32) {
+	// Convert scan-order cache to raster-order cache for the rare slow tail.
+	var rasterCache [1024]uint8
+	scanArr := a.ScanArr
+	scanCache := a.TokenCache
+	for k := range c {
+		rasterCache[int(scanArr[k&1023])&1023] = scanCache[k&1023]
+	}
+	r := a.R
+	r.Value = value
+	r.Range = rng
+	r.Count = count
+	r.CommitPos(pos)
+	eob := decodeCoefsSlowTail(r, a.TxSize, a.PlaneType, a.IsInter, a.Dequant,
+		a.Scan, a.Neighbors, a.FC, nil, a.DQCoeff, &rasterCache, c, ctx, dqv, slowSkipEob)
+	_, _, _, nextPos := r.BitView()
+	return eob, nextPos, r.Value, r.Range, r.Count
+}
+
+type decodeCoefsCoreArgs struct {
+	r            *bitstream.ReaderState
+	txSize       common.TxSize
+	planeType    int
+	isInter      int
+	dequant      [2]int16
+	scan         []int16
+	neighbors    []int16
+	scanArr      *[1024]int16
+	neighborsArr *[2048]int16
+	fc           *FrameCoefProbs
+	dqcoeff      *[1024]int16
+	tokenCache   *[1024]uint8
+	skipFirstEOB bool
+}
+
 // DecodeCoefsFastAfterEOB decodes a counts-less transform block whose initial
 // c==0 EOB bit was already consumed as 1 by the caller, keeping the boolean
 // reader state in registers across the call boundary without spilling to rs
@@ -372,9 +654,22 @@ func DecodeCoefsFastAfterEOB(
 	dqcoeff *[1024]int16,
 	tokenCache *[1024]uint8,
 ) (int, int, uint64, uint32, int32) {
-	return decodeCoefsReaderStateCore(r, buf, pos, value, rng, count,
-		txSize, planeType, isInter, dequant, ctx, so.Scan, so.Neighbors,
-		fc, dqcoeff, tokenCache, true)
+	args := decodeCoefsCoreArgs{
+		r:            r,
+		txSize:       txSize,
+		planeType:    planeType,
+		isInter:      isInter,
+		dequant:      dequant,
+		scan:         so.Scan,
+		neighbors:    so.Neighbors,
+		scanArr:      so.ScanArr,
+		neighborsArr: so.NeighborsArr,
+		fc:           fc,
+		dqcoeff:      dqcoeff,
+		tokenCache:   tokenCache,
+		skipFirstEOB: true,
+	}
+	return decodeCoefsReaderStateCore(&args, buf, pos, value, rng, count, ctx)
 }
 
 // decodeCoefsReaderState is the call-free fast token loop (counts-less,
@@ -394,10 +689,21 @@ func decodeCoefsReaderState(
 	skipFirstEOB bool,
 ) int {
 	buf, _, _, pos := r.BitView()
+	args := decodeCoefsCoreArgs{
+		r:            r,
+		txSize:       txSize,
+		planeType:    planeType,
+		isInter:      isInter,
+		dequant:      dequant,
+		scan:         scan,
+		neighbors:    neighbors,
+		fc:           fc,
+		dqcoeff:      dqcoeff,
+		tokenCache:   tokenCache,
+		skipFirstEOB: skipFirstEOB,
+	}
 	eob, nextPos, value, rng, count := decodeCoefsReaderStateCore(
-		r, buf, pos, r.Value, r.Range, r.Count,
-		txSize, planeType, isInter, dequant, ctx, scan, neighbors,
-		fc, dqcoeff, tokenCache, skipFirstEOB)
+		&args, buf, pos, r.Value, r.Range, r.Count, ctx)
 	r.Value = value
 	r.Range = rng
 	r.Count = count
@@ -406,21 +712,17 @@ func decodeCoefsReaderState(
 }
 
 func decodeCoefsReaderStateCore(
-	r *bitstream.ReaderState,
+	a *decodeCoefsCoreArgs,
 	buf []byte, pos int,
 	value uint64, rng uint32, count int32,
-	txSize common.TxSize,
-	planeType int,
-	isInter int,
-	dequant [2]int16,
 	ctx int,
-	scan, neighbors []int16,
-	fc *FrameCoefProbs,
-	dqcoeff *[1024]int16,
-	tokenCache *[1024]uint8,
-	skipFirstEOB bool,
 ) (int, int, uint64, uint32, int32) {
+	txSize := a.txSize
 	maxEob := maxEobForTxSize(txSize)
+	scan := a.scan
+	neighbors := a.neighbors
+	scanArr := a.scanArr
+	neighborsArr := a.neighborsArr
 	_ = scan[maxEob-1]
 	_ = neighbors[(maxEob<<1)-1]
 	bt := bandTranslatePadded(txSize)
@@ -428,17 +730,35 @@ func decodeCoefsReaderStateCore(
 	if txSize == common.Tx32x32 {
 		dqShift = 1
 	}
-	dqv := dequant[0]
-	dqvAC := dequant[1]
+	dqv := a.dequant[0]
+	dqvAC := a.dequant[1]
 	dq1 := int(dqv) >> dqShift
 	dq1AC := int(dqvAC) >> dqShift
 
-	coefModel := &fc[txSize][planeType][isInter]
+	coefModel := &a.fc[txSize][a.planeType][a.isInter]
+	dqcoeff := a.dqcoeff
+	tokenCache := a.tokenCache
 	fastLimit := len(buf) - coefFastMargin
 
 	c := 0
 	slowResume := false
-	skipEob := skipFirstEOB
+	skipEob := a.skipFirstEOB
+
+	scanAt := func(i int) int {
+		if scanArr != nil {
+			return int(scanArr[i&1023]) & 1023
+		}
+		return int(scan[i]) & 1023
+	}
+	coefCtxAt := func(i int) int {
+		if neighborsArr != nil {
+			i2 := (i << 1) & 2046
+			a := tokenCache[int(neighborsArr[i2])&1023]
+			b := tokenCache[int(neighborsArr[i2+1])&1023]
+			return (1 + int(a) + int(b)) >> 1
+		}
+		return getCoefContextArr(neighbors, tokenCache, i)
+	}
 
 fastLoop:
 	for c < maxEob {
@@ -471,12 +791,12 @@ fastLoop:
 		for bit == 0 {
 			dqv = dqvAC
 			dq1 = dq1AC
-			tokenCache[int(scan[c])&1023] = 0
+			tokenCache[scanAt(c)] = 0
 			c++
 			if c >= maxEob {
 				break fastLoop
 			}
-			ctx = getCoefContextArr(neighbors, tokenCache, c)
+			ctx = coefCtxAt(c)
 			band = int(bt[c&1023])
 			probs = &coefModel[band][ctx]
 			// Keep count >= 16 before zeroContextNode so exiting the zero-run
@@ -615,7 +935,7 @@ fastLoop:
 				}
 			}
 		} else {
-			idx := int(scan[c]) & 1023
+			idx := scanAt(c)
 			tokenCache[idx] = 1
 			bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
 			sign := -int(bit)
@@ -626,7 +946,7 @@ fastLoop:
 		if c >= maxEob {
 			break
 		}
-		ctx = getCoefContextArr(neighbors, tokenCache, c)
+		ctx = coefCtxAt(c)
 		dqv = dqvAC
 		dq1 = dq1AC
 	}
@@ -634,12 +954,13 @@ fastLoop:
 	if !slowResume {
 		return c, pos, value, rng, count
 	}
+	r := a.r
 	r.Value = value
 	r.Range = rng
 	r.Count = count
 	r.CommitPos(pos)
-	eob := decodeCoefsSlowTail(r, txSize, planeType, isInter, dequant,
-		scan, neighbors, fc, nil, dqcoeff, tokenCache, c, ctx, dqv, skipEob)
+	eob := decodeCoefsSlowTail(r, txSize, a.planeType, a.isInter, a.dequant,
+		scan, neighbors, a.fc, nil, dqcoeff, tokenCache, c, ctx, dqv, skipEob)
 	_, _, _, nextPos := r.BitView()
 	return eob, nextPos, r.Value, r.Range, r.Count
 }

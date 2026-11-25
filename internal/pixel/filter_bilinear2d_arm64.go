@@ -106,23 +106,99 @@ func FilterBilinear2D(src []byte, ss int, dst []byte, ds, w, h int, hx0, hx1, hy
 	cy0, cy1 := archsimd.BroadcastUint8x16(hy0), archsimd.BroadcastUint8x16(hy1)
 	bias := archsimd.BroadcastUint16x8(64)
 
+	// Fast path 2: horizontal half-pel (64,64), arbitrary vertical tap —
+	// saves 2 widening multiplies + add + shift per 16 pixels per row.
+	if hx0 == 64 && hx1 == 64 {
+		if w == 16 {
+			prev := archsimd.LoadUint8x16Array((*[16]byte)(src[0:16])).Average(archsimd.LoadUint8x16Array((*[16]byte)(src[1:17])))
+			s, d := src[ss:], dst
+			for range h {
+				cur := archsimd.LoadUint8x16Array((*[16]byte)(s[0:16])).Average(archsimd.LoadUint8x16Array((*[16]byte)(s[1:17])))
+				outLo := prev.MulWidenLo(cy0).Add(cur.MulWidenLo(cy1)).Add(bias).ShiftAllRight(7)
+				outHi := prev.HiToLo().MulWidenLo(cy0).Add(cur.HiToLo().MulWidenLo(cy1)).Add(bias).ShiftAllRight(7)
+				outLo.ReshapeToUint8s().ConcatEven(outHi.ReshapeToUint8s()).StoreArray((*[16]byte)(d[0:16]))
+				prev = cur
+				if len(s) > ss {
+					s = s[ss:]
+				}
+				if len(d) > ds {
+					d = d[ds:]
+				}
+			}
+			return true
+		}
+		if w == 8 {
+			prev := load8(src[0:]).Average(load8(src[1:]))
+			so, do := ss, 0
+			for range h {
+				cur := load8(src[so:]).Average(load8(src[so+1:]))
+				out := prev.MulWidenLo(cy0).Add(cur.MulWidenLo(cy1)).Add(bias).ShiftAllRight(7)
+				storeBytes8(dst[do:], out.TruncToUint8())
+				prev = cur
+				so += ss
+				do += ds
+			}
+			return true
+		}
+	}
+	// Fast path 3: vertical half-pel (64,64), arbitrary horizontal tap —
+	// vertical pass collapses to a single NEON URHADD per 16 pixels.
+	if hy0 == 64 && hy1 == 64 {
+		if w == 16 {
+			r0 := src[0:17]
+			a, b := archsimd.LoadUint8x16Array((*[16]byte)(r0[0:16])), archsimd.LoadUint8x16Array((*[16]byte)(r0[1:17]))
+			pLo := a.MulWidenLo(cx0).Add(b.MulWidenLo(cx1)).Add(bias).ShiftAllRight(7)
+			pHi := a.HiToLo().MulWidenLo(cx0).Add(b.HiToLo().MulWidenLo(cx1)).Add(bias).ShiftAllRight(7)
+			prev := pLo.ReshapeToUint8s().ConcatEven(pHi.ReshapeToUint8s())
+			so, do := ss, 0
+			for range h {
+				row := src[so : so+17]
+				a, b = archsimd.LoadUint8x16Array((*[16]byte)(row[0:16])), archsimd.LoadUint8x16Array((*[16]byte)(row[1:17]))
+				cLo := a.MulWidenLo(cx0).Add(b.MulWidenLo(cx1)).Add(bias).ShiftAllRight(7)
+				cHi := a.HiToLo().MulWidenLo(cx0).Add(b.HiToLo().MulWidenLo(cx1)).Add(bias).ShiftAllRight(7)
+				cur := cLo.ReshapeToUint8s().ConcatEven(cHi.ReshapeToUint8s())
+				prev.Average(cur).StoreArray((*[16]byte)(dst[do : do+16]))
+				prev = cur
+				so += ss
+				do += ds
+			}
+			return true
+		}
+		if w == 8 {
+			a, b := load8(src[0:]), load8(src[1:])
+			prev := a.MulWidenLo(cx0).Add(b.MulWidenLo(cx1)).Add(bias).ShiftAllRight(7).TruncToUint8()
+			so, do := ss, 0
+			for range h {
+				a, b = load8(src[so:]), load8(src[so+1:])
+				cur := a.MulWidenLo(cx0).Add(b.MulWidenLo(cx1)).Add(bias).ShiftAllRight(7).TruncToUint8()
+				storeBytes8(dst[do:], prev.Average(cur))
+				prev = cur
+				so += ss
+				do += ds
+			}
+			return true
+		}
+	}
+
 	if w == 16 {
-		r0 := src[0:17]
-		a, b := archsimd.LoadUint8x16Array((*[16]byte)(r0[0:16])), archsimd.LoadUint8x16Array((*[16]byte)(r0[1:17]))
+		a, b := archsimd.LoadUint8x16Array((*[16]byte)(src[0:16])), archsimd.LoadUint8x16Array((*[16]byte)(src[1:17]))
 		prevLo := a.MulWidenLo(cx0).Add(b.MulWidenLo(cx1)).Add(bias).ShiftAllRight(7).TruncToUint8()
 		prevHi := a.HiToLo().MulWidenLo(cx0).Add(b.HiToLo().MulWidenLo(cx1)).Add(bias).ShiftAllRight(7).TruncToUint8()
-		so, do := ss, 0
+		s, d := src[ss:], dst
 		for range h {
-			row := src[so : so+17]
-			a, b = archsimd.LoadUint8x16Array((*[16]byte)(row[0:16])), archsimd.LoadUint8x16Array((*[16]byte)(row[1:17]))
+			a, b = archsimd.LoadUint8x16Array((*[16]byte)(s[0:16])), archsimd.LoadUint8x16Array((*[16]byte)(s[1:17]))
 			curLo := a.MulWidenLo(cx0).Add(b.MulWidenLo(cx1)).Add(bias).ShiftAllRight(7).TruncToUint8()
 			curHi := a.HiToLo().MulWidenLo(cx0).Add(b.HiToLo().MulWidenLo(cx1)).Add(bias).ShiftAllRight(7).TruncToUint8()
 			outLo := prevLo.MulWidenLo(cy0).Add(curLo.MulWidenLo(cy1)).Add(bias).ShiftAllRight(7)
 			outHi := prevHi.MulWidenLo(cy0).Add(curHi.MulWidenLo(cy1)).Add(bias).ShiftAllRight(7)
-			outLo.ReshapeToUint8s().ConcatEven(outHi.ReshapeToUint8s()).StoreArray((*[16]byte)(dst[do : do+16]))
+			outLo.ReshapeToUint8s().ConcatEven(outHi.ReshapeToUint8s()).StoreArray((*[16]byte)(d[0:16]))
 			prevLo, prevHi = curLo, curHi
-			so += ss
-			do += ds
+			if len(s) > ss {
+				s = s[ss:]
+			}
+			if len(d) > ds {
+				d = d[ds:]
+			}
 		}
 		return true
 	}

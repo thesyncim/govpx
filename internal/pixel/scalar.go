@@ -37,6 +37,17 @@ func AddConstant8x8InPlace(dst []byte, stride, delta int) {
 func AddConstant16x16InPlace(dst []byte, stride, delta int) {
 	AddConstantScalar(dst, stride, dst, stride, 16, 16, delta)
 }
+func AddLumaDC16x16InPlace(dst []byte, stride int, dcs *[16]int16) {
+	for br := range 4 {
+		for bc := range 4 {
+			delta := (int(dcs[br*4+bc]) + 4) >> 3
+			if delta != 0 {
+				off := br*4*stride + bc*4
+				AddConstantScalar(dst[off:], stride, dst[off:], stride, 4, 4, delta)
+			}
+		}
+	}
+}
 
 func AddConstant(pred []byte, ps int, dst []byte, ds, w, h, delta int) {
 	AddConstantScalar(pred, ps, dst, ds, w, h, delta)

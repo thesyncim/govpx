@@ -500,6 +500,67 @@ func AddConstant16x16InPlace(dst []byte, stride, delta int) {
 	}
 }
 
+// AddLumaDC16x16InPlace adds 16 per-4x4-block DC residuals ((dcs[b]+4)>>3) to
+// a 16x16 luma macroblock in-place using 16-byte SIMD saturated arithmetic
+// (4 horizontally adjacent 4x4 blocks per vector).
+func AddLumaDC16x16InPlace(dst []byte, stride int, dcs *[16]int16) {
+	if !Enabled || stride < 16 || len(dst) < 16 || (stride <= 1<<20 && len(dst) < 15*stride+16) || (stride > 1<<20 && stride > (len(dst)-16)/15) {
+		for br := range 4 {
+			for bc := range 4 {
+				delta := (int(dcs[br*4+bc]) + 4) >> 3
+				if delta != 0 {
+					off := br*4*stride + bc*4
+					AddConstantScalar(dst[off:], stride, dst[off:], stride, 4, 4, delta)
+				}
+			}
+		}
+		return
+	}
+	_ = dst[15*stride+15]
+	rowOff := 0
+	for br := range 4 {
+		base := br * 4
+		var pos, neg [4]uint32
+		any := false
+		for bc := range 4 {
+			delta := (int(dcs[base+bc]) + 4) >> 3
+			if delta > 0 {
+				any = true
+				m := uint32(255)
+				if delta < 255 {
+					m = uint32(delta)
+				}
+				pos[bc] = m * 0x01010101
+			} else if delta < 0 {
+				any = true
+				mag := -delta
+				m := uint32(255)
+				if mag < 255 {
+					m = uint32(mag)
+				}
+				neg[bc] = m * 0x01010101
+			}
+		}
+		if any {
+			pv := archsimd.LoadUint32x4Array(&pos).ReshapeToUint8s()
+			nv := archsimd.LoadUint32x4Array(&neg).ReshapeToUint8s()
+			o0 := rowOff
+			o1 := o0 + stride
+			o2 := o1 + stride
+			o3 := o2 + stride
+			p0 := (*[16]byte)(dst[o0 : o0+16])
+			p1 := (*[16]byte)(dst[o1 : o1+16])
+			p2 := (*[16]byte)(dst[o2 : o2+16])
+			p3 := (*[16]byte)(dst[o3 : o3+16])
+			archsimd.LoadUint8x16Array(p0).AddSaturated(pv).SubSaturated(nv).StoreArray(p0)
+			archsimd.LoadUint8x16Array(p1).AddSaturated(pv).SubSaturated(nv).StoreArray(p1)
+			archsimd.LoadUint8x16Array(p2).AddSaturated(pv).SubSaturated(nv).StoreArray(p2)
+			archsimd.LoadUint8x16Array(p3).AddSaturated(pv).SubSaturated(nv).StoreArray(p3)
+		}
+		rowOff += 4 * stride
+	}
+}
+
 func AddConstant(pred []byte, ps int, dst []byte, ds, w, h, delta int) {
 	if !Enabled {
 		AddConstantScalar(pred, ps, dst, ds, w, h, delta)

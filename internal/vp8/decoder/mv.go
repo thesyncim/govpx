@@ -31,25 +31,7 @@ func DecodeMotionVector(br *boolcoder.Decoder, probs *[2][tables.MVPCount]uint8)
 }
 
 func readMVComponent(br *boolcoder.Decoder, probs []uint8) int {
-	x := 0
-	if br.ReadBool(probs[mvProbIsShort]) != 0 {
-		for i := range 3 {
-			x += int(br.ReadBool(probs[mvProbBits+i])) << i
-		}
-		for i := mvLongWidth - 1; i > 3; i-- {
-			x += int(br.ReadBool(probs[mvProbBits+i])) << i
-		}
-		if x&0xfff0 == 0 || br.ReadBool(probs[mvProbBits+3]) != 0 {
-			x += 8
-		}
-	} else {
-		x = ReadTree(br, tables.SmallMVTree[:], probs[mvProbShort:])
-	}
-
-	if x != 0 && br.ReadBool(probs[mvProbSign]) != 0 {
-		x = -x
-	}
-	return x
+	return br.ReadVP8MVComponent(probs)
 }
 
 func FindNearMotionVectors(above *MacroblockMode, left *MacroblockMode, aboveLeft *MacroblockMode, refFrame common.MVReferenceFrame, signBias [common.MaxRefFrames]bool) (MotionVector, MotionVector, MotionVector, InterModeCounts) {

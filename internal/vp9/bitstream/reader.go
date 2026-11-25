@@ -103,21 +103,15 @@ func (r *Reader) Read(prob uint32) uint32 {
 
 	value := r.value
 	count := r.count
-	bigsplit := uint64(split) << (valueBits - 8)
-
-	nextRange := split
-	var bit uint32
-	if value >= bigsplit {
-		nextRange = baseRange - split
-		value -= bigsplit
-		bit = 1
-	}
-
-	shift := uint32(bits.LeadingZeros8(uint8(nextRange))) & 7
-	r.rng = nextRange << shift
+	s64 := uint64(split)
+	mask := ^uint64(int64((value>>56)-s64) >> 63)
+	value -= (s64 << 56) & mask
+	nr := s64 ^ ((s64 ^ (uint64(baseRange) - s64)) & mask)
+	shift := uint64(bits.LeadingZeros64(nr << 56))
+	r.rng = uint32(nr << shift)
 	r.value = value << shift
 	r.count = count - int32(shift)
-	return bit
+	return uint32(mask & 1)
 }
 
 // ReadBit decodes one equally-likely bit. Equivalent to Read(128).
@@ -159,21 +153,15 @@ func (s *ReaderState) Read(prob uint32) uint32 {
 
 	value := s.Value
 	count := s.Count
-	bigsplit := uint64(split) << (valueBits - 8)
-
-	nextRange := split
-	var bit uint32
-	if value >= bigsplit {
-		nextRange = baseRange - split
-		value -= bigsplit
-		bit = 1
-	}
-
-	shift := uint32(bits.LeadingZeros8(uint8(nextRange))) & 7
-	s.Range = nextRange << shift
+	s64 := uint64(split)
+	mask := ^uint64(int64((value>>56)-s64) >> 63)
+	value -= (s64 << 56) & mask
+	nr := s64 ^ ((s64 ^ (uint64(baseRange) - s64)) & mask)
+	shift := uint64(bits.LeadingZeros64(nr << 56))
+	s.Range = uint32(nr << shift)
 	s.Value = value << shift
 	s.Count = count - int32(shift)
-	return bit
+	return uint32(mask & 1)
 }
 
 // ReadBit decodes one equally-likely bit using local arithmetic-coder state.
@@ -256,20 +244,15 @@ func (r *Reader) ReadTree(tree []int8, probs []uint8) int {
 			if count < 0 {
 				value, count, pos = FillFast(buf, pos, value, count)
 			}
-			split := (rng*prob + (256 - prob)) >> 8
-			bigsplit := uint64(split) << (valueBits - 8)
-			nextRange := split
-			bit := 0
-			if value >= bigsplit {
-				nextRange = rng - split
-				value -= bigsplit
-				bit = 1
-			}
-			shift := uint32(bits.LeadingZeros8(uint8(nextRange))) & 7
+			split := 1 + (((uint64(rng) - 1) * uint64(prob)) >> 8)
+			mask := ^uint64(int64((value>>56)-split) >> 63)
+			value -= (split << 56) & mask
+			nr := split ^ ((split ^ (uint64(rng) - split)) & mask)
+			shift := uint64(bits.LeadingZeros64(nr << 56))
 			value <<= shift
-			rng = nextRange << shift
+			rng = uint32(nr << shift)
 			count -= int32(shift)
-			next := tree[int(i)+bit]
+			next := tree[int(i)+int(mask&1)]
 			if next <= 0 {
 				r.value = value
 				r.rng = rng
@@ -335,7 +318,7 @@ func FillFast(buf []byte, pos int, value uint64, count int32) (uint64, int32, in
 	shift := int32(valueBits-8) - (count + 8)
 	be := load64BE(buf, pos)
 	bits := (shift &^ 7) + 8
-	value |= (be >> uint(64-bits)) << uint(shift&7)
+	value |= (be >> (uint(64-bits) & 63)) << uint(shift&7)
 	return value, count + bits, pos + int(bits>>3)
 }
 

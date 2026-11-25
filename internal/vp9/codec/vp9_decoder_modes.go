@@ -28,11 +28,15 @@ func (d *VP9Decoder) parseVP9IntraModeTiles(tileData []byte,
 		d.aboveSegCtx[i] = 0
 	}
 	d.resetVP9AboveEntropyContexts()
-	for i := range d.miGrid {
-		d.miGrid[i] = vp9dec.NeighborMi{}
+	if d.opts.DecodeTileRowSet || d.opts.DecodeTileColSet {
+		for i := range d.miGrid {
+			d.miGrid[i] = vp9dec.NeighborMi{}
+		}
 	}
-	for i := range d.segMap {
-		d.segMap[i] = 0
+	if hdr.Seg.Enabled {
+		for i := range d.segMap {
+			d.segMap[i] = 0
+		}
 	}
 	if vp9dec.HeaderResetsPastIndependence(hdr) {
 		d.resetVP9SegmentationMapsForPastIndependence()
@@ -154,11 +158,15 @@ func (d *VP9Decoder) parseVP9InterModeTiles(tileData []byte,
 		d.aboveSegCtx[i] = 0
 	}
 	d.resetVP9AboveEntropyContexts()
-	for i := range d.miGrid {
-		d.miGrid[i] = vp9dec.NeighborMi{}
+	if d.opts.DecodeTileRowSet || d.opts.DecodeTileColSet {
+		for i := range d.miGrid {
+			d.miGrid[i] = vp9dec.NeighborMi{}
+		}
 	}
-	for i := range d.segMap {
-		d.segMap[i] = 0
+	if hdr.Seg.Enabled {
+		for i := range d.segMap {
+			d.segMap[i] = 0
+		}
 	}
 	if vp9dec.HeaderResetsPastIndependence(hdr) {
 		d.resetVP9SegmentationMapsForPastIndependence()
@@ -894,19 +902,46 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 				}
 				continue
 			}
-			if !scaled && mi.Mv[refIdx] == (vp9dec.MV{}) &&
+			if !scaled && !avg {
+				mv := mi.Mv[refIdx]
+				if mv == (vp9dec.MV{}) && (srcWidth&0x7) == 0 && (srcHeight&0x7) == 0 {
+					w := min(bw, min(dstStride-x0, srcStride-x0))
+					h := min(bh, min(dstRows-y0, srcRows-y0))
+					if w > 0 && h > 0 {
+						pixel.CopyBlock(src[y0*srcStride+x0:], srcStride,
+							dst[y0*dstStride+x0:], dstStride, w, h)
+					}
+					continue
+				}
+				if (int(mv.Row)&((8<<pd.SubsamplingY)-1)) == 0 &&
+					(int(mv.Col)&((8<<pd.SubsamplingX)-1)) == 0 {
+					sx := x0 + (int(mv.Col) >> (3 + pd.SubsamplingX))
+					sy := y0 + (int(mv.Row) >> (3 + pd.SubsamplingY))
+					if x0+bw <= dstStride && y0+bh <= dstRows {
+						if sx >= 0 && sy >= 0 && sx+bw <= srcWidth && sy+bh <= srcHeight {
+							pixel.CopyBlock(src[sy*srcStride+sx:], srcStride,
+								dst[y0*dstStride+x0:], dstStride, bw, bh)
+							continue
+						}
+						if len(srcFull) > 0 &&
+							sx >= -srcBorderX && sy >= -srcBorderY &&
+							sx+bw <= srcWidth+srcBorderX && sy+bh <= srcHeight+srcBorderY {
+							srcOff := srcOrigin + sy*srcStride + sx
+							if srcOff >= 0 && srcOff+(bh-1)*srcStride+bw <= len(srcFull) {
+								pixel.CopyBlock(srcFull[srcOff:], srcStride,
+									dst[y0*dstStride+x0:], dstStride, bw, bh)
+								continue
+							}
+						}
+					}
+				}
+			} else if !scaled && mi.Mv[refIdx] == (vp9dec.MV{}) &&
 				(srcWidth&0x7) == 0 && (srcHeight&0x7) == 0 {
 				w := min(bw, min(dstStride-x0, srcStride-x0))
 				h := min(bh, min(dstRows-y0, srcRows-y0))
-				if w <= 0 || h <= 0 {
-					continue
-				}
-				if avg {
+				if w > 0 && h > 0 {
 					buffers.AveragePlaneInto(dst[y0*dstStride+x0:], dstStride,
 						src[y0*srcStride+x0:], srcStride, w, h)
-				} else {
-					pixel.CopyBlock(src[y0*srcStride+x0:], srcStride,
-						dst[y0*dstStride+x0:], dstStride, w, h)
 				}
 				continue
 			}
@@ -1744,6 +1779,21 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 			value := rs.Value
 			rng := rs.Range
 			count := rs.Count
+			planeCtx := vp9dec.FastCoefPlaneCtx{
+				R:                rs,
+				TxSize:           common.Tx4x4,
+				PlaneType:        planeType,
+				IsInter:          1,
+				Dequant:          dequant,
+				Scan:             so.Scan,
+				Neighbors:        so.Neighbors,
+				ScanArr:          so.ScanArr,
+				ScanNeighborsArr: so.ScanNeighborsArr,
+				FC:               &d.fc.CoefProbs,
+				PackedModel:      &d.coefProbsPacked[common.Tx4x4][planeType][1],
+				DQCoeff:          &d.dqcoeff,
+				TokenCache:       &d.coefTokenCache,
+			}
 			for rr := 0; rr < num4x4H; rr++ {
 				rowDst := dst[(baseY+rr*4)*dstStride+baseX:]
 				lv := lCtx[rr]
@@ -1764,7 +1814,7 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 						split := (rng*prob + (256 - prob)) >> 8
 						bigsplit := uint64(split) << 56
 						if value < bigsplit {
-							shift := uint32(bits.LeadingZeros8(uint8(split))) & 7
+							shift := uint32(bits.LeadingZeros8(uint8(split)))
 							rng = split << shift
 							value <<= shift
 							count -= int32(shift)
@@ -1775,10 +1825,8 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 						nr := rng - split
 						nv := value - bigsplit
 						shift := uint32(bits.LeadingZeros8(uint8(nr)))
-						eob, pos, value, rng, count = vp9dec.DecodeCoefsFastAfterEOB(
-							rs, buf, pos, nv<<shift, nr<<shift, count-int32(shift),
-							common.Tx4x4, planeType, 1, dequant,
-							initCtx, so, &d.fc.CoefProbs, &d.dqcoeff, &d.coefTokenCache)
+						eob, pos, value, rng, count = vp9dec.DecodeCoefsFastPlaneAfterEOB(
+							&planeCtx, buf, pos, nv<<shift, nr<<shift, count-int32(shift), initCtx)
 					} else {
 						rs.Value = value
 						rs.Range = rng
@@ -1885,6 +1933,21 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 			value := rs.Value
 			rng := rs.Range
 			count := rs.Count
+			planeCtx := vp9dec.FastCoefPlaneCtx{
+				R:                rs,
+				TxSize:           common.Tx8x8,
+				PlaneType:        planeType,
+				IsInter:          1,
+				Dequant:          dequant,
+				Scan:             so.Scan,
+				Neighbors:        so.Neighbors,
+				ScanArr:          so.ScanArr,
+				ScanNeighborsArr: so.ScanNeighborsArr,
+				FC:               &d.fc.CoefProbs,
+				PackedModel:      &d.coefProbsPacked[common.Tx8x8][planeType][1],
+				DQCoeff:          &d.dqcoeff,
+				TokenCache:       &d.coefTokenCache,
+			}
 			for rr := 0; rr < num4x4H; rr += 2 {
 				rowDst := dst[(baseY+rr*4)*dstStride+baseX:]
 				lv := lCtx[rr] | lCtx[rr+1]
@@ -1905,7 +1968,7 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 						split := (rng*prob + (256 - prob)) >> 8
 						bigsplit := uint64(split) << 56
 						if value < bigsplit {
-							shift := uint32(bits.LeadingZeros8(uint8(split))) & 7
+							shift := uint32(bits.LeadingZeros8(uint8(split)))
 							rng = split << shift
 							value <<= shift
 							count -= int32(shift)
@@ -1917,10 +1980,8 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 						nr := rng - split
 						nv := value - bigsplit
 						shift := uint32(bits.LeadingZeros8(uint8(nr)))
-						eob, pos, value, rng, count = vp9dec.DecodeCoefsFastAfterEOB(
-							rs, buf, pos, nv<<shift, nr<<shift, count-int32(shift),
-							common.Tx8x8, planeType, 1, dequant,
-							initCtx, so, &d.fc.CoefProbs, &d.dqcoeff, &d.coefTokenCache)
+						eob, pos, value, rng, count = vp9dec.DecodeCoefsFastPlaneAfterEOB(
+							&planeCtx, buf, pos, nv<<shift, nr<<shift, count-int32(shift), initCtx)
 					} else {
 						rs.Value = value
 						rs.Range = rng
@@ -2036,6 +2097,21 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 			value := rs.Value
 			rng := rs.Range
 			count := rs.Count
+			planeCtx := vp9dec.FastCoefPlaneCtx{
+				R:                rs,
+				TxSize:           common.Tx16x16,
+				PlaneType:        planeType,
+				IsInter:          1,
+				Dequant:          dequant,
+				Scan:             so.Scan,
+				Neighbors:        so.Neighbors,
+				ScanArr:          so.ScanArr,
+				ScanNeighborsArr: so.ScanNeighborsArr,
+				FC:               &d.fc.CoefProbs,
+				PackedModel:      &d.coefProbsPacked[common.Tx16x16][planeType][1],
+				DQCoeff:          &d.dqcoeff,
+				TokenCache:       &d.coefTokenCache,
+			}
 			for rr := 0; rr < num4x4H; rr += 4 {
 				rowDst := dst[(baseY+rr*4)*dstStride+baseX:]
 				lv := lCtx[rr] | lCtx[rr+1] | lCtx[rr+2] | lCtx[rr+3]
@@ -2056,7 +2132,7 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 						split := (rng*prob + (256 - prob)) >> 8
 						bigsplit := uint64(split) << 56
 						if value < bigsplit {
-							shift := uint32(bits.LeadingZeros8(uint8(split))) & 7
+							shift := uint32(bits.LeadingZeros8(uint8(split)))
 							rng = split << shift
 							value <<= shift
 							count -= int32(shift)
@@ -2070,10 +2146,8 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 						nr := rng - split
 						nv := value - bigsplit
 						shift := uint32(bits.LeadingZeros8(uint8(nr)))
-						eob, pos, value, rng, count = vp9dec.DecodeCoefsFastAfterEOB(
-							rs, buf, pos, nv<<shift, nr<<shift, count-int32(shift),
-							common.Tx16x16, planeType, 1, dequant,
-							initCtx, so, &d.fc.CoefProbs, &d.dqcoeff, &d.coefTokenCache)
+						eob, pos, value, rng, count = vp9dec.DecodeCoefsFastPlaneAfterEOB(
+							&planeCtx, buf, pos, nv<<shift, nr<<shift, count-int32(shift), initCtx)
 					} else {
 						rs.Value = value
 						rs.Range = rng

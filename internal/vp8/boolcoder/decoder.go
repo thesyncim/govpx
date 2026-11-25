@@ -131,6 +131,178 @@ func (d *Decoder) ReadBit() uint8 {
 	return bit
 }
 
+// ReadVP8InterRefFrame decodes the inter-frame reference selection (0=Intra,
+// 1=Last, 2=Golden, 3=AltRef) while keeping the boolcoder state in registers.
+func (d *Decoder) ReadVP8InterRefFrame(probIntra, probLast, probGolden uint8) uint8 {
+	buf := d.buf
+	pos := d.pos
+	if pos > len(buf)-8 {
+		if d.ReadBool(probIntra) == 0 {
+			return 0
+		}
+		if d.ReadBool(probLast) != 0 {
+			return 2 + d.ReadBool(probGolden)
+		}
+		return 1
+	}
+	value, rng, count := d.value, d.rng, d.count
+	if count < 24 {
+		value, count, pos = fillBoolFast(buf, pos, value, count)
+	}
+	var bit uint8
+	bit, value, rng, count = vp8ReadBoolNoFill(probIntra, value, rng, count)
+	if bit == 0 {
+		d.value, d.rng, d.count, d.pos = value, rng, count, pos
+		return 0
+	}
+	bit, value, rng, count = vp8ReadBoolNoFill(probLast, value, rng, count)
+	if bit == 0 {
+		d.value, d.rng, d.count, d.pos = value, rng, count, pos
+		return 1
+	}
+	bit, value, rng, count = vp8ReadBoolNoFill(probGolden, value, rng, count)
+	d.value, d.rng, d.count, d.pos = value, rng, count, pos
+	return 2 + bit
+}
+
+// ReadVP8InterMode decodes the inter prediction mode (0=ZeroMV, 1=NearestMV,
+// 2=NearMV, 3=NewMV, 4=SplitMV) while keeping boolcoder state in registers.
+func (d *Decoder) ReadVP8InterMode(p0, p1, p2, p3 uint8) uint8 {
+	buf := d.buf
+	pos := d.pos
+	if pos > len(buf)-8 {
+		if d.ReadBool(p0) == 0 {
+			return 0
+		}
+		if d.ReadBool(p1) == 0 {
+			return 1
+		}
+		if d.ReadBool(p2) == 0 {
+			return 2
+		}
+		if d.ReadBool(p3) != 0 {
+			return 4
+		}
+		return 3
+	}
+	value, rng, count := d.value, d.rng, d.count
+	if count < 32 {
+		value, count, pos = fillBoolFast(buf, pos, value, count)
+	}
+	var bit uint8
+	bit, value, rng, count = vp8ReadBoolNoFill(p0, value, rng, count)
+	if bit == 0 {
+		d.value, d.rng, d.count, d.pos = value, rng, count, pos
+		return 0
+	}
+	bit, value, rng, count = vp8ReadBoolNoFill(p1, value, rng, count)
+	if bit == 0 {
+		d.value, d.rng, d.count, d.pos = value, rng, count, pos
+		return 1
+	}
+	bit, value, rng, count = vp8ReadBoolNoFill(p2, value, rng, count)
+	if bit == 0 {
+		d.value, d.rng, d.count, d.pos = value, rng, count, pos
+		return 2
+	}
+	bit, value, rng, count = vp8ReadBoolNoFill(p3, value, rng, count)
+	d.value, d.rng, d.count, d.pos = value, rng, count, pos
+	if bit != 0 {
+		return 4
+	}
+	return 3
+}
+
+// ReadVP8MVComponent decodes a single VP8 motion vector component while keeping
+// boolcoder state in registers across all 4..12 boolean reads.
+func (d *Decoder) ReadVP8MVComponent(probs []uint8) int {
+	_ = probs[18]
+	buf := d.buf
+	pos := d.pos
+	if pos > len(buf)-24 {
+		x := 0
+		if d.ReadBool(probs[0]) != 0 {
+			for i := range 3 {
+				x += int(d.ReadBool(probs[9+i])) << i
+			}
+			for i := 9; i > 3; i-- {
+				x += int(d.ReadBool(probs[9+i])) << i
+			}
+			if x&0xfff0 == 0 || d.ReadBool(probs[12]) != 0 {
+				x += 8
+			}
+		} else {
+			node := int16(0)
+			for {
+				node = tables.SmallMVTree[int(node)+int(d.ReadBool(probs[2+int(node>>1)]))]
+				if node <= 0 {
+					x = int(-node)
+					break
+				}
+			}
+		}
+		if x != 0 && d.ReadBool(probs[1]) != 0 {
+			x = -x
+		}
+		return x
+	}
+	value, rng, count := d.value, d.rng, d.count
+	if count < 32 {
+		value, count, pos = fillBoolFast(buf, pos, value, count)
+	}
+	var bit uint8
+	x := 0
+	bit, value, rng, count = vp8ReadBoolNoFill(probs[0], value, rng, count)
+	if bit != 0 {
+		for i := range 3 {
+			bit, value, rng, count = vp8ReadBoolNoFill(probs[9+i], value, rng, count)
+			x += int(bit) << i
+		}
+		if count < 32 {
+			value, count, pos = fillBoolFast(buf, pos, value, count)
+		}
+		for i := 9; i > 3; i-- {
+			if count < 16 {
+				value, count, pos = fillBoolFast(buf, pos, value, count)
+			}
+			bit, value, rng, count = vp8ReadBoolNoFill(probs[9+i], value, rng, count)
+			x += int(bit) << i
+		}
+		if x&0xfff0 == 0 {
+			x += 8
+		} else {
+			if count < 16 {
+				value, count, pos = fillBoolFast(buf, pos, value, count)
+			}
+			bit, value, rng, count = vp8ReadBoolNoFill(probs[12], value, rng, count)
+			if bit != 0 {
+				x += 8
+			}
+		}
+	} else {
+		node := int16(0)
+		for {
+			bit, value, rng, count = vp8ReadBoolNoFill(probs[2+int(node>>1)], value, rng, count)
+			node = tables.SmallMVTree[int(node)+int(bit)]
+			if node <= 0 {
+				x = int(-node)
+				break
+			}
+		}
+	}
+	if x != 0 {
+		if count < 8 {
+			value, count, pos = fillBoolFast(buf, pos, value, count)
+		}
+		bit, value, rng, count = vp8ReadBoolNoFill(probs[1], value, rng, count)
+		if bit != 0 {
+			x = -x
+		}
+	}
+	d.value, d.rng, d.count, d.pos = value, rng, count, pos
+	return x
+}
+
 func (d *Decoder) ReadLiteral(bits int) uint32 {
 	var v uint32
 	for bit := bits - 1; bit >= 0; bit-- {
@@ -383,37 +555,27 @@ func fillBoolFast(buf []byte, pos int, value uint64, count int) (uint64, int, in
 	shift := valueSize - 8 - (count + 8)
 	big := binary.BigEndian.Uint64(buf[pos:])
 	n := (shift &^ 7) + 8
-	value |= (big >> uint(64-n)) << uint(shift&7)
+	value |= (big >> (uint(64-n) & 63)) << uint(shift&7)
 	return value, count + n, pos + (n >> 3)
 }
 
 func vp8ReadBoolNoFill(prob uint8, value uint64, rng uint32, count int) (uint8, uint64, uint32, int) {
-	p := uint32(prob)
-	split := (rng*p + (256 - p)) >> 8
-	bigsplit := uint64(split) << (valueSize - 8)
-	nextRange := split
-	bit := uint8(0)
-	if value >= bigsplit {
-		nextRange = rng - split
-		value -= bigsplit
-		bit = 1
-	}
-	shift := uint32(bits.LeadingZeros8(uint8(nextRange)))
-	return bit, value << shift, nextRange << shift, count - int(shift)
+	s := 1 + (((rng - 1) * uint32(prob)) >> 8)
+	m := ^uint32(int32(uint32(value>>56)-s) >> 31)
+	nr := s ^ (((rng - s) ^ s) & m)
+	sh := uint32(bits.LeadingZeros8(uint8(nr)))
+	return uint8(m & 1), (value - uint64(s&m)<<56) << sh, nr << sh, count - int(sh)
 }
 
 func vp8ReadSignedCoeffNoFill(coeff int, value uint64, rng uint32, count int) (int16, uint64, uint32, int) {
-	split := (rng + 1) >> 1
-	bigsplit := uint64(split) << (valueSize - 8)
-	nextRange := split
-	var m16 int16
-	if value >= bigsplit {
-		nextRange = rng - split
-		value -= bigsplit
-		m16 = -1
-	}
+	r64 := uint64(rng)
+	split := (r64 + 1) >> 1
+	mask := ^uint64(int64((value>>56)-split) >> 63)
+	value -= (split << 56) & mask
+	nextRange := split ^ ((split ^ (r64 - split)) & mask)
+	m16 := int16(mask)
 	v := int16(coeff)
-	return (v ^ m16) - m16, value << 1, nextRange << 1, count - 1
+	return (v ^ m16) - m16, value << 1, uint32(nextRange << 1), count - 1
 }
 
 func decodeVP8NonZeroBlockFast(
@@ -423,6 +585,9 @@ func decodeVP8NonZeroBlockFast(
 	nn int,
 	out *[16]int16,
 ) (int, uint64, uint32, int, int) {
+	if count < 24 {
+		value, count, pos = fillBoolFast(buf, pos, value, count)
+	}
 	var bit uint8
 	for {
 		nn++
@@ -550,6 +715,18 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 	buf := d.buf
 	fastLimit := len(buf) - vp8BlockFastMargin
 
+	if pos > fastLimit-32 {
+		startIdx := -1
+		if is4x4 {
+			startIdx = 0
+		}
+		return d.readVP8MacroblockCoeffsSlow(
+			probs, is4x4, startIdx, 0, 0,
+			aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
+			aboveY2, leftY2, qcoeff, eob,
+		)
+	}
+
 	skipDC := 0
 	lumaType := 3
 	var bit uint8
@@ -557,17 +734,9 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 	if !is4x4 {
 		skipDC = 1
 		lumaType = 0
-		if pos > fastLimit {
-			d.value, d.count, d.rng, d.pos = value, count, rng, pos
-			return d.readVP8MacroblockCoeffsSlow(
-				probs, is4x4, -1, eobTotal, dirtyMask,
-				aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
-				aboveY2, leftY2, qcoeff, eob,
-			)
-		}
 		bt := &(*probs)[1]
 		p := &bt[0][int(*aboveY2+*leftY2)]
-		if count < 24 {
+		if count < 8 {
 			value, count, pos = fillBoolFast(buf, pos, value, count)
 		}
 		bit, value, rng, count = vp8ReadBoolNoFill(p[0], value, rng, count)
@@ -588,6 +757,14 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 			*leftY2 = has
 			eob[24] = uint8(nz)
 			eobTotal = nz - 16
+			if pos > fastLimit-32 {
+				d.value, d.count, d.rng, d.pos = value, count, rng, pos
+				return d.readVP8MacroblockCoeffsSlow(
+					probs, is4x4, 0, eobTotal, dirtyMask,
+					aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
+					aboveY2, leftY2, qcoeff, eob,
+				)
+			}
 		}
 	}
 
@@ -600,18 +777,8 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 		rowBase := row << 2
 		for col := range 4 {
 			b := rowBase + col
-			if pos > fastLimit {
-				aboveY1[0], aboveY1[1], aboveY1[2], aboveY1[3] = aY[0], aY[1], aY[2], aY[3]
-				leftY1[row] = lv
-				d.value, d.count, d.rng, d.pos = value, count, rng, pos
-				return d.readVP8MacroblockCoeffsSlow(
-					probs, is4x4, b, eobTotal, dirtyMask,
-					aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
-					aboveY2, leftY2, qcoeff, eob,
-				)
-			}
 			p := &bandY[aY[col]+lv]
-			if count < 24 {
+			if count < 8 {
 				value, count, pos = fillBoolFast(buf, pos, value, count)
 			}
 			prob := uint32(p[0])
@@ -645,6 +812,16 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 			lv = has
 			eob[b] = uint8(nz + skipDC)
 			eobTotal += nz + skipDC
+			if pos > fastLimit-32 {
+				aboveY1[0], aboveY1[1], aboveY1[2], aboveY1[3] = aY[0], aY[1], aY[2], aY[3]
+				leftY1[row] = lv
+				d.value, d.count, d.rng, d.pos = value, count, rng, pos
+				return d.readVP8MacroblockCoeffsSlow(
+					probs, is4x4, b+1, eobTotal, dirtyMask,
+					aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
+					aboveY2, leftY2, qcoeff, eob,
+				)
+			}
 		}
 		leftY1[row] = lv
 	}
@@ -659,18 +836,8 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 		rowBase := 16 + (row << 1)
 		for col := range 2 {
 			b := rowBase + col
-			if pos > fastLimit {
-				aboveU[0], aboveU[1] = aU[0], aU[1]
-				leftU[row] = lv
-				d.value, d.count, d.rng, d.pos = value, count, rng, pos
-				return d.readVP8MacroblockCoeffsSlow(
-					probs, is4x4, b, eobTotal, dirtyMask,
-					aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
-					aboveY2, leftY2, qcoeff, eob,
-				)
-			}
 			p := &bandUV[aU[col]+lv]
-			if count < 24 {
+			if count < 8 {
 				value, count, pos = fillBoolFast(buf, pos, value, count)
 			}
 			prob := uint32(p[0])
@@ -703,6 +870,16 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 			lv = has
 			eob[b] = uint8(nz)
 			eobTotal += nz
+			if pos > fastLimit-32 {
+				aboveU[0], aboveU[1] = aU[0], aU[1]
+				leftU[row] = lv
+				d.value, d.count, d.rng, d.pos = value, count, rng, pos
+				return d.readVP8MacroblockCoeffsSlow(
+					probs, is4x4, b+1, eobTotal, dirtyMask,
+					aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
+					aboveY2, leftY2, qcoeff, eob,
+				)
+			}
 		}
 		leftU[row] = lv
 	}
@@ -715,18 +892,8 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 		rowBase := 20 + (row << 1)
 		for col := range 2 {
 			b := rowBase + col
-			if pos > fastLimit {
-				aboveV[0], aboveV[1] = aV[0], aV[1]
-				leftV[row] = lv
-				d.value, d.count, d.rng, d.pos = value, count, rng, pos
-				return d.readVP8MacroblockCoeffsSlow(
-					probs, is4x4, b, eobTotal, dirtyMask,
-					aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
-					aboveY2, leftY2, qcoeff, eob,
-				)
-			}
 			p := &bandUV[aV[col]+lv]
-			if count < 24 {
+			if count < 8 {
 				value, count, pos = fillBoolFast(buf, pos, value, count)
 			}
 			prob := uint32(p[0])
@@ -759,6 +926,16 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 			lv = has
 			eob[b] = uint8(nz)
 			eobTotal += nz
+			if pos > fastLimit-32 {
+				aboveV[0], aboveV[1] = aV[0], aV[1]
+				leftV[row] = lv
+				d.value, d.count, d.rng, d.pos = value, count, rng, pos
+				return d.readVP8MacroblockCoeffsSlow(
+					probs, is4x4, b+1, eobTotal, dirtyMask,
+					aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
+					aboveY2, leftY2, qcoeff, eob,
+				)
+			}
 		}
 		leftV[row] = lv
 	}

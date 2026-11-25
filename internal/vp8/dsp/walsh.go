@@ -42,6 +42,33 @@ func InverseWalsh4x4ToLumaDC(input *[16]int16, dst *[25][16]int16) {
 	}
 }
 
+// InverseWalsh4x4To16 computes the 4x4 inverse Walsh-Hadamard transform and
+// writes the 16 DC values into a compact [16]int16 array.
+func InverseWalsh4x4To16(input *[16]int16, dst *[16]int16) {
+	var output [16]int16
+	for i := range 4 {
+		a1 := int(input[i+0]) + int(input[i+12])
+		b1 := int(input[i+4]) + int(input[i+8])
+		c1 := int(input[i+4]) - int(input[i+8])
+		d1 := int(input[i+0]) - int(input[i+12])
+		output[i+0] = int16(a1 + b1)
+		output[i+4] = int16(c1 + d1)
+		output[i+8] = int16(a1 - b1)
+		output[i+12] = int16(d1 - c1)
+	}
+	for i := range 4 {
+		base := i * 4
+		a1 := int(output[base+0]) + int(output[base+3])
+		b1 := int(output[base+1]) + int(output[base+2])
+		c1 := int(output[base+1]) - int(output[base+2])
+		d1 := int(output[base+0]) - int(output[base+3])
+		dst[base+0] = int16((a1 + b1 + 3) >> 3)
+		dst[base+1] = int16((c1 + d1 + 3) >> 3)
+		dst[base+2] = int16((a1 - b1 + 3) >> 3)
+		dst[base+3] = int16((d1 - c1 + 3) >> 3)
+	}
+}
+
 // inverseWalsh4x4Scalar is the canonical scalar port of libvpx
 // vp8/common/idctllm.c vp8_short_inv_walsh4x4_c. SIMD ports must produce
 // byte-identical output for the decoder's coefficient range.
