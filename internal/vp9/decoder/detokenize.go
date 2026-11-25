@@ -409,6 +409,7 @@ type FastCoefPlaneCtx struct {
 	Neighbors        []int16
 	ScanArr          *[1024]int16
 	ScanNeighborsArr *[2048]int16
+	ScanMetaArr      *[1024]uint32
 	FC               *FrameCoefProbs
 	PackedModel      *[64]uint32
 	DQCoeff          *[1024]int16
@@ -485,7 +486,6 @@ func DecodeCoefsFastPlaneAfterEOB(
 ) (int, int, uint64, uint32, int32) {
 	txSize := a.TxSize
 	maxEob := maxEobForTxSize(txSize)
-	bt := bandTranslatePadded(txSize)
 	dqShift := uint(0)
 	if txSize == common.Tx32x32 {
 		dqShift = 1
@@ -497,7 +497,7 @@ func DecodeCoefsFastPlaneAfterEOB(
 
 	model := a.PackedModel
 	scanArr := a.ScanArr
-	snArr := a.ScanNeighborsArr
+	scanMeta := a.ScanMetaArr
 	dqcoeff := a.DQCoeff
 	scanCache := a.TokenCache
 	fastLimit := len(buf) - coefFastMargin
@@ -512,7 +512,7 @@ func DecodeCoefsFastPlaneAfterEOB(
 		slowSkipEob = true
 		goto doneFast
 	}
-	p32 = model[(int(bt[0])<<3|ctx)&63]
+	p32 = model[ctx&63]
 	if count < 24 {
 		value, count, pos = bitstream.FillFast(buf, pos, value, count)
 	}
@@ -529,9 +529,9 @@ fastLoop:
 				if c >= maxEob {
 					break fastLoop
 				}
-				c2 := (c << 1) & 2046
-				ctx = (1 + int(scanCache[int(snArr[c2])&1023]) + int(scanCache[int(snArr[c2+1])&1023])) >> 1
-				p32 = model[(int(bt[c&1023])<<3|ctx)&63]
+				meta := scanMeta[c&1023]
+				ctx = (1 + int(scanCache[meta&1023]) + int(scanCache[(meta>>10)&1023])) >> 1
+				p32 = model[(int(meta>>20)|ctx)&63]
 				if count < 16 {
 					if pos > fastLimit {
 						slowResume = true
@@ -616,15 +616,15 @@ fastLoop:
 		if c >= maxEob {
 			break
 		}
-		c2 := (c << 1) & 2046
-		ctx = (1 + int(scanCache[int(snArr[c2])&1023]) + int(scanCache[int(snArr[c2+1])&1023])) >> 1
+		meta := scanMeta[c&1023]
+		ctx = (1 + int(scanCache[meta&1023]) + int(scanCache[(meta>>10)&1023])) >> 1
 		dqv = dqvAC
 		dq1 = dq1AC
 		if pos > fastLimit {
 			slowResume = true
 			break
 		}
-		p32 = model[(int(bt[c&1023])<<3|ctx)&63]
+		p32 = model[(int(meta>>20)|ctx)&63]
 		if count < 24 {
 			value, count, pos = bitstream.FillFast(buf, pos, value, count)
 		}

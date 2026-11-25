@@ -24,13 +24,15 @@ type ScanOrder struct {
 	ScanArr          *[1024]int16
 	NeighborsArr     *[2048]int16
 	ScanNeighborsArr *[2048]int16
+	ScanMetaArr      *[1024]uint32
 }
 
 func init() {
-	initScanOrder := func(so *ScanOrder) {
+	initScanOrder := func(txSize TxSize, so *ScanOrder) {
 		var sa [1024]int16
 		var na [2048]int16
 		var sna [2048]int16
+		var meta [1024]uint32
 		copy(sa[:], so.Scan)
 		copy(na[:], so.Neighbors)
 		for k, nb := range so.Neighbors {
@@ -38,16 +40,30 @@ func init() {
 				sna[k] = so.IScan[nb] - 1
 			}
 		}
+		bt := tables.CoefbandTrans8x8Plus[:]
+		if txSize == Tx4x4 {
+			bt = tables.CoefbandTrans4x4[:]
+		}
+		for c := range 1024 {
+			nb0 := uint32(sna[2*c]) & 1023
+			nb1 := uint32(sna[2*c+1]) & 1023
+			var band uint32
+			if c < len(bt) {
+				band = uint32(bt[c])
+			}
+			meta[c] = nb0 | (nb1 << 10) | ((band << 3) << 20)
+		}
 		so.ScanArr = &sa
 		so.NeighborsArr = &na
 		so.ScanNeighborsArr = &sna
+		so.ScanMetaArr = &meta
 	}
 	for i := range DefaultScanOrders {
-		initScanOrder(&DefaultScanOrders[i])
+		initScanOrder(TxSize(i), &DefaultScanOrders[i])
 	}
 	for i := range ScanOrders {
 		for j := range ScanOrders[i] {
-			initScanOrder(&ScanOrders[i][j])
+			initScanOrder(TxSize(i), &ScanOrders[i][j])
 		}
 	}
 }

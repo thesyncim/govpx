@@ -2016,6 +2016,7 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 							planeCtx.Neighbors = so.Neighbors
 							planeCtx.ScanArr = so.ScanArr
 							planeCtx.ScanNeighborsArr = so.ScanNeighborsArr
+							planeCtx.ScanMetaArr = so.ScanMetaArr
 							planeCtx.FC = &d.fc.CoefProbs
 							planeCtx.PackedModel = &d.coefProbsPacked[common.Tx4x4][planeType][1]
 							planeCtx.DQCoeff = &d.dqcoeff
@@ -2178,6 +2179,7 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 							planeCtx.Neighbors = so.Neighbors
 							planeCtx.ScanArr = so.ScanArr
 							planeCtx.ScanNeighborsArr = so.ScanNeighborsArr
+							planeCtx.ScanMetaArr = so.ScanMetaArr
 							planeCtx.FC = &d.fc.CoefProbs
 							planeCtx.PackedModel = &d.coefProbsPacked[common.Tx8x8][planeType][1]
 							planeCtx.DQCoeff = &d.dqcoeff
@@ -2345,6 +2347,7 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 							planeCtx.Neighbors = so.Neighbors
 							planeCtx.ScanArr = so.ScanArr
 							planeCtx.ScanNeighborsArr = so.ScanNeighborsArr
+							planeCtx.ScanMetaArr = so.ScanMetaArr
 							planeCtx.FC = &d.fc.CoefProbs
 							planeCtx.PackedModel = &d.coefProbsPacked[common.Tx16x16][planeType][1]
 							planeCtx.DQCoeff = &d.dqcoeff
