@@ -57,33 +57,54 @@ func ChromaSubsamplingFromShifts(ssX, ssY uint8) ChromaSubsampling {
 	}
 }
 
-// Image is an 8-bit planar YUV/RGB image (I420 by default, or I422/I440/I444
-// when Subsampling is set for VP9 Profile 1).
+// Image is a planar YUV/RGB image (8-bit I420 by default; 8-bit
+// I422/I440/I444 for VP9 Profile 1; 10-bit or 12-bit via Y16/U16/V16 when
+// BitDepth is 10 or 12 for VP9 Profile 2/3).
 //
 // Plane slices may include stride padding. Width and Height define the
-// visible image size, and callers must honor the per-plane strides. The
-// zero value is not a usable image: Width, Height, the three plane slices,
-// and the three strides must all be set before passing the value to
-// EncodeInto or DecodeInto.
+// visible image size, and callers must honor the per-plane strides. For 8-bit
+// images (BitDepth == 0 or 8), Y, U, and V carry pixel bytes and strides are
+// in bytes. For 10/12-bit images (BitDepth == 10 or 12), Y16, U16, and V16
+// carry uint16 samples in [0, (1<<BitDepth)-1] and strides are in uint16
+// samples.
 type Image struct {
 	// Width and Height are the visible luma dimensions in pixels.
 	Width  int
 	Height int
 
-	// Y, U, and V hold visible plane data plus any caller-owned stride padding.
-	// Chroma plane dimensions follow Subsampling (4:2:0 by default).
+	// Y, U, and V hold visible 8-bit plane data plus any caller-owned stride
+	// padding. Chroma plane dimensions follow Subsampling (4:2:0 by default).
 	Y []byte
 	U []byte
 	V []byte
 
-	// YStride, UStride, and VStride are bytes between adjacent rows in each
-	// plane. They must be at least the visible width of their plane.
+	// Y16, U16, and V16 hold visible 10-bit or 12-bit plane data (uint16
+	// samples in [0, (1<<BitDepth)-1]) when BitDepth is 10 or 12.
+	Y16 []uint16
+	U16 []uint16
+	V16 []uint16
+
+	// YStride, UStride, and VStride are elements between adjacent rows in each
+	// plane (bytes for 8-bit Y/U/V; uint16 samples for 10/12-bit Y16/U16/V16).
+	// They must be at least the visible width of their plane.
 	YStride int
 	UStride int
 	VStride int
 
 	// Subsampling selects the chroma plane subsampling. Zero is 4:2:0 (I420).
 	Subsampling ChromaSubsampling
+
+	// BitDepth is the sample bit depth: 0 or 8 for 8-bit, 10 or 12 for
+	// high-bit-depth VP9 Profile 2/3.
+	BitDepth uint8
+}
+
+// EffectiveBitDepth returns the sample bit depth of img, treating 0 as 8.
+func (img Image) EffectiveBitDepth() uint8 {
+	if img.BitDepth == 0 {
+		return 8
+	}
+	return img.BitDepth
 }
 
 // ValidForEncode reports whether img has valid plane slices and strides
@@ -95,9 +116,25 @@ func (img Image) ValidForEncode(width int, height int) bool {
 	if width <= 0 || height <= 0 {
 		return false
 	}
+	bd := img.EffectiveBitDepth()
+	if bd != 8 && bd != 10 && bd != 12 {
+		return false
+	}
 	uvWidth, uvHeight := img.Subsampling.ChromaDimensions(width, height)
 	if img.YStride < width || img.UStride < uvWidth || img.VStride < uvWidth {
 		return false
+	}
+	if bd > 8 {
+		if len(img.Y16) < buffers.PlaneLen(img.YStride, height, width) {
+			return false
+		}
+		if len(img.U16) < buffers.PlaneLen(img.UStride, uvHeight, uvWidth) {
+			return false
+		}
+		if len(img.V16) < buffers.PlaneLen(img.VStride, uvHeight, uvWidth) {
+			return false
+		}
+		return true
 	}
 	if len(img.Y) < buffers.PlaneLen(img.YStride, height, width) {
 		return false

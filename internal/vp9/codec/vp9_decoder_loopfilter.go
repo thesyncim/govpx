@@ -624,6 +624,9 @@ func vp9AdjustLoopFilterMask(miRows, miCols, miRow, miCol int, lfm *vp9LoopFilte
 func (d *VP9Decoder) vp9FilterLoopBlock(miRows, miCols, miRow, miCol int,
 	lfm *vp9LoopFilterMask,
 ) bool {
+	if d.lastFrame.BitDepth > 8 {
+		return d.vp9FilterLoopBlockHighBD(miRows, miCols, miRow, miCol, lfm)
+	}
 	if !d.vp9FilterLoopBlockPlaneSS00(d.frameYFull, d.frameYOrigin, d.lastFrame.YStride,
 		miRows, miRow, miCol, lfm) {
 		return false
@@ -657,6 +660,9 @@ func (d *VP9Decoder) vp9FilterLoopBlock(miRows, miCols, miRow, miCol int,
 func (d *VP9Decoder) vp9FilterLoopBlockPlane(miRows, miCols, miRow, miCol int,
 	plane vp9LoopFilterPlane, lfm *vp9LoopFilterMask,
 ) bool {
+	if d.lastFrame.BitDepth > 8 {
+		return d.vp9FilterLoopBlockPlaneHighBD(miRows, miCols, miRow, miCol, plane, lfm)
+	}
 	switch plane {
 	case vp9LoopFilterPlaneY:
 		return d.vp9FilterLoopBlockPlaneSS00(d.frameYFull, d.frameYOrigin,

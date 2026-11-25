@@ -558,6 +558,7 @@ type VP9Encoder struct {
 	// vp9_ratectrl.c:1802-1819 read into rc.percArfUsage.
 	countArfFrameUsage         []uint8
 	countLastgoldenFrameUsage  []uint8
+	highbd                     *vp9HighBDEncoderState
 	countArfFrameUsageMiCols   int
 	countArfFrameUsageMiRows   int
 	countArfFrameUsageMiStride int
@@ -770,7 +771,7 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 // prewarmVP9EncodeBuffers pre-allocates steady-state frame buffers at encoder
 // construction time so EncodeInto runs with zero allocations from frame 0.
 func (e *VP9Encoder) prewarmVP9EncodeBuffers() {
-	if e == nil || e.opts.Width <= 0 || e.opts.Height <= 0 {
+	if e == nil || e.opts.Width <= 0 || e.opts.Height <= 0 || e.opts.Profile >= 2 {
 		return
 	}
 	w, h := e.opts.Width, e.opts.Height

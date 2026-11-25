@@ -321,18 +321,20 @@ func HeaderRenderSize(hdr *UncompressedHeader) (int, int) {
 }
 
 // SupportedOutputFormat reports whether hdr describes an output format that
-// the public decoder can currently publish (Profile 0 8-bit 4:2:0 and
-// Profile 1 8-bit 4:2:2 / 4:4:0 / 4:4:4 / RGB).
+// the public decoder can currently publish (Profile 0 8-bit 4:2:0,
+// Profile 1 8-bit 4:2:2 / 4:4:0 / 4:4:4 / RGB, and Profile 2 10/12-bit 4:2:0).
 func SupportedOutputFormat(hdr *UncompressedHeader) bool {
-	if hdr.BitDepthColor.BitDepth != Bits8 {
-		return false
-	}
 	switch hdr.Profile {
 	case common.Profile0:
-		return hdr.BitDepthColor.SubsamplingX == 1 && hdr.BitDepthColor.SubsamplingY == 1
+		return hdr.BitDepthColor.BitDepth == Bits8 &&
+			hdr.BitDepthColor.SubsamplingX == 1 && hdr.BitDepthColor.SubsamplingY == 1
 	case common.Profile1:
-		return hdr.BitDepthColor.SubsamplingX <= 1 && hdr.BitDepthColor.SubsamplingY <= 1 &&
+		return hdr.BitDepthColor.BitDepth == Bits8 &&
+			hdr.BitDepthColor.SubsamplingX <= 1 && hdr.BitDepthColor.SubsamplingY <= 1 &&
 			!(hdr.BitDepthColor.SubsamplingX == 1 && hdr.BitDepthColor.SubsamplingY == 1)
+	case common.Profile2:
+		return (hdr.BitDepthColor.BitDepth == Bits10 || hdr.BitDepthColor.BitDepth == Bits12) &&
+			hdr.BitDepthColor.SubsamplingX == 1 && hdr.BitDepthColor.SubsamplingY == 1
 	default:
 		return false
 	}
