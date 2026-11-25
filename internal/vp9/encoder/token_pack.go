@@ -352,6 +352,20 @@ func stageCoefBlockQCoeffClasses(
 	}
 	c := 0
 	if branchStatsRows == nil {
+		if eob == 1 {
+			probOff0 := uint16(baseOff + (int(bandTrans[0])*vp9dec.CoefContexts+ctx)*UnconstrainedNodes)
+			raster0 := int(scan[0])
+			token, extra, _ := coeffTokenExtraQCoeff(qcoeffAt(qcoeffs, raster0))
+			tokens[0] = TokenExtra{
+				Token:   int16(token),
+				Extra:   extra,
+				ProbOff: probOff0,
+			}
+			ctx1 := tokenClassContext(a.Neighbors, classes, 1)
+			probOff1 := uint16(baseOff + (int(bandTrans[1])*vp9dec.CoefContexts+ctx1)*UnconstrainedNodes)
+			tokens[1] = TokenExtra{Token: EobToken, ProbOff: probOff1}
+			return 2, 1, true
+		}
 		for c < maxEob {
 			band := int(bandTrans[c])
 			probOff := uint16(baseOff + (band*vp9dec.CoefContexts+ctx)*UnconstrainedNodes)

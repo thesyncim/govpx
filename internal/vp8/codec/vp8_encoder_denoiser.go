@@ -288,40 +288,58 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 		return e.copyDenoiserNoFilterMacroblock(source, filtered, row, col, cols, index)
 	}
 
-	decMode := vp8dec.MacroblockMode{
-		RefFrame:    frame,
-		Mode:        mode,
-		MV:          vp8dec.MotionVector{Row: mv.Row, Col: mv.Col},
-		UVMode:      vp8common.DCPred,
-		Is4x4:       mode == vp8common.SplitMV,
-		MBSkipCoeff: true,
-	}
-	mcY := e.denoiser.mcY[:]
-	mcU := e.denoiser.mcU[:]
-	mcV := e.denoiser.mcV[:]
-	mcYStride, mcUStride, mcVStride := 16, 8, 8
-	// libvpx denoising.c filters UV only for zero motion after Y accepts.
-	// Y-only mode and moving blocks never consume their chroma predictors.
-	lumaOnly := e.denoiser.mode == vp8enc.DenoiserOnYOnly || motionMag != 0
-	predicted := lumaOnly && vp8dec.PredictWholeMVInterLumaWithState(
-		&e.denoiser.refStates[avgIndex], &decMode, mcY, mcYStride, row, col)
-	if !predicted && !vp8dec.ReconstructWholeMVInterMacroblockWithState(
-		&e.denoiser.refStates[avgIndex], &decMode, &vp8DenoiserZeroTokens, &e.dequants[0],
-		mcY, mcYStride, mcU, mcUStride, mcV, mcVStride,
-		&e.reconstructScratch.Residual, row, col,
-	) {
-		if !reconstructInterAnalysisMacroblockWithState(&e.denoiser.mcRunning.Img, &e.denoiser.runningAvg[avgIndex].Img, &e.denoiser.refStates[avgIndex], row, col, &decMode, &vp8DenoiserZeroTokens, &e.dequants[0], &e.reconstructScratch) {
-			return e.copyDenoiserNoFilterMacroblock(source, filtered, row, col, cols, index)
+	var mcY, mcU, mcV []byte
+	var mcYStride, mcUStride, mcVStride int
+	refImg := &e.denoiser.runningAvg[avgIndex].Img
+	yRefOff := row*16*refImg.YStride + col*16
+	uRefOff := row*8*refImg.UStride + col*8
+	vRefOff := row*8*refImg.VStride + col*8
+	if mv.Row == 0 && mv.Col == 0 &&
+		yRefOff >= 0 && yRefOff+15*refImg.YStride+16 <= len(refImg.Y) &&
+		uRefOff >= 0 && uRefOff+7*refImg.UStride+8 <= len(refImg.U) &&
+		vRefOff >= 0 && vRefOff+7*refImg.VStride+8 <= len(refImg.V) {
+		mcY = refImg.Y[yRefOff:]
+		mcU = refImg.U[uRefOff:]
+		mcV = refImg.V[vRefOff:]
+		mcYStride = refImg.YStride
+		mcUStride = refImg.UStride
+		mcVStride = refImg.VStride
+	} else {
+		decMode := vp8dec.MacroblockMode{
+			RefFrame:    frame,
+			Mode:        mode,
+			MV:          vp8dec.MotionVector{Row: mv.Row, Col: mv.Col},
+			UVMode:      vp8common.DCPred,
+			Is4x4:       mode == vp8common.SplitMV,
+			MBSkipCoeff: true,
 		}
-		yMcOff := row*16*e.denoiser.mcRunning.Img.YStride + col*16
-		uMcOff := row*8*e.denoiser.mcRunning.Img.UStride + col*8
-		vMcOff := row*8*e.denoiser.mcRunning.Img.VStride + col*8
-		mcY = e.denoiser.mcRunning.Img.Y[yMcOff:]
-		mcU = e.denoiser.mcRunning.Img.U[uMcOff:]
-		mcV = e.denoiser.mcRunning.Img.V[vMcOff:]
-		mcYStride = e.denoiser.mcRunning.Img.YStride
-		mcUStride = e.denoiser.mcRunning.Img.UStride
-		mcVStride = e.denoiser.mcRunning.Img.VStride
+		mcY = e.denoiser.mcY[:]
+		mcU = e.denoiser.mcU[:]
+		mcV = e.denoiser.mcV[:]
+		mcYStride, mcUStride, mcVStride = 16, 8, 8
+		// libvpx denoising.c filters UV only for zero motion after Y accepts.
+		// Y-only mode and moving blocks never consume their chroma predictors.
+		lumaOnly := e.denoiser.mode == vp8enc.DenoiserOnYOnly || motionMag != 0
+		predicted := lumaOnly && vp8dec.PredictWholeMVInterLumaWithState(
+			&e.denoiser.refStates[avgIndex], &decMode, mcY, mcYStride, row, col)
+		if !predicted && !vp8dec.ReconstructWholeMVInterMacroblockWithState(
+			&e.denoiser.refStates[avgIndex], &decMode, &vp8DenoiserZeroTokens, &e.dequants[0],
+			mcY, mcYStride, mcU, mcUStride, mcV, mcVStride,
+			&e.reconstructScratch.Residual, row, col,
+		) {
+			if !reconstructInterAnalysisMacroblockWithState(&e.denoiser.mcRunning.Img, &e.denoiser.runningAvg[avgIndex].Img, &e.denoiser.refStates[avgIndex], row, col, &decMode, &vp8DenoiserZeroTokens, &e.dequants[0], &e.reconstructScratch) {
+				return e.copyDenoiserNoFilterMacroblock(source, filtered, row, col, cols, index)
+			}
+			yMcOff := row*16*e.denoiser.mcRunning.Img.YStride + col*16
+			uMcOff := row*8*e.denoiser.mcRunning.Img.UStride + col*8
+			vMcOff := row*8*e.denoiser.mcRunning.Img.VStride + col*8
+			mcY = e.denoiser.mcRunning.Img.Y[yMcOff:]
+			mcU = e.denoiser.mcRunning.Img.U[uMcOff:]
+			mcV = e.denoiser.mcRunning.Img.V[vMcOff:]
+			mcYStride = e.denoiser.mcRunning.Img.YStride
+			mcUStride = e.denoiser.mcRunning.Img.UStride
+			mcVStride = e.denoiser.mcRunning.Img.VStride
+		}
 	}
 
 	avg := &e.denoiser.runningAvg[denoiserAvgIntra]

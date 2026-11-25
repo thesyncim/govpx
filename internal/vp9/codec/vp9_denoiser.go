@@ -238,7 +238,7 @@ func (e *VP9Encoder) applyVP9DenoiserToInterBlock(inter *vp9InterEncodeState,
 	mv := decision.mv[0]
 	motionMagnitude := int(mv.Row)*int(mv.Row) + int(mv.Col)*int(mv.Col)
 	increase := e.denoiser.level >= vp9DenoiserHigh
-	bestSSE := decision.distortion
+	bestSSE := decision.distortion >> 4
 	refFrame := decision.refFrame
 	refSlot := decision.refSlot
 	mode := decision.mode
@@ -276,14 +276,22 @@ func (e *VP9Encoder) applyVP9DenoiserToInterBlock(inter *vp9InterEncodeState,
 		motionMagnitude > vp9DenoiserNoiseMotionThresh(bsize, increase)<<3 {
 		return
 	}
-	if !e.vp9DenoiserMCPredict(inter, miRows, miCols, miRow, miCol, bsize,
-		refFrame, refSlot, mode, mv, filter) {
-		return
+	var mc *image.YCbCr
+	if mv.Row == 0 && mv.Col == 0 {
+		if avgIdx, ok := vp9DenoiserAvgIndexForRef(refFrame); ok {
+			mc = &e.denoiser.runningAvg[avgIdx]
+		}
+	}
+	if mc == nil {
+		if !e.vp9DenoiserMCPredict(inter, miRows, miCols, miRow, miCol, bsize,
+			refFrame, refSlot, mode, mv, filter) {
+			return
+		}
+		mc = &e.denoiser.mcRunningAvg
 	}
 
 	src := &e.denoiser.source
 	avg := &e.denoiser.runningAvg[vp9DenoiserAvgIntra]
-	mc := &e.denoiser.mcRunningAvg
 	srcOff := y0*src.YStride + x0
 	avgOff := y0*avg.YStride + x0
 	mcOff := y0*mc.YStride + x0
@@ -579,7 +587,5 @@ func copyVP9LumaBlock(dst []byte, dstStride int, src []byte, srcStride int, widt
 }
 
 func copyVP9PlaneBlock(dst []byte, dstStride int, src []byte, srcStride int, width int, height int) {
-	for y := range height {
-		copy(dst[y*dstStride:][:width], src[y*srcStride:][:width])
-	}
+	pixel.CopyBlock(src, srcStride, dst, dstStride, width, height)
 }

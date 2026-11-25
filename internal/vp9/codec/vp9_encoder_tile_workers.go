@@ -262,6 +262,14 @@ func (s *vp9RowMTSync) read(r, c int) {
 		return
 	}
 	target := int32(c - nsync + 1)
+	if s.curCol[r-1].Load() >= target {
+		return
+	}
+	for range 16 {
+		if s.curCol[r-1].Load() >= target {
+			return
+		}
+	}
 	for s.curCol[r-1].Load() < target {
 		if s.aborted.Load() {
 			return

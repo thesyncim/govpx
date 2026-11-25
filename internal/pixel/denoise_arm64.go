@@ -57,7 +57,14 @@ func DenoiseLuma16Average(mc []byte, ms int, avg []byte, as int, sig []byte, ss,
 }
 
 func denoiseLuma16(mc []byte, ms int, avg []byte, as int, sig []byte, ss, inc, level, thresholdSum int, updateSignal bool) (bool, bool) {
-	if inc < 0 || inc > 1 || level < 3 || level > 5 || (thresholdSum != 512 && thresholdSum != 600) || ms < 16 || as < 16 || ss < 16 || len(mc) < 16 || len(avg) < 16 || len(sig) < 16 || ms > (len(mc)-16)/15 || as > (len(avg)-16)/15 || ss > (len(sig)-16)/15 {
+	if inc < 0 || inc > 1 || level < 3 || level > 5 || (thresholdSum != 512 && thresholdSum != 600) || ms < 16 || as < 16 || ss < 16 || len(mc) < 16 || len(avg) < 16 || len(sig) < 16 {
+		return false, false
+	}
+	if ms <= 1<<20 && as <= 1<<20 && ss <= 1<<20 {
+		if len(mc) < 15*ms+16 || len(avg) < 15*as+16 || len(sig) < 15*ss+16 {
+			return false, false
+		}
+	} else if ms > (len(mc)-16)/15 || as > (len(avg)-16)/15 || ss > (len(sig)-16)/15 {
 		return false, false
 	}
 	if slicesOverlap(avg, mc, len(avg), len(mc)) || slicesOverlap(avg, sig, len(avg), len(sig)) {

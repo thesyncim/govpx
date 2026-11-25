@@ -17,7 +17,11 @@ func FilterBilinear2D(src []byte, ss int, dst []byte, ds, w, h int, hx0, hx1, hy
 	if int(hx0)+int(hx1) > 128 || int(hy0)+int(hy1) > 128 {
 		return false
 	}
-	if len(src) <= w || ss > (len(src)-1-w)/h || len(dst) < w || (h > 1 && ds > (len(dst)-w)/(h-1)) {
+	if ss <= 1<<20 && ds <= 1<<20 && w <= 64 && h <= 64 {
+		if len(src) <= h*ss+w || len(dst) < (h-1)*ds+w {
+			return false
+		}
+	} else if len(src) <= w || ss > (len(src)-1-w)/h || len(dst) < w || (h > 1 && ds > (len(dst)-w)/(h-1)) {
 		return false
 	}
 	// Disjointness guard: fused rolling rows require dst not to overwrite
@@ -123,17 +127,36 @@ func FilterBilinear2D(src []byte, ss int, dst []byte, ds, w, h int, hx0, hx1, hy
 		return true
 	}
 	if w == 8 {
-		a, b := load8(src[0:]), load8(src[1:])
-		prev := a.MulWidenLo(cx0).Add(b.MulWidenLo(cx1)).Add(bias).ShiftAllRight(7).TruncToUint8()
+		a0, b0 := load8(src[0:]), load8(src[1:])
+		prev := a0.MulWidenLo(cx0).Add(b0.MulWidenLo(cx1)).Add(bias).ShiftAllRight(7).TruncToUint8()
 		so, do := ss, 0
-		for range h {
-			a, b = load8(src[so:]), load8(src[so+1:])
+		y := 0
+		for ; y+1 < h; y += 2 {
+			r0 := src[so : so+9]
+			r1 := src[so+ss : so+ss+9]
+			a := archsimd.LoadUint64x2Array(&[2]uint64{
+				binary.LittleEndian.Uint64(r0[0:8]),
+				binary.LittleEndian.Uint64(r1[0:8]),
+			}).ReshapeToUint8s()
+			b := archsimd.LoadUint64x2Array(&[2]uint64{
+				binary.LittleEndian.Uint64(r0[1:9]),
+				binary.LittleEndian.Uint64(r1[1:9]),
+			}).ReshapeToUint8s()
+			c0 := a.MulWidenLo(cx0).Add(b.MulWidenLo(cx1)).Add(bias).ShiftAllRight(7).TruncToUint8()
+			c1 := a.HiToLo().MulWidenLo(cx0).Add(b.HiToLo().MulWidenLo(cx1)).Add(bias).ShiftAllRight(7).TruncToUint8()
+			o0 := prev.MulWidenLo(cy0).Add(c0.MulWidenLo(cy1)).Add(bias).ShiftAllRight(7).TruncToUint8()
+			o1 := c0.MulWidenLo(cy0).Add(c1.MulWidenLo(cy1)).Add(bias).ShiftAllRight(7).TruncToUint8()
+			storeBytes8(dst[do:], o0)
+			storeBytes8(dst[do+ds:], o1)
+			prev = c1
+			so += 2 * ss
+			do += 2 * ds
+		}
+		if y < h {
+			a, b := load8(src[so:]), load8(src[so+1:])
 			cur := a.MulWidenLo(cx0).Add(b.MulWidenLo(cx1)).Add(bias).ShiftAllRight(7).TruncToUint8()
 			out := prev.MulWidenLo(cy0).Add(cur.MulWidenLo(cy1)).Add(bias).ShiftAllRight(7)
 			storeBytes8(dst[do:], out.TruncToUint8())
-			prev = cur
-			so += ss
-			do += ds
 		}
 		return true
 	}

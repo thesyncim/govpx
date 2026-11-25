@@ -34,6 +34,9 @@ func VP8Quant(c, r, q, d, qout, dout []int16) { VP8QuantScalar(c, r, q, d, qout,
 func AddConstant8x8InPlace(dst []byte, stride, delta int) {
 	AddConstantScalar(dst, stride, dst, stride, 8, 8, delta)
 }
+func AddConstant16x16InPlace(dst []byte, stride, delta int) {
+	AddConstantScalar(dst, stride, dst, stride, 16, 16, delta)
+}
 
 func AddConstant(pred []byte, ps int, dst []byte, ds, w, h, delta int) {
 	AddConstantScalar(pred, ps, dst, ds, w, h, delta)

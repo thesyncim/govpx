@@ -1774,12 +1774,10 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 						}
 						nr := rng - split
 						nv := value - bigsplit
-						shift := uint32(bits.LeadingZeros8(uint8(nr))) & 7
-						rs.Range = nr << shift
-						rs.Value = nv << shift
-						rs.Count = count - int32(shift)
-						rs.CommitPos(pos)
-						eob = vp9dec.DecodeCoefsStateAfterEOB(rs, common.Tx4x4, planeType, 1, dequant,
+						shift := uint32(bits.LeadingZeros8(uint8(nr)))
+						eob, pos, value, rng, count = vp9dec.DecodeCoefsFastAfterEOB(
+							rs, buf, pos, nv<<shift, nr<<shift, count-int32(shift),
+							common.Tx4x4, planeType, 1, dequant,
 							initCtx, so, &d.fc.CoefProbs, &d.dqcoeff, &d.coefTokenCache)
 					} else {
 						rs.Value = value
@@ -1788,11 +1786,11 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 						rs.CommitPos(pos)
 						eob = vp9dec.DecodeCoefsState(rs, common.Tx4x4, planeType, 1, dequant,
 							initCtx, so, &d.fc.CoefProbs, nil, &d.dqcoeff, &d.coefTokenCache)
+						value = rs.Value
+						rng = rs.Range
+						count = rs.Count
+						_, _, _, pos = rs.BitView()
 					}
-					value = rs.Value
-					rng = rs.Range
-					count = rs.Count
-					_, _, _, pos = rs.BitView()
 					eobTotal += eob
 					hasResidue := uint8(0)
 					if eob > 0 {
@@ -1918,12 +1916,10 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 						}
 						nr := rng - split
 						nv := value - bigsplit
-						shift := uint32(bits.LeadingZeros8(uint8(nr))) & 7
-						rs.Range = nr << shift
-						rs.Value = nv << shift
-						rs.Count = count - int32(shift)
-						rs.CommitPos(pos)
-						eob = vp9dec.DecodeCoefsStateAfterEOB(rs, common.Tx8x8, planeType, 1, dequant,
+						shift := uint32(bits.LeadingZeros8(uint8(nr)))
+						eob, pos, value, rng, count = vp9dec.DecodeCoefsFastAfterEOB(
+							rs, buf, pos, nv<<shift, nr<<shift, count-int32(shift),
+							common.Tx8x8, planeType, 1, dequant,
 							initCtx, so, &d.fc.CoefProbs, &d.dqcoeff, &d.coefTokenCache)
 					} else {
 						rs.Value = value
@@ -1932,11 +1928,11 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 						rs.CommitPos(pos)
 						eob = vp9dec.DecodeCoefsState(rs, common.Tx8x8, planeType, 1, dequant,
 							initCtx, so, &d.fc.CoefProbs, nil, &d.dqcoeff, &d.coefTokenCache)
+						value = rs.Value
+						rng = rs.Range
+						count = rs.Count
+						_, _, _, pos = rs.BitView()
 					}
-					value = rs.Value
-					rng = rs.Range
-					count = rs.Count
-					_, _, _, pos = rs.BitView()
 					eobTotal += eob
 					hasResidue := uint8(0)
 					if eob > 0 {
@@ -2073,12 +2069,10 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 						}
 						nr := rng - split
 						nv := value - bigsplit
-						shift := uint32(bits.LeadingZeros8(uint8(nr))) & 7
-						rs.Range = nr << shift
-						rs.Value = nv << shift
-						rs.Count = count - int32(shift)
-						rs.CommitPos(pos)
-						eob = vp9dec.DecodeCoefsStateAfterEOB(rs, common.Tx16x16, planeType, 1, dequant,
+						shift := uint32(bits.LeadingZeros8(uint8(nr)))
+						eob, pos, value, rng, count = vp9dec.DecodeCoefsFastAfterEOB(
+							rs, buf, pos, nv<<shift, nr<<shift, count-int32(shift),
+							common.Tx16x16, planeType, 1, dequant,
 							initCtx, so, &d.fc.CoefProbs, &d.dqcoeff, &d.coefTokenCache)
 					} else {
 						rs.Value = value
@@ -2087,11 +2081,11 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 						rs.CommitPos(pos)
 						eob = vp9dec.DecodeCoefsState(rs, common.Tx16x16, planeType, 1, dequant,
 							initCtx, so, &d.fc.CoefProbs, nil, &d.dqcoeff, &d.coefTokenCache)
+						value = rs.Value
+						rng = rs.Range
+						count = rs.Count
+						_, _, _, pos = rs.BitView()
 					}
-					value = rs.Value
-					rng = rs.Range
-					count = rs.Count
-					_, _, _, pos = rs.BitView()
 					eobTotal += eob
 					hasResidue := uint8(0)
 					if eob > 0 {

@@ -164,7 +164,7 @@ func readCoeffBits(r *bitstream.ReaderState, probs []uint8, n int,
 func vpxReadNoFill(prob uint32,
 	value uint64, rng uint32, count int32,
 ) (uint32, uint64, uint32, int32) {
-	split := 1 + (((rng - 1) * prob) >> 8)
+	split := (rng*prob + (256 - prob)) >> 8
 	bigsplit := uint64(split) << (64 - 8)
 	nextRange := split
 	var bit uint32
@@ -355,6 +355,28 @@ func DecodeCoefsStateAfterEOB(
 		dequant, ctx, so.Scan, so.Neighbors, fc, dqcoeff, tokenCache, true)
 }
 
+// DecodeCoefsFastAfterEOB decodes a counts-less transform block whose initial
+// c==0 EOB bit was already consumed as 1 by the caller, keeping the boolean
+// reader state in registers across the call boundary without spilling to rs
+// unless the slow tail at the end of the tile is reached.
+func DecodeCoefsFastAfterEOB(
+	r *bitstream.ReaderState,
+	buf []byte, pos int,
+	value uint64, rng uint32, count int32,
+	txSize common.TxSize,
+	planeType, isInter int,
+	dequant [2]int16,
+	ctx int,
+	so *common.ScanOrder,
+	fc *FrameCoefProbs,
+	dqcoeff *[1024]int16,
+	tokenCache *[1024]uint8,
+) (int, int, uint64, uint32, int32) {
+	return decodeCoefsReaderStateCore(r, buf, pos, value, rng, count,
+		txSize, planeType, isInter, dequant, ctx, so.Scan, so.Neighbors,
+		fc, dqcoeff, tokenCache, true)
+}
+
 // decodeCoefsReaderState is the call-free fast token loop (counts-less,
 // frame-parallel streams). See the package comment block above for the
 // fast/slow structure.
@@ -371,6 +393,33 @@ func decodeCoefsReaderState(
 	tokenCache *[1024]uint8,
 	skipFirstEOB bool,
 ) int {
+	buf, _, _, pos := r.BitView()
+	eob, nextPos, value, rng, count := decodeCoefsReaderStateCore(
+		r, buf, pos, r.Value, r.Range, r.Count,
+		txSize, planeType, isInter, dequant, ctx, scan, neighbors,
+		fc, dqcoeff, tokenCache, skipFirstEOB)
+	r.Value = value
+	r.Range = rng
+	r.Count = count
+	r.CommitPos(nextPos)
+	return eob
+}
+
+func decodeCoefsReaderStateCore(
+	r *bitstream.ReaderState,
+	buf []byte, pos int,
+	value uint64, rng uint32, count int32,
+	txSize common.TxSize,
+	planeType int,
+	isInter int,
+	dequant [2]int16,
+	ctx int,
+	scan, neighbors []int16,
+	fc *FrameCoefProbs,
+	dqcoeff *[1024]int16,
+	tokenCache *[1024]uint8,
+	skipFirstEOB bool,
+) (int, int, uint64, uint32, int32) {
 	maxEob := maxEobForTxSize(txSize)
 	_ = scan[maxEob-1]
 	_ = neighbors[(maxEob<<1)-1]
@@ -381,14 +430,11 @@ func decodeCoefsReaderState(
 	}
 	dqv := dequant[0]
 	dqvAC := dequant[1]
+	dq1 := int(dqv) >> dqShift
+	dq1AC := int(dqvAC) >> dqShift
 
 	coefModel := &fc[txSize][planeType][isInter]
-
-	buf, _, _, pos := r.BitView()
 	fastLimit := len(buf) - coefFastMargin
-	value := r.Value
-	rng := r.Range
-	count := r.Count
 
 	c := 0
 	slowResume := false
@@ -424,6 +470,7 @@ fastLoop:
 			value, rng, count)
 		for bit == 0 {
 			dqv = dqvAC
+			dq1 = dq1AC
 			tokenCache[int(scan[c])&1023] = 0
 			c++
 			if c >= maxEob {
@@ -570,26 +617,31 @@ fastLoop:
 		} else {
 			idx := int(scan[c]) & 1023
 			tokenCache[idx] = 1
-			v := int(dqv) >> dqShift
 			bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
 			sign := -int(bit)
-			dqcoeff[idx] = int16((v ^ sign) - sign)
+			dqcoeff[idx] = int16((dq1 ^ sign) - sign)
 		}
 
 		c++
+		if c >= maxEob {
+			break
+		}
 		ctx = getCoefContextArr(neighbors, tokenCache, c)
 		dqv = dqvAC
+		dq1 = dq1AC
 	}
 
+	if !slowResume {
+		return c, pos, value, rng, count
+	}
 	r.Value = value
 	r.Range = rng
 	r.Count = count
 	r.CommitPos(pos)
-	if !slowResume {
-		return c
-	}
-	return decodeCoefsSlowTail(r, txSize, planeType, isInter, dequant,
+	eob := decodeCoefsSlowTail(r, txSize, planeType, isInter, dequant,
 		scan, neighbors, fc, nil, dqcoeff, tokenCache, c, ctx, dqv, skipEob)
+	_, _, _, nextPos := r.BitView()
+	return eob, nextPos, r.Value, r.Range, r.Count
 }
 
 // decodeCoefsWithCountsReaderState is decodeCoefsReaderState plus the

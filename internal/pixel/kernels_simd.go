@@ -415,7 +415,7 @@ func VP8Quant(coeff, round, quant, dequant []int16, qcoeff, dqcoeff []int16) {
 	}
 }
 func AddConstant8x8InPlace(dst []byte, stride, delta int) {
-	if !Enabled || stride < 8 || len(dst) < 8 || stride > (len(dst)-8)/7 {
+	if !Enabled || stride < 8 || len(dst) < 8 || (stride <= 1<<20 && len(dst) < 7*stride+8) || (stride > 1<<20 && stride > (len(dst)-8)/7) {
 		AddConstantScalar(dst, stride, dst, stride, 8, 8, delta)
 		return
 	}
@@ -462,6 +462,42 @@ func AddConstant8x8InPlace(dst []byte, stride, delta int) {
 	binary.LittleEndian.PutUint64(d2[stride:], v2.GetElem(1))
 	binary.LittleEndian.PutUint64(d3, v3.GetElem(0))
 	binary.LittleEndian.PutUint64(d3[stride:], v3.GetElem(1))
+}
+
+func AddConstant16x16InPlace(dst []byte, stride, delta int) {
+	if !Enabled || stride < 16 || len(dst) < 16 || (stride <= 1<<20 && len(dst) < 15*stride+16) || (stride > 1<<20 && stride > (len(dst)-16)/15) {
+		AddConstantScalar(dst, stride, dst, stride, 16, 16, delta)
+		return
+	}
+	if delta == 0 {
+		return
+	}
+	_ = dst[15*stride+15]
+	off := 0
+	if delta > 0 {
+		d := uint8(255)
+		if delta < 255 {
+			d = uint8(delta)
+		}
+		dv := archsimd.BroadcastUint8x16(d)
+		for range 16 {
+			p := (*[16]byte)(dst[off : off+16])
+			archsimd.LoadUint8x16Array(p).AddSaturated(dv).StoreArray(p)
+			off += stride
+		}
+		return
+	}
+	mag := -delta
+	d := uint8(255)
+	if mag < 255 {
+		d = uint8(mag)
+	}
+	dv := archsimd.BroadcastUint8x16(d)
+	for range 16 {
+		p := (*[16]byte)(dst[off : off+16])
+		archsimd.LoadUint8x16Array(p).SubSaturated(dv).StoreArray(p)
+		off += stride
+	}
 }
 
 func AddConstant(pred []byte, ps int, dst []byte, ds, w, h, delta int) {

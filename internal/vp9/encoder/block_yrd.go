@@ -3,6 +3,7 @@ package encoder
 import (
 	"math/bits"
 
+	"github.com/thesyncim/govpx/internal/pixel"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dsp "github.com/thesyncim/govpx/internal/vp9/dsp"
 )
@@ -508,23 +509,43 @@ func modelRdBlockVariance8x8(src []byte, srcStride, srcX, srcY int,
 	if w%8 != 0 || h%8 != 0 {
 		return 0, 0, false
 	}
+	blocks := (w >> 3) * (h >> 3)
+	if blocks > len(sse8x8) || blocks > len(sum8x8) || blocks > len(var8x8) {
+		return 0, 0, false
+	}
+	if pixel.Enabled && w&15 == 0 {
+		if totalSSE, totalSum, ok := pixel.SumSSE8x8Grid(
+			src[srcY*srcStride+srcX:], srcStride,
+			pred[predY*predStride+predX:], predStride,
+			w, h, sse8x8, sum8x8); ok {
+			for k := range blocks {
+				bs := int64(sum8x8[k])
+				sumSqr := uint32((bs * bs) >> 6)
+				var8x8[k] = modelRdAbsDiff32(sse8x8[k], sumSqr)
+			}
+			return totalSSE, totalSum, true
+		}
+	}
 	k := 0
 	var totalSSE uint32
 	totalSum := 0
 	for y := 0; y < h; y += 8 {
 		for x := 0; x < w; x += 8 {
-			if k >= len(sse8x8) || k >= len(sum8x8) || k >= len(var8x8) {
-				return 0, 0, false
-			}
 			var blockSSE uint32
 			blockSum := 0
-			for yy := range 8 {
-				srcRow := src[(srcY+y+yy)*srcStride+srcX+x:]
-				predRow := pred[(predY+y+yy)*predStride+predX+x:]
-				for xx := range 8 {
-					diff := int(srcRow[xx]) - int(predRow[xx])
-					blockSum += diff
-					blockSSE += uint32(diff * diff)
+			if pixel.Enabled {
+				_, blockSum, blockSSE = pixel.DiffMetrics(
+					src[(srcY+y)*srcStride+srcX+x:], srcStride,
+					pred[(predY+y)*predStride+predX+x:], predStride, 8, 8)
+			} else {
+				for yy := range 8 {
+					srcRow := src[(srcY+y+yy)*srcStride+srcX+x:]
+					predRow := pred[(predY+y+yy)*predStride+predX+x:]
+					for xx := range 8 {
+						diff := int(srcRow[xx]) - int(predRow[xx])
+						blockSum += diff
+						blockSSE += uint32(diff * diff)
+					}
 				}
 			}
 			sse8x8[k] = blockSSE

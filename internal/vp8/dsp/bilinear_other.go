@@ -45,7 +45,12 @@ func bilinearPredictGo(src []byte, ss, x, y int, dst []byte, ds, w, h int) {
 	if pixel.FilterBilinear2D(src, ss, dst, ds, w, h, uint8(fx[0]), uint8(fx[1]), uint8(fy[0]), uint8(fy[1])) {
 		return
 	}
+	bilinearPredict2DFallback(src, ss, dst, ds, w, h, uint8(fx[0]), uint8(fx[1]), uint8(fy[0]), uint8(fy[1]))
+}
+
+//go:noinline
+func bilinearPredict2DFallback(src []byte, ss int, dst []byte, ds, w, h int, fx0, fx1, fy0, fy1 uint8) {
 	var tmp [17 * 16]byte
-	pixel.FilterBilinear(src, ss, tmp[:], w, w, h+1, 1, uint8(fx[0]), uint8(fx[1]))
-	pixel.FilterBilinear(tmp[:], w, dst, ds, w, h, w, uint8(fy[0]), uint8(fy[1]))
+	pixel.FilterBilinear(src, ss, tmp[:], w, w, h+1, 1, fx0, fx1)
+	pixel.FilterBilinear(tmp[:], w, dst, ds, w, h, w, fy0, fy1)
 }

@@ -80,7 +80,8 @@ func fillBoolSlow(buf []byte, pos int, value uint64, count int) (uint64, int, in
 
 func (d *Decoder) ReadBool(prob uint8) uint8 {
 	rng0 := d.rng
-	split := uint32(1 + (((rng0 - 1) * uint32(prob)) >> 8))
+	p := uint32(prob)
+	split := (rng0*p + (256 - p)) >> 8
 	count := d.count
 	if count < 0 {
 		d.fill()
@@ -97,7 +98,7 @@ func (d *Decoder) ReadBool(prob uint8) uint8 {
 		bit = 1
 	}
 
-	shift := uint32(bits.LeadingZeros8(uint8(rng))) & 7
+	shift := uint32(bits.LeadingZeros8(uint8(rng)))
 	d.rng = rng << shift
 	d.value = value << shift
 	d.count = count - int(shift)
@@ -123,7 +124,7 @@ func (d *Decoder) ReadBit() uint8 {
 		bit = 1
 	}
 
-	shift := uint32(bits.LeadingZeros8(uint8(rng))) & 7
+	shift := uint32(1) - (rng >> 7)
 	d.rng = rng << shift
 	d.value = value << shift
 	d.count = count - int(shift)
@@ -387,7 +388,8 @@ func fillBoolFast(buf []byte, pos int, value uint64, count int) (uint64, int, in
 }
 
 func vp8ReadBoolNoFill(prob uint8, value uint64, rng uint32, count int) (uint8, uint64, uint32, int) {
-	split := uint32(1 + (((rng - 1) * uint32(prob)) >> 8))
+	p := uint32(prob)
+	split := (rng*p + (256 - p)) >> 8
 	bigsplit := uint64(split) << (valueSize - 8)
 	nextRange := split
 	bit := uint8(0)
@@ -591,114 +593,176 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 
 	btY := &(*probs)[lumaType]
 	bandY := &btY[skipDC]
-	for b := range 16 {
-		if pos > fastLimit {
-			d.value, d.count, d.rng, d.pos = value, count, rng, pos
-			return d.readVP8MacroblockCoeffsSlow(
-				probs, is4x4, b, eobTotal, dirtyMask,
-				aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
-				aboveY2, leftY2, qcoeff, eob,
-			)
+	var aY [4]uint8
+	aY[0], aY[1], aY[2], aY[3] = aboveY1[0]&1, aboveY1[1]&1, aboveY1[2]&1, aboveY1[3]&1
+	for row := range 4 {
+		lv := leftY1[row] & 1
+		rowBase := row << 2
+		for col := range 4 {
+			b := rowBase + col
+			if pos > fastLimit {
+				aboveY1[0], aboveY1[1], aboveY1[2], aboveY1[3] = aY[0], aY[1], aY[2], aY[3]
+				leftY1[row] = lv
+				d.value, d.count, d.rng, d.pos = value, count, rng, pos
+				return d.readVP8MacroblockCoeffsSlow(
+					probs, is4x4, b, eobTotal, dirtyMask,
+					aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
+					aboveY2, leftY2, qcoeff, eob,
+				)
+			}
+			p := &bandY[aY[col]+lv]
+			if count < 24 {
+				value, count, pos = fillBoolFast(buf, pos, value, count)
+			}
+			prob := uint32(p[0])
+			split := (rng*prob + (256 - prob)) >> 8
+			bigsplit := uint64(split) << (valueSize - 8)
+			if value < bigsplit {
+				shift := uint32(bits.LeadingZeros8(uint8(split)))
+				rng = split << shift
+				value <<= shift
+				count -= int(shift)
+				aY[col] = 0
+				lv = 0
+				eob[b] = uint8(skipDC)
+				eobTotal += skipDC
+				continue
+			}
+			nr := rng - split
+			nv := value - bigsplit
+			shift := uint32(bits.LeadingZeros8(uint8(nr)))
+			rng = nr << shift
+			value = nv << shift
+			count -= int(shift)
+			var nz int
+			nz, value, rng, count, pos = decodeVP8NonZeroBlockFast(buf, pos, value, rng, count, btY, p, skipDC, &qcoeff[b])
+			has := uint8(0)
+			if nz > 0 {
+				has = 1
+				dirtyMask |= 1 << uint(b)
+			}
+			aY[col] = has
+			lv = has
+			eob[b] = uint8(nz + skipDC)
+			eobTotal += nz + skipDC
 		}
-		aP := &aboveY1[b&3]
-		lP := &leftY1[b>>2]
-		p := &bandY[int(*aP+*lP)]
-		if count < 24 {
-			value, count, pos = fillBoolFast(buf, pos, value, count)
-		}
-		bit, value, rng, count = vp8ReadBoolNoFill(p[0], value, rng, count)
-		if bit == 0 {
-			*aP = 0
-			*lP = 0
-			eob[b] = uint8(skipDC)
-			eobTotal += skipDC
-			continue
-		}
-		var nz int
-		nz, value, rng, count, pos = decodeVP8NonZeroBlockFast(buf, pos, value, rng, count, btY, p, skipDC, &qcoeff[b])
-		has := uint8(0)
-		if nz > 0 {
-			has = 1
-			dirtyMask |= 1 << uint(b)
-		}
-		*aP = has
-		*lP = has
-		eob[b] = uint8(nz + skipDC)
-		eobTotal += nz + skipDC
+		leftY1[row] = lv
 	}
+	aboveY1[0], aboveY1[1], aboveY1[2], aboveY1[3] = aY[0], aY[1], aY[2], aY[3]
 
 	btUV := &(*probs)[2]
 	bandUV := &btUV[0]
-	for i := range 4 {
-		b := 16 + i
-		if pos > fastLimit {
-			d.value, d.count, d.rng, d.pos = value, count, rng, pos
-			return d.readVP8MacroblockCoeffsSlow(
-				probs, is4x4, b, eobTotal, dirtyMask,
-				aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
-				aboveY2, leftY2, qcoeff, eob,
-			)
+	var aU [2]uint8
+	aU[0], aU[1] = aboveU[0]&1, aboveU[1]&1
+	for row := range 2 {
+		lv := leftU[row] & 1
+		rowBase := 16 + (row << 1)
+		for col := range 2 {
+			b := rowBase + col
+			if pos > fastLimit {
+				aboveU[0], aboveU[1] = aU[0], aU[1]
+				leftU[row] = lv
+				d.value, d.count, d.rng, d.pos = value, count, rng, pos
+				return d.readVP8MacroblockCoeffsSlow(
+					probs, is4x4, b, eobTotal, dirtyMask,
+					aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
+					aboveY2, leftY2, qcoeff, eob,
+				)
+			}
+			p := &bandUV[aU[col]+lv]
+			if count < 24 {
+				value, count, pos = fillBoolFast(buf, pos, value, count)
+			}
+			prob := uint32(p[0])
+			split := (rng*prob + (256 - prob)) >> 8
+			bigsplit := uint64(split) << (valueSize - 8)
+			if value < bigsplit {
+				shift := uint32(bits.LeadingZeros8(uint8(split)))
+				rng = split << shift
+				value <<= shift
+				count -= int(shift)
+				aU[col] = 0
+				lv = 0
+				eob[b] = 0
+				continue
+			}
+			nr := rng - split
+			nv := value - bigsplit
+			shift := uint32(bits.LeadingZeros8(uint8(nr)))
+			rng = nr << shift
+			value = nv << shift
+			count -= int(shift)
+			var nz int
+			nz, value, rng, count, pos = decodeVP8NonZeroBlockFast(buf, pos, value, rng, count, btUV, p, 0, &qcoeff[b])
+			has := uint8(0)
+			if nz > 0 {
+				has = 1
+				dirtyMask |= 1 << uint(b)
+			}
+			aU[col] = has
+			lv = has
+			eob[b] = uint8(nz)
+			eobTotal += nz
 		}
-		aP := &aboveU[i&1]
-		lP := &leftU[i>>1]
-		p := &bandUV[int(*aP+*lP)]
-		if count < 24 {
-			value, count, pos = fillBoolFast(buf, pos, value, count)
-		}
-		bit, value, rng, count = vp8ReadBoolNoFill(p[0], value, rng, count)
-		if bit == 0 {
-			*aP = 0
-			*lP = 0
-			eob[b] = 0
-			continue
-		}
-		var nz int
-		nz, value, rng, count, pos = decodeVP8NonZeroBlockFast(buf, pos, value, rng, count, btUV, p, 0, &qcoeff[b])
-		has := uint8(0)
-		if nz > 0 {
-			has = 1
-			dirtyMask |= 1 << uint(b)
-		}
-		*aP = has
-		*lP = has
-		eob[b] = uint8(nz)
-		eobTotal += nz
+		leftU[row] = lv
 	}
-	for i := range 4 {
-		b := 20 + i
-		if pos > fastLimit {
-			d.value, d.count, d.rng, d.pos = value, count, rng, pos
-			return d.readVP8MacroblockCoeffsSlow(
-				probs, is4x4, b, eobTotal, dirtyMask,
-				aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
-				aboveY2, leftY2, qcoeff, eob,
-			)
+	aboveU[0], aboveU[1] = aU[0], aU[1]
+
+	var aV [2]uint8
+	aV[0], aV[1] = aboveV[0]&1, aboveV[1]&1
+	for row := range 2 {
+		lv := leftV[row] & 1
+		rowBase := 20 + (row << 1)
+		for col := range 2 {
+			b := rowBase + col
+			if pos > fastLimit {
+				aboveV[0], aboveV[1] = aV[0], aV[1]
+				leftV[row] = lv
+				d.value, d.count, d.rng, d.pos = value, count, rng, pos
+				return d.readVP8MacroblockCoeffsSlow(
+					probs, is4x4, b, eobTotal, dirtyMask,
+					aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
+					aboveY2, leftY2, qcoeff, eob,
+				)
+			}
+			p := &bandUV[aV[col]+lv]
+			if count < 24 {
+				value, count, pos = fillBoolFast(buf, pos, value, count)
+			}
+			prob := uint32(p[0])
+			split := (rng*prob + (256 - prob)) >> 8
+			bigsplit := uint64(split) << (valueSize - 8)
+			if value < bigsplit {
+				shift := uint32(bits.LeadingZeros8(uint8(split)))
+				rng = split << shift
+				value <<= shift
+				count -= int(shift)
+				aV[col] = 0
+				lv = 0
+				eob[b] = 0
+				continue
+			}
+			nr := rng - split
+			nv := value - bigsplit
+			shift := uint32(bits.LeadingZeros8(uint8(nr)))
+			rng = nr << shift
+			value = nv << shift
+			count -= int(shift)
+			var nz int
+			nz, value, rng, count, pos = decodeVP8NonZeroBlockFast(buf, pos, value, rng, count, btUV, p, 0, &qcoeff[b])
+			has := uint8(0)
+			if nz > 0 {
+				has = 1
+				dirtyMask |= 1 << uint(b)
+			}
+			aV[col] = has
+			lv = has
+			eob[b] = uint8(nz)
+			eobTotal += nz
 		}
-		aP := &aboveV[i&1]
-		lP := &leftV[i>>1]
-		p := &bandUV[int(*aP+*lP)]
-		if count < 24 {
-			value, count, pos = fillBoolFast(buf, pos, value, count)
-		}
-		bit, value, rng, count = vp8ReadBoolNoFill(p[0], value, rng, count)
-		if bit == 0 {
-			*aP = 0
-			*lP = 0
-			eob[b] = 0
-			continue
-		}
-		var nz int
-		nz, value, rng, count, pos = decodeVP8NonZeroBlockFast(buf, pos, value, rng, count, btUV, p, 0, &qcoeff[b])
-		has := uint8(0)
-		if nz > 0 {
-			has = 1
-			dirtyMask |= 1 << uint(b)
-		}
-		*aP = has
-		*lP = has
-		eob[b] = uint8(nz)
-		eobTotal += nz
+		leftV[row] = lv
 	}
+	aboveV[0], aboveV[1] = aV[0], aV[1]
 
 	d.value = value
 	d.count = count

@@ -318,7 +318,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	}
 	forceSkipLowTempVar, forceSkipKnown :=
 		e.vp9VarPartForceSkipLowTempVarOK(miCols, miRow, miCol, bsize)
-	if !forceSkipKnown && e.sf.ShortCircuitLowTempVar >= 1 {
+	if !forceSkipKnown && e.sf.ShortCircuitLowTempVar >= 1 &&
+		e.sf.PartitionSearchType != FixedPartition {
 		sbIdx := e.vp9ChoosePartitioningSBIndex(miCols, miRow&^7, miCol&^7)
 		if sbIdx < 0 || sbIdx >= len(e.varPartSBComputed) ||
 			!e.varPartSBComputed[sbIdx] {

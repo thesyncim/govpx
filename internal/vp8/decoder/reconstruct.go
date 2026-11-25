@@ -1,6 +1,7 @@
 package decoder
 
 import (
+	"encoding/binary"
 	"errors"
 	"github.com/thesyncim/govpx/internal/pixel"
 	"github.com/thesyncim/govpx/internal/vp8/common"
@@ -221,6 +222,19 @@ func dequantIDCTAddMacroblock(tokens *MacroblockTokens, dequant *common.Macroblo
 // the same promotion ConvertMacroblockCoefficients applied when it staged
 // tokens (max(eob, 1) on the 16 luma blocks).
 func dequantIDCTAddMacroblockRaw(qcoeff *[25][16]int16, eob *[25]uint8, lumaEOBFloor uint8, dequant *common.MacroblockDequant, is4x4 bool, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int) {
+	if !is4x4 && eob[24] == 1 {
+		e0 := binary.LittleEndian.Uint64(eob[0:8])
+		e1 := binary.LittleEndian.Uint64(eob[8:16])
+		if (e0|e1)&0xFEFEFEFEFEFEFEFE == 0 {
+			dc := (qcoeff[24][0]*dequant.Y2[0] + 3) >> 3
+			delta := (int(int32(dc)*int32(dequant.Y1DC[0])) + 4) >> 3
+			if delta != 0 {
+				pixel.AddConstant16x16InPlace(y, yStride, delta)
+			}
+			dequantIDCTAddChromaBlocks(qcoeff, eob, &dequant.UV, u, uStride, v, vStride)
+			return
+		}
+	}
 	yDequant := &dequant.Y1
 	seeded := false
 	if !is4x4 {
