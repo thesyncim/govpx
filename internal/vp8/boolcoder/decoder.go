@@ -396,7 +396,7 @@ func vp8ReadBoolNoFill(prob uint8, value uint64, rng uint32, count int) (uint8, 
 		value -= bigsplit
 		bit = 1
 	}
-	shift := uint32(bits.LeadingZeros8(uint8(nextRange))) & 7
+	shift := uint32(bits.LeadingZeros8(uint8(nextRange)))
 	return bit, value << shift, nextRange << shift, count - int(shift)
 }
 

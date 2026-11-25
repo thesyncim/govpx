@@ -415,3 +415,105 @@ func LoopFilterSimpleVertical16(s []byte, stride int, blimit byte) bool {
 	binary.LittleEndian.PutUint16(s15[1:], uint16(v3>>48))
 	return true
 }
+
+// LoopFilterSimpleVertical3Inner16 filters the 3 inner 4-column vertical
+// subblock edges of a 16x16 macroblock (columns +0, +4, +8 from s, where s
+// points at yOff+2) in one call, sharing the 16 row slices and SIMD constants.
+func LoopFilterSimpleVertical3Inner16(s []byte, stride int, blimit byte) bool {
+	if stride < 12 || blimit >= 255 || 15*stride+12 > len(s) {
+		return false
+	}
+	_ = s[15*stride+11]
+	o1 := stride
+	o2 := o1 + stride
+	o3 := o2 + stride
+	o4 := o3 + stride
+	o5 := o4 + stride
+	o6 := o5 + stride
+	o7 := o6 + stride
+	o8 := o7 + stride
+	o9 := o8 + stride
+	o10 := o9 + stride
+	o11 := o10 + stride
+	o12 := o11 + stride
+	o13 := o12 + stride
+	o14 := o13 + stride
+	o15 := o14 + stride
+	s0, s1, s2, s3 := s[0:12], s[o1:o1+12], s[o2:o2+12], s[o3:o3+12]
+	s4, s5, s6, s7 := s[o4:o4+12], s[o5:o5+12], s[o6:o6+12], s[o7:o7+12]
+	s8, s9, s10, s11 := s[o8:o8+12], s[o9:o9+12], s[o10:o10+12], s[o11:o11+12]
+	s12, s13, s14, s15 := s[o12:o12+12], s[o13:o13+12], s[o14:o14+12], s[o15:o15+12]
+	blimV := archsimd.BroadcastUint8x16(blimit)
+	bias := archsimd.BroadcastUint8x16(128)
+	c4 := archsimd.BroadcastInt8x16(4)
+	c3 := archsimd.BroadcastInt8x16(3)
+	for col := 0; col <= 8; col += 4 {
+		r0 := archsimd.LoadUint32x4Array(&[4]uint32{
+			binary.LittleEndian.Uint32(s0[col:]), binary.LittleEndian.Uint32(s4[col:]),
+			binary.LittleEndian.Uint32(s2[col:]), binary.LittleEndian.Uint32(s6[col:]),
+		}).ReshapeToUint8s()
+		r1 := archsimd.LoadUint32x4Array(&[4]uint32{
+			binary.LittleEndian.Uint32(s1[col:]), binary.LittleEndian.Uint32(s5[col:]),
+			binary.LittleEndian.Uint32(s3[col:]), binary.LittleEndian.Uint32(s7[col:]),
+		}).ReshapeToUint8s()
+		r2 := archsimd.LoadUint32x4Array(&[4]uint32{
+			binary.LittleEndian.Uint32(s8[col:]), binary.LittleEndian.Uint32(s12[col:]),
+			binary.LittleEndian.Uint32(s10[col:]), binary.LittleEndian.Uint32(s14[col:]),
+		}).ReshapeToUint8s()
+		r3 := archsimd.LoadUint32x4Array(&[4]uint32{
+			binary.LittleEndian.Uint32(s9[col:]), binary.LittleEndian.Uint32(s13[col:]),
+			binary.LittleEndian.Uint32(s11[col:]), binary.LittleEndian.Uint32(s15[col:]),
+		}).ReshapeToUint8s()
+		t0 := zipBytesLo(r0, r1)
+		t1 := zipBytesLo(highBytes(r0), highBytes(r1))
+		t2 := zipBytesLo(r2, r3)
+		t3 := zipBytesLo(highBytes(r2), highBytes(r3))
+		u0 := t0.InterleaveLo(t1).ReshapeToUint32s()
+		u1 := t0.InterleaveHi(t1).ReshapeToUint32s()
+		u2 := t2.InterleaveLo(t3).ReshapeToUint32s()
+		u3 := t2.InterleaveHi(t3).ReshapeToUint32s()
+		loP := u0.InterleaveLo(u1).ReshapeToUint64s()
+		loQ := u0.InterleaveHi(u1).ReshapeToUint64s()
+		hiP := u2.InterleaveLo(u3).ReshapeToUint64s()
+		hiQ := u2.InterleaveHi(u3).ReshapeToUint64s()
+		p1 := loP.InterleaveLo(hiP).ReshapeToUint8s()
+		p0 := loP.InterleaveHi(hiP).ReshapeToUint8s()
+		q0 := loQ.InterleaveLo(hiQ).ReshapeToUint8s()
+		q1 := loQ.InterleaveHi(hiQ).ReshapeToUint8s()
+
+		d0, d3 := lfAbsByte(p0, q0), lfAbsByte(p1, q1)
+		need := lfByteLE(d0.AddSaturated(d0).AddSaturated(lfByteHalf(d3)), blimV)
+		bits := need.ToInt8x16().ToBits().ReshapeToUint64s()
+		if bits.GetElem(0)|bits.GetElem(1) == 0 {
+			continue
+		}
+		p1c, p0c, q0c, q1c := p1.Xor(bias).BitsToInt8(), p0.Xor(bias).BitsToInt8(), q0.Xor(bias).BitsToInt8(), q1.Xor(bias).BitsToInt8()
+		f := lfFilterDelta(p1c.SubSaturated(q1c), p0c, q0c).Masked(need)
+		f1 := lfByteShift3(f.AddSaturated(c4))
+		f2 := lfByteShift3(f.AddSaturated(c3))
+		np0 := p0c.AddSaturated(f2).ToBits().Xor(bias)
+		nq0 := q0c.SubSaturated(f1).ToBits().Xor(bias)
+		pairLo := zipBytesLo(np0, nq0).ReshapeToUint64s()
+		pairHi := zipBytesLo(highBytes(np0), highBytes(nq0)).ReshapeToUint64s()
+		v0, v1 := pairLo.GetElem(0), pairLo.GetElem(1)
+		v2, v3 := pairHi.GetElem(0), pairHi.GetElem(1)
+		w := col + 1
+		binary.LittleEndian.PutUint16(s0[w:], uint16(v0))
+		binary.LittleEndian.PutUint16(s1[w:], uint16(v0>>16))
+		binary.LittleEndian.PutUint16(s2[w:], uint16(v0>>32))
+		binary.LittleEndian.PutUint16(s3[w:], uint16(v0>>48))
+		binary.LittleEndian.PutUint16(s4[w:], uint16(v1))
+		binary.LittleEndian.PutUint16(s5[w:], uint16(v1>>16))
+		binary.LittleEndian.PutUint16(s6[w:], uint16(v1>>32))
+		binary.LittleEndian.PutUint16(s7[w:], uint16(v1>>48))
+		binary.LittleEndian.PutUint16(s8[w:], uint16(v2))
+		binary.LittleEndian.PutUint16(s9[w:], uint16(v2>>16))
+		binary.LittleEndian.PutUint16(s10[w:], uint16(v2>>32))
+		binary.LittleEndian.PutUint16(s11[w:], uint16(v2>>48))
+		binary.LittleEndian.PutUint16(s12[w:], uint16(v3))
+		binary.LittleEndian.PutUint16(s13[w:], uint16(v3>>16))
+		binary.LittleEndian.PutUint16(s14[w:], uint16(v3>>32))
+		binary.LittleEndian.PutUint16(s15[w:], uint16(v3>>48))
+	}
+	return true
+}
