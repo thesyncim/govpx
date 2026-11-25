@@ -16,8 +16,8 @@ func TestVP9EncoderProfile2Validation(t *testing.T) {
 		opts govpx.VP9EncoderOptions
 	}{
 		{
-			name: "profile_3_rejected",
-			opts: govpx.VP9EncoderOptions{Width: 64, Height: 64, Profile: 3},
+			name: "profile_4_rejected",
+			opts: govpx.VP9EncoderOptions{Width: 64, Height: 64, Profile: 4},
 		},
 		{
 			name: "profile_2_with_8bit_rejected",

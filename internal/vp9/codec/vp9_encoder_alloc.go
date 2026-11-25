@@ -88,12 +88,17 @@ func (e *VP9Encoder) EncodeShowExistingFrameInto(dst []byte, slot uint8) (int, e
 	if !e.refValid[slot] || !e.refFrames[slot].valid {
 		return 0, ErrInvalidConfig
 	}
-	if len(dst) == 0 {
+	profile := e.opts.vp9Profile()
+	need := 1
+	if profile == common.Profile3 {
+		need = 2
+	}
+	if len(dst) < need {
 		return 0, ErrBufferTooSmall
 	}
 	var bw encoder.BitWriter
 	bw.Init(dst)
-	return encoder.WriteShowExistingFrameHeader(&bw, e.opts.vp9Profile(), slot), nil
+	return encoder.WriteShowExistingFrameHeader(&bw, profile, slot), nil
 }
 
 // EncodeShowExistingFrame is the allocating wrapper around
@@ -102,7 +107,11 @@ func (e *VP9Encoder) EncodeShowExistingFrame(slot uint8) ([]byte, error) {
 	if e == nil || e.closed {
 		return nil, ErrClosed
 	}
-	dst := make([]byte, 1)
+	need := 1
+	if e.opts.vp9Profile() == common.Profile3 {
+		need = 2
+	}
+	dst := make([]byte, need)
 	n, err := e.EncodeShowExistingFrameInto(dst, slot)
 	if err != nil {
 		return nil, err

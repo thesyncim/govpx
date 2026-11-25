@@ -188,7 +188,7 @@ func (e *VP9Encoder) vp9SpatialResultFields() (
 // validateVP9ColorOptions rejects out-of-range Profile/BitDepth/Subsampling/
 // ColorSpace/ColorRange combinations per VP9 spec §6.2.
 func validateVP9ColorOptions(opts VP9EncoderOptions) error {
-	if opts.Profile > 2 {
+	if opts.Profile > 3 {
 		return ErrInvalidConfig
 	}
 	if opts.Subsampling > Subsampling444 {
@@ -229,6 +229,16 @@ func validateVP9ColorOptions(opts VP9EncoderOptions) error {
 			return ErrInvalidConfig
 		}
 		if opts.ColorSpace == VP9ColorSpaceSRGB {
+			return ErrInvalidConfig
+		}
+	case 3:
+		if opts.BitDepth != 0 && opts.BitDepth != 10 && opts.BitDepth != 12 {
+			return ErrInvalidConfig
+		}
+		if opts.Subsampling == Subsampling420 {
+			return ErrInvalidConfig
+		}
+		if opts.ColorSpace == VP9ColorSpaceSRGB && opts.Subsampling != Subsampling444 {
 			return ErrInvalidConfig
 		}
 	}

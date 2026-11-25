@@ -76,9 +76,6 @@ func peekFrameStreamInfo(packet []byte, info *StreamInfo) error {
 	if profile >= common.MaxProfiles {
 		return vpxerrors.ErrInvalidVP9Data
 	}
-	if profile != common.Profile0 && profile != common.Profile1 && profile != common.Profile2 {
-		return vpxerrors.ErrVP9NotImplemented
-	}
 	info.Profile = int(profile)
 
 	info.ShowExistingFrame = r.ReadBit() != 0

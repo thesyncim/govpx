@@ -12,9 +12,10 @@ helpers, and codec handles. Implementation packages live under `internal/`.
 ## Decode
 
 Use `NewVP8Decoder` for raw VP8 payloads and `NewVP9Decoder` for raw VP9
-Profile 0 packets (including superframes). `Decode` publishes decoder-owned
+Profiles 0–3 packets (including superframes). `Decode` publishes decoder-owned
 output through `NextFrame`; `DecodeInto` / `DecodeIntoWithPTS` write into
-caller-owned `Image` buffers.
+caller-owned `Image` buffers (`Y`/`U`/`V` for 8-bit Profiles 0–1;
+`Y16`/`U16`/`V16` with `BitDepth` 10 or 12 for Profiles 2–3).
 
 ```go
 dec, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
@@ -72,10 +73,12 @@ if !res.Dropped {
 Lookahead, auto-alt-ref, and two-pass encoders may queue frames and return
 `ErrFrameNotReady`; drain remaining output with `FlushInto` at end of stream.
 
-VP9 encoder APIs target Profile 0 (8-bit 4:2:0) and support superframes,
-show-existing frames, intra-only frames, spatial-SVC signaling, tiles, row-MT,
-color/render metadata, segmentation, lossless mode, AQ modes, and two-pass
-stats.
+VP9 encoder APIs support all four profiles — Profile 0 (8-bit 4:2:0), Profile 1
+(8-bit 4:2:2 / 4:4:0 / 4:4:4 / sRGB), Profile 2 (10/12-bit 4:2:0), and Profile 3
+(10/12-bit 4:2:2 / 4:4:0 / 4:4:4 / sRGB) via `EncodeImage` / `EncodeImageInto` —
+along with superframes, show-existing frames, intra-only frames, spatial-SVC
+signaling, tiles, row-MT, color/render metadata, segmentation, lossless mode,
+AQ modes, and two-pass stats.
 
 ## Runtime Controls
 

@@ -601,24 +601,26 @@ func (d *VP9Decoder) vp9FilterLoopBlockHighBD(miRows, miCols, miRow, miCol int,
 		miRows, miRow, miCol, lfm, bd) {
 		return false
 	}
+	if !d.vp9FilterLoopBlockChromaPlaneHighBD(hb.frameU16Full, d.frameUOrigin, d.lastFrame.UStride,
+		miRows, miCols, miRow, miCol, lfm, bd) {
+		return false
+	}
+	return d.vp9FilterLoopBlockChromaPlaneHighBD(hb.frameV16Full, d.frameVOrigin, d.lastFrame.VStride,
+		miRows, miCols, miRow, miCol, lfm, bd)
+}
+
+func (d *VP9Decoder) vp9FilterLoopBlockChromaPlaneHighBD(plane []uint16, origin, stride int,
+	miRows, miCols, miRow, miCol int, lfm *vp9LoopFilterMask, bd int,
+) bool {
 	ssX, ssY := d.lastFrame.Subsampling.Shifts()
 	switch {
 	case ssX == 1 && ssY == 1:
-		if !d.vp9FilterLoopBlockPlaneSS11HighBD(hb.frameU16Full, d.frameUOrigin, d.lastFrame.UStride,
-			miRows, miRow, miCol, lfm, bd) {
-			return false
-		}
-		return d.vp9FilterLoopBlockPlaneSS11HighBD(hb.frameV16Full, d.frameVOrigin, d.lastFrame.VStride,
-			miRows, miRow, miCol, lfm, bd)
+		return d.vp9FilterLoopBlockPlaneSS11HighBD(plane, origin, stride, miRows, miRow, miCol, lfm, bd)
 	case ssX == 0 && ssY == 0:
-		if !d.vp9FilterLoopBlockPlaneSS00HighBD(hb.frameU16Full, d.frameUOrigin, d.lastFrame.UStride,
-			miRows, miRow, miCol, lfm, bd) {
-			return false
-		}
-		return d.vp9FilterLoopBlockPlaneSS00HighBD(hb.frameV16Full, d.frameVOrigin, d.lastFrame.VStride,
-			miRows, miRow, miCol, lfm, bd)
+		return d.vp9FilterLoopBlockPlaneSS00HighBD(plane, origin, stride, miRows, miRow, miCol, lfm, bd)
 	default:
-		return false
+		return d.vp9FilterLoopBlockPlaneNon420HighBD(plane, origin, stride,
+			miRows, miCols, miRow, miCol, uint8(ssX), uint8(ssY), bd)
 	}
 }
 
@@ -635,13 +637,179 @@ func (d *VP9Decoder) vp9FilterLoopBlockPlaneHighBD(miRows, miCols, miRow, miCol 
 		return d.vp9FilterLoopBlockPlaneSS00HighBD(hb.frameY16Full, d.frameYOrigin,
 			d.lastFrame.YStride, miRows, miRow, miCol, lfm, bd)
 	case vp9LoopFilterPlaneU:
-		return d.vp9FilterLoopBlockPlaneSS11HighBD(hb.frameU16Full, d.frameUOrigin,
-			d.lastFrame.UStride, miRows, miRow, miCol, lfm, bd)
+		return d.vp9FilterLoopBlockChromaPlaneHighBD(hb.frameU16Full, d.frameUOrigin,
+			d.lastFrame.UStride, miRows, miCols, miRow, miCol, lfm, bd)
 	case vp9LoopFilterPlaneV:
-		return d.vp9FilterLoopBlockPlaneSS11HighBD(hb.frameV16Full, d.frameVOrigin,
-			d.lastFrame.VStride, miRows, miRow, miCol, lfm, bd)
+		return d.vp9FilterLoopBlockChromaPlaneHighBD(hb.frameV16Full, d.frameVOrigin,
+			d.lastFrame.VStride, miRows, miCols, miRow, miCol, lfm, bd)
 	default:
 		return false
+	}
+}
+
+// vp9FilterLoopBlockPlaneNon420HighBD ports libvpx's vp9_highbd_filter_block_plane_non420
+// for asymmetric high-bit-depth chroma subsampling (4:2:2 and 4:4:0 in Profile 3).
+func (d *VP9Decoder) vp9FilterLoopBlockPlaneNon420HighBD(plane []uint16, origin, stride int,
+	miRows, miCols, miRow, miCol int, ssX, ssY uint8, bd int,
+) bool {
+	if stride <= 0 || len(plane) == 0 {
+		return false
+	}
+	base := origin + ((miRow*common.MiSize)>>ssY)*stride + ((miCol * common.MiSize) >> ssX)
+	if base < 0 || base >= len(plane) {
+		return false
+	}
+	rowStep := 1 << ssY
+	colStep := 1 << ssX
+
+	var mask16 [common.MiBlockSize]uint32
+	var mask8 [common.MiBlockSize]uint32
+	var mask4 [common.MiBlockSize]uint32
+	var mask4Int [common.MiBlockSize]uint32
+	var lfl [common.MiBlockSize * common.MiBlockSize]uint8
+
+	offset := base
+	for r := 0; r < common.MiBlockSize && miRow+r < miRows; r += rowStep {
+		var mask16C, mask8C, mask4C uint32
+		for c := 0; c < common.MiBlockSize && miCol+c < miCols; c += colStep {
+			mi := d.vp9DecoderMiAt(miRows, miCols, miRow+r, miCol+c)
+			if mi == nil || mi.SbType >= common.BlockSizes || mi.TxSize >= common.TxSizes {
+				return false
+			}
+			sbType := mi.SbType
+			skipThis := mi.Skip != 0 && mi.RefFrame[0] > vp9dec.IntraFrame
+			blockEdgeLeft := true
+			if common.Num4x4BlocksWideLookup[sbType] > 1 {
+				blockEdgeLeft = (c & (int(common.Num8x8BlocksWideLookup[sbType]) - 1)) == 0
+			}
+			skipThisC := skipThis && !blockEdgeLeft
+			blockEdgeAbove := true
+			if common.Num4x4BlocksHighLookup[sbType] > 1 {
+				blockEdgeAbove = (r & (int(common.Num8x8BlocksHighLookup[sbType]) - 1)) == 0
+			}
+			skipThisR := skipThis && !blockEdgeAbove
+			txSize := common.UvTxsizeLookup[sbType][mi.TxSize][ssX][ssY]
+			if txSize >= common.TxSizes {
+				return false
+			}
+			skipBorder4x4C := ssX != 0 && miCol+c == miCols-1
+			skipBorder4x4R := ssY != 0 && miRow+r == miRows-1
+
+			level := d.vp9LoopFilterLevel(mi)
+			lfl[(r<<3)+(c>>ssX)] = level
+			if level == 0 {
+				continue
+			}
+
+			bit := uint32(1) << uint(c>>ssX)
+			switch txSize {
+			case common.Tx32x32:
+				if !skipThisC && ((c>>ssX)&3) == 0 {
+					if !skipBorder4x4C {
+						mask16C |= bit
+					} else {
+						mask8C |= bit
+					}
+				}
+				if !skipThisR && ((r>>ssY)&3) == 0 {
+					if !skipBorder4x4R {
+						mask16[r] |= bit
+					} else {
+						mask8[r] |= bit
+					}
+				}
+			case common.Tx16x16:
+				if !skipThisC && ((c>>ssX)&1) == 0 {
+					if !skipBorder4x4C {
+						mask16C |= bit
+					} else {
+						mask8C |= bit
+					}
+				}
+				if !skipThisR && ((r>>ssY)&1) == 0 {
+					if !skipBorder4x4R {
+						mask16[r] |= bit
+					} else {
+						mask8[r] |= bit
+					}
+				}
+			default:
+				if !skipThisC {
+					if txSize == common.Tx8x8 || ((c>>ssX)&3) == 0 {
+						mask8C |= bit
+					} else {
+						mask4C |= bit
+					}
+				}
+				if !skipThisR {
+					if txSize == common.Tx8x8 || ((r>>ssY)&3) == 0 {
+						mask8[r] |= bit
+					} else {
+						mask4[r] |= bit
+					}
+				}
+				if !skipThis && txSize < common.Tx8x8 && !skipBorder4x4C {
+					mask4Int[r] |= bit
+				}
+			}
+		}
+
+		borderMask := ^uint32(0)
+		if miCol == 0 {
+			borderMask = ^uint32(1)
+		}
+		vp9FilterSelectivelyVertHighBD(plane, offset, stride,
+			mask16C&borderMask, mask8C&borderMask, mask4C&borderMask, mask4Int[r],
+			&d.lfi, lfl[r<<3:], bd)
+		offset += 8 * stride
+	}
+
+	offset = base
+	for r := 0; r < common.MiBlockSize && miRow+r < miRows; r += rowStep {
+		skipBorder4x4R := ssY != 0 && miRow+r == miRows-1
+		mask4IntR := mask4Int[r]
+		if skipBorder4x4R {
+			mask4IntR = 0
+		}
+		var mask16R, mask8R, mask4R uint32
+		if miRow+r != 0 {
+			mask16R = mask16[r]
+			mask8R = mask8[r]
+			mask4R = mask4[r]
+		}
+		vp9FilterSelectivelyHorizHighBD(plane, offset, stride,
+			mask16R, mask8R, mask4R, mask4IntR,
+			&d.lfi, lfl[r<<3:], bd)
+		offset += 8 * stride
+	}
+	return true
+}
+
+func vp9FilterSelectivelyVertHighBD(plane []uint16, offset, pitch int,
+	mask16, mask8, mask4, mask4Int uint32,
+	lfi *vp9dec.LoopFilterInfoN, lfl []uint8, bd int,
+) {
+	for mask := mask16 | mask8 | mask4 | mask4Int; mask != 0; mask >>= 1 {
+		level := &lfi.Lfthr[lfl[0]]
+		if mask&1 != 0 {
+			switch {
+			case mask16&1 != 0:
+				dsp.HighbdLpfVertical16(plane, offset, pitch, level.Mblim, level.Lim, level.HevThr, bd)
+			case mask8&1 != 0:
+				dsp.HighbdLpfVertical8(plane, offset, pitch, level.Mblim, level.Lim, level.HevThr, bd)
+			case mask4&1 != 0:
+				dsp.HighbdLpfVertical4(plane, offset, pitch, level.Mblim, level.Lim, level.HevThr, bd)
+			}
+		}
+		if mask4Int&1 != 0 {
+			dsp.HighbdLpfVertical4(plane, offset+4, pitch, level.Mblim, level.Lim, level.HevThr, bd)
+		}
+		offset += 8
+		lfl = lfl[1:]
+		mask16 >>= 1
+		mask8 >>= 1
+		mask4 >>= 1
+		mask4Int >>= 1
 	}
 }
 

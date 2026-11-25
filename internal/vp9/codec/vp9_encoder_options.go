@@ -95,13 +95,15 @@ func (opts VP9EncoderOptions) vp9Profile() common.BitstreamProfile {
 		return common.Profile1
 	case 2:
 		return common.Profile2
+	case 3:
+		return common.Profile3
 	default:
 		return common.Profile0
 	}
 }
 
 func (opts VP9EncoderOptions) vp9BitDepth() uint8 {
-	if opts.Profile == 2 {
+	if opts.Profile >= 2 {
 		if opts.BitDepth == 12 {
 			return 12
 		}
