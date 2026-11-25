@@ -44,16 +44,10 @@ type vp9CountTileSeed struct {
 }
 
 type vp9CountTileJob struct {
-	partitionProbs [common.PartitionContexts][common.PartitionTypes - 1]uint8
-	seg            vp9dec.SegmentationParams
-	baseMi         vp9dec.NeighborMi
-	tile           vp9dec.TileBounds
-	keyHeader      vp9dec.UncompressedHeader
-	key            vp9KeyframeEncodeState
-	inter          vp9InterEncodeState
-	worker         *VP9Encoder
-	rowWorkerPool  *vp9RowWorkerPool
-	rowMTSync      *vp9RowMTSync
+	// Pointer fields grouped first to minimize PtrBytes.
+	worker        *VP9Encoder
+	rowWorkerPool *vp9RowWorkerPool
+	rowMTSync     *vp9RowMTSync
 	// prepSrc, counts, tokenFrame and the geometry fields below let the job
 	// body run the per-worker frame preparation (the multi-megabyte
 	// *worker = *src state copy, counts zeroing and token-frame arming) on
@@ -61,57 +55,65 @@ type vp9CountTileJob struct {
 	// struct; the preparation reads the shared encoder state, which is
 	// immutable while count jobs are in flight, so the copies parallelize
 	// across tile columns instead of serializing on the dispatcher.
-	prepSrc      *VP9Encoder
-	counts       *encoder.FrameCounts
-	tokenFrame   *encoder.TokenFrameBuffer
-	width        int
-	height       int
-	tileCol      int
-	collectToken bool
-	miRows       int
-	miCols       int
-	txMode       common.TxMode
-	kind         vp9ModeTreeKind
-	hasKey       bool
-	hasInter     bool
-}
-
-type vp9EncodeTileJob struct {
+	prepSrc        *VP9Encoder
+	counts         *encoder.FrameCounts
+	tokenFrame     *encoder.TokenFrameBuffer
+	key            vp9KeyframeEncodeState
+	inter          vp9InterEncodeState
 	partitionProbs [common.PartitionContexts][common.PartitionTypes - 1]uint8
 	seg            vp9dec.SegmentationParams
 	baseMi         vp9dec.NeighborMi
 	tile           vp9dec.TileBounds
 	keyHeader      vp9dec.UncompressedHeader
-	key            vp9KeyframeEncodeState
-	inter          vp9InterEncodeState
-	worker         *VP9Encoder
+	width          int
+	height         int
+	tileCol        int
+	collectToken   bool
+	miRows         int
+	miCols         int
+	txMode         common.TxMode
+	kind           vp9ModeTreeKind
+	hasKey         bool
+	hasInter       bool
+}
+
+type vp9EncodeTileJob struct {
+	// Pointer fields grouped first to minimize PtrBytes.
+	worker *VP9Encoder
 	// prepSrc is consumed by the vp9TileWorkerJobEncodePrep epoch: each
 	// helper copies the shared encoder state into its private worker on its
 	// own goroutine while the dispatcher is quiescent, so the per-frame
 	// multi-megabyte worker preparation parallelizes instead of running
 	// serially on the dispatcher. Tile column 0 encodes on the shared
 	// encoder itself and needs no preparation.
-	prepSrc       *VP9Encoder
-	output        []byte
-	rowMTSync     *vp9RowMTSync
-	replayTokens  bool
-	replayFrame   *encoder.TokenFrameBuffer
-	replayTileRow int
-	replayTileCol int
-	miRows        int
-	miCols        int
-	size          int
-	txMode        common.TxMode
-	kind          vp9ModeTreeKind
-	err           error
-	hasKey        bool
-	hasInter      bool
+	prepSrc        *VP9Encoder
+	output         []byte
+	rowMTSync      *vp9RowMTSync
+	replayFrame    *encoder.TokenFrameBuffer
+	err            error
+	key            vp9KeyframeEncodeState
+	inter          vp9InterEncodeState
+	partitionProbs [common.PartitionContexts][common.PartitionTypes - 1]uint8
+	seg            vp9dec.SegmentationParams
+	baseMi         vp9dec.NeighborMi
+	tile           vp9dec.TileBounds
+	keyHeader      vp9dec.UncompressedHeader
+	replayTokens   bool
+	replayTileRow  int
+	replayTileCol  int
+	miRows         int
+	miCols         int
+	size           int
+	txMode         common.TxMode
+	kind           vp9ModeTreeKind
+	hasKey         bool
+	hasInter       bool
 }
 
 type vp9TileWorkerPool struct {
 	vp9TileWorkerPhaseStatsOptions
 
-	workers     []VP9Encoder
+	workers     []*VP9Encoder
 	countJobs   []vp9CountTileJob
 	countCounts []encoder.FrameCounts
 	countTokens []encoder.TokenFrameBuffer
@@ -437,7 +439,7 @@ func newVP9TileWorkerPool(workers int) *vp9TileWorkerPool {
 		return nil
 	}
 	pool := &vp9TileWorkerPool{
-		workers:     make([]VP9Encoder, workers),
+		workers:     make([]*VP9Encoder, workers),
 		countJobs:   make([]vp9CountTileJob, workers),
 		countCounts: make([]encoder.FrameCounts, workers),
 		countTokens: make([]encoder.TokenFrameBuffer, workers),
@@ -446,6 +448,9 @@ func newVP9TileWorkerPool(workers int) *vp9TileWorkerPool {
 		wakeSlots:   make([]workerWakeSlot, workers),
 		shutdown:    make(chan struct{}),
 		workerCount: workers,
+	}
+	for i := range pool.workers {
+		pool.workers[i] = new(VP9Encoder)
 	}
 	for i := 1; i < workers; i++ {
 		pool.wakeSlots[i].init()
@@ -688,7 +693,7 @@ func (e *VP9Encoder) collectVP9FrameTileCountsThreaded(width, height, miRows, mi
 	var wg sync.WaitGroup
 	wg.Add(tileCols)
 	for tileCol := range tileCols {
-		worker := &e.vp9CountWorkers[tileCol]
+		worker := e.vp9CountWorkers[tileCol]
 		counts := &e.vp9CountCounts[tileCol]
 		job := &e.vp9CountJobs[tileCol]
 		prepareVP9CountTileJob(job, worker, counts, miRows, miCols,
@@ -710,7 +715,7 @@ func (e *VP9Encoder) collectVP9FrameTileCountsThreaded(width, height, miRows, mi
 			e.vp9CountWorkers[i].vp9CountLeafStoreOmitted
 	}
 	if tileCols > 0 {
-		e.adoptVP9CountWorkerLeafDecisionCaches(&e.vp9CountWorkers[0])
+		e.adoptVP9CountWorkerLeafDecisionCaches(e.vp9CountWorkers[0])
 	}
 	if !e.mergeVP9CountWorkerCodingState(width, height, miRows, miCols,
 		tileCols, e.vp9CountJobs) {
@@ -763,7 +768,7 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 		e.prepareVP9SharedSubpelRefBordered(seed.interRefMask)
 	}
 	for tileCol := range tileCols {
-		worker := &pool.workers[tileCol]
+		worker := pool.workers[tileCol]
 		counts := &pool.countCounts[tileCol]
 		job := &pool.countJobs[tileCol]
 		tile := vp9EncoderTileBounds(0, tileCol, miRows, miCols, tileInfo)
@@ -797,7 +802,7 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 			pool.workers[i].vp9CountLeafStoreOmitted
 	}
 	if tileCols > 0 {
-		e.adoptVP9CountWorkerLeafDecisionCaches(&pool.workers[0])
+		e.adoptVP9CountWorkerLeafDecisionCaches(pool.workers[0])
 	}
 	if !e.mergeVP9CountWorkerCodingState(width, height, miRows, miCols,
 		tileCols, pool.countJobs) {
@@ -1029,7 +1034,7 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 	for tileCol := range tileCols {
 		worker := e
 		if tileCol > 0 {
-			worker = &pool.workers[tileCol]
+			worker = pool.workers[tileCol]
 		}
 		prepareVP9EncodeTileJob(&pool.encodeJobs[tileCol], worker,
 			pool.outputs[tileCol], miRows, miCols,
@@ -1094,6 +1099,11 @@ func (e *VP9Encoder) ensureVP9CountWorkers(workers int) {
 		return
 	}
 	e.vp9CountWorkers = buffers.EnsureLen(e.vp9CountWorkers, workers)
+	for i := range e.vp9CountWorkers {
+		if e.vp9CountWorkers[i] == nil {
+			e.vp9CountWorkers[i] = new(VP9Encoder)
+		}
+	}
 	e.vp9CountCounts = buffers.EnsureLen(e.vp9CountCounts, workers)
 	e.vp9CountJobs = buffers.EnsureLen(e.vp9CountJobs, workers)
 }

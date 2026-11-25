@@ -245,6 +245,12 @@ func ModeOffsetInter(mode common.PredictionMode) int {
 // libvpx: vp9/encoder/vp9_rd.h:111-130 RD_OPT + vp9/encoder/vp9_block.h
 // TileDataEnc::thresh_freq_fact[BLOCK_SIZES][MAX_MODES].
 type RDThreshState struct {
+	// rowBaseThreshFreqFact mirrors
+	// TileDataEnc::row_base_thresh_freq_fact[sb_row][BLOCK_SIZES][MAX_MODES]
+	// (vp9_multi_thread.c:55-74). It is only consulted when
+	// adaptive_rd_thresh_row_mt is enabled.
+	rowBaseThreshFreqFact []rdThreshFreqFactTable
+
 	// threshMult mirrors RD_OPT::thresh_mult[MAX_MODES]
 	// (vp9_rd.h:116).
 	threshMult [vp9MaxModes]int
@@ -256,12 +262,6 @@ type RDThreshState struct {
 	// threshFreqFact mirrors TileDataEnc::thresh_freq_fact[BLOCK_SIZES][MAX_MODES]
 	// (vp9_block.h).
 	threshFreqFact rdThreshFreqFactTable
-
-	// rowBaseThreshFreqFact mirrors
-	// TileDataEnc::row_base_thresh_freq_fact[sb_row][BLOCK_SIZES][MAX_MODES]
-	// (vp9_multi_thread.c:55-74). It is only consulted when
-	// adaptive_rd_thresh_row_mt is enabled.
-	rowBaseThreshFreqFact []rdThreshFreqFactTable
 
 	// initialised tracks whether threshFreqFact has been primed for the
 	// current encode session (RD_THRESH_INIT_FACT init). Cleared on

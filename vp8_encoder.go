@@ -626,8 +626,6 @@ type VP8Encoder struct {
 
 	timing   timingState
 	sourceTS encoderSourceTimestampState
-	rc       rateControlState
-	temporal temporalState
 	oracleTraceHolder
 
 	closed        bool
@@ -717,11 +715,6 @@ type VP8Encoder struct {
 	// branch compares the new attempt's kf_err against this baseline.
 	thisKeyFrameForced bool
 	ambientErr         int
-
-	// savedContext mirrors cpi->coding_context. Populated by
-	// saveCodingContext at the top of each recode loop and consumed by
-	// restoreCodingContext when an attempt is rejected.
-	savedContext savedCodingContext
 
 	cyclicRefreshIndex                int
 	cyclicRefreshConfigured           bool
@@ -989,42 +982,6 @@ type VP8Encoder struct {
 	// allocations even with --token-parts=N>1.
 	partScratch vp8enc.PartitionScratch
 
-	interRDThreshMult       [libvpxInterModeCount]int
-	interRDThreshTouched    [libvpxInterModeCount]bool
-	interModeCheckFreq      [libvpxInterModeCount]int
-	interModeTestHitCounts  [libvpxInterModeCount]int
-	interMBsTestedSoFar     int
-	interModeErrorBins      [1024]uint32
-	interModeSpeedErrorBins [1024]uint32
-	interRDFrameActive      bool
-
-	// Per-frame cached baseline threshold tables for the fast/RD inter-mode
-	// pickers. Libvpx initializes cpi->rd_baseline_thresh once per frame
-	// from cm->base_qindex before per-MB segment quant selection, so the
-	// picker thresholds are frame-level even when cyclic refresh changes the
-	// macroblock's quantizer. The generation counter is bumped at each
-	// beginInterRDModeDecisionFrame so we don't have to clear the table every
-	// frame.
-	interRDThreshBaselineGen   uint32
-	interRDThreshBaselineSlots [interRDThreshBaselineSlotCount]interRDThreshBaselineSlot
-	interRDFrameBaseQIndex     int
-	// Derived per-MB thresholds maintained incrementally, mirroring libvpx's
-	// x->rd_threshes discipline: initialized from the baseline once per
-	// (frame, baseline-slot) and updated at a single mode index inside the
-	// raise/lower helpers (pickinter.c:831/1157/1171/1188, rdopt.c:1896/2266)
-	// instead of re-deriving all 20 entries per macroblock. The stamp ties
-	// the cache to a specific fill of a specific baseline slot; any slot
-	// refill, generation bump or frame begin invalidates it.
-	interRDDerivedThresh   [libvpxInterModeCount]int
-	interRDDerivedBaseline [libvpxInterModeCount]int
-	interRDDerivedStamp    uint64
-	interRDDerivedValid    bool
-	interRDThreshFillSeq   uint32
-	// Per-frame search-order (refs are constant per frame) so the
-	// per-MB picker doesn't recompute it in every loop body.
-	interRDFrameRefSearchOrder      [4]int8
-	interRDFrameRefSearchOrderValid bool
-
 	current   vp8common.FrameBuffer
 	analysis  vp8common.FrameBuffer
 	lastRef   vp8common.FrameBuffer
@@ -1071,20 +1028,48 @@ type VP8Encoder struct {
 	rdPickerCoefProbsActive        *vp8tables.CoefficientProbs
 	rdPickerCoefTokenCostsActive   *vp8enc.CoefficientTokenCostTable
 	interRDCoeffCacheScratchTarget *interRDCoeffCacheState
-	interCoefTokenRecords          vp8enc.InterCoefficientTokenRecords
-	interCoefTokenRecordsValid     bool
 	fastInterLoopCtx               fastInterModeLoopContext
-	dequantTables                  vp8common.FrameDequantTables
-	dequants                       [vp8common.MaxMBSegments]vp8common.MacroblockDequant
-	reconstructScratch             vp8dec.IntraReconstructionScratch
-	fastCoeffScratch               vp8FastCoeffScratch
-	previewFrameValid              bool
-	previewFrameSuppressed         bool
-	previewPostprocessedValid      bool
-	previewFrameType               vp8common.FrameType
-	previewBaseQIndex              int
-	previewLoopFilterLevel         uint8
-	previewFrameNumber             int
+	// interRDCoeffCacheSlots carries predictorRef *vp8common.Image, so keep it
+	// above the pure-value tables below to minimize VP8Encoder PtrBytes.
+	interRDCoeffCacheSlots  [2]interRDCoeffCacheState
+	interRDCoeffCacheWinner uint8
+	// interCoefTokenRecords has only 48B of PtrBytes inside a 4 KiB struct,
+	// so placing it last before the pure-value tail skips scanning its 4 KiB tail.
+	interCoefTokenRecords      vp8enc.InterCoefficientTokenRecords
+	interCoefTokenRecordsValid bool
+	// Pointer-free threshold / histogram tables grouped below PtrBytes.
+	rc                              rateControlState
+	temporal                        temporalState
+	savedContext                    savedCodingContext
+	interRDThreshMult               [libvpxInterModeCount]int
+	interRDThreshTouched            [libvpxInterModeCount]bool
+	interModeCheckFreq              [libvpxInterModeCount]int
+	interModeTestHitCounts          [libvpxInterModeCount]int
+	interMBsTestedSoFar             int
+	interModeErrorBins              [1024]uint32
+	interModeSpeedErrorBins         [1024]uint32
+	interRDFrameActive              bool
+	interRDThreshBaselineGen        uint32
+	interRDThreshBaselineSlots      [interRDThreshBaselineSlotCount]interRDThreshBaselineSlot
+	interRDFrameBaseQIndex          int
+	interRDDerivedThresh            [libvpxInterModeCount]int
+	interRDDerivedBaseline          [libvpxInterModeCount]int
+	interRDDerivedStamp             uint64
+	interRDDerivedValid             bool
+	interRDThreshFillSeq            uint32
+	interRDFrameRefSearchOrder      [4]int8
+	interRDFrameRefSearchOrderValid bool
+	dequantTables                   vp8common.FrameDequantTables
+	dequants                        [vp8common.MaxMBSegments]vp8common.MacroblockDequant
+	reconstructScratch              vp8dec.IntraReconstructionScratch
+	fastCoeffScratch                vp8FastCoeffScratch
+	previewFrameValid               bool
+	previewFrameSuppressed          bool
+	previewPostprocessedValid       bool
+	previewFrameType                vp8common.FrameType
+	previewBaseQIndex               int
+	previewLoopFilterLevel          uint8
+	previewFrameNumber              int
 	// keyFrameCoefTokenCounts is populated by the threaded key-frame
 	// reconstruction pass with the same per-thread count accumulation libvpx
 	// later sums for vp8_update_coef_probs. Packet write consumes it only
@@ -1132,17 +1117,7 @@ type VP8Encoder struct {
 	// intra MBs, vp8/encoder/encodeframe.c:1067), so the mtHelper*CountAccum
 	// rolls forward across keyframes too.
 	lastKeyFrameReconstructWorkerCount int
-	// interRDCoeffCache stages the winning RD candidate's post-FDCT DCT
-	// inputs across the picker → accepted-path boundary in
-	// selectRDInterFrameModeDecision /
-	// buildReconstructingInterFrameCoefficientsWithSegmentation. Two slots
-	// alternate: the picker writes each candidate's DCTs into the
-	// non-winner slot, and when a candidate becomes best the slot index
-	// flips (no data copy). The accepted-path reads from the winner slot
-	// to skip predict + residual gather + FDCT for the winning inter mode.
-	interRDCoeffCacheSlots  [2]interRDCoeffCacheState
-	interRDCoeffCacheWinner uint8
-	loopInfo                vp8common.LoopFilterInfo
+	loopInfo                           vp8common.LoopFilterInfo
 	// loopInfoAlt is the worker-private LoopFilterInfo for the
 	// parallel filt_low/filt_high trials run by pickFull at Threads >= 2.
 	// vp8dec.ApplyLoopFilterFullLumaConfiguredUnchecked mutates the

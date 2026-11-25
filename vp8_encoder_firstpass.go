@@ -239,6 +239,9 @@ func (e *VP8Encoder) CollectFirstPassStats(src Image, pts uint64, duration uint6
 		return FirstPassFrameStats{}, err
 	}
 	_ = pts
+	if err := e.ensureFirstPassBuffers(src.Width, src.Height); err != nil {
+		return FirstPassFrameStats{}, err
+	}
 	srcImg := sourceImageFromImage(src)
 	stats := e.computeFirstPassStats(srcImg, duration)
 

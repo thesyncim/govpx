@@ -103,7 +103,7 @@ func (e *VP9Encoder) finishVP9ThreadedCountTokenCollection(pool *vp9TileWorkerPo
 		return false
 	}
 	for tileCol := range tileCols {
-		worker := &pool.workers[tileCol]
+		worker := pool.workers[tileCol]
 		if err := worker.finishVP9CountTokenCollection(); err != nil {
 			e.vp9ThreadedTokenReplayReady = false
 			return false

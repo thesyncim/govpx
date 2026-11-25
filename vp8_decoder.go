@@ -609,6 +609,7 @@ func (d *VP8Decoder) decodeFramePacket(packet []byte, frame vp8dec.FrameHeader, 
 		return err
 	}
 	if errorConcealment && d.modesCorrupt < d.mbRows*d.mbCols {
+		d.ecOverlaps = buffers.EnsureLen(d.ecOverlaps, d.mbRows*d.mbCols)
 		if err := vp8dec.EstimateMissingMotionVectorsWithScratch(d.modes, d.prevModes, d.mbRows, d.mbCols, d.modesCorrupt, d.ecOverlaps); err != nil {
 			return ErrInvalidData
 		}
@@ -812,6 +813,7 @@ func (d *VP8Decoder) concealMissingInterFrame(info StreamInfo, pts uint64) (Fram
 	for i := range d.tokens {
 		d.tokens[i] = vp8dec.MacroblockTokens{}
 	}
+	d.ecOverlaps = buffers.EnsureLen(d.ecOverlaps, d.mbRows*d.mbCols)
 	if err := vp8dec.EstimateMissingMotionVectorsWithScratch(d.modes, d.prevModes, d.mbRows, d.mbCols, 0, d.ecOverlaps); err != nil {
 		return FrameInfo{}, ErrInvalidData
 	}
@@ -852,6 +854,11 @@ func (d *VP8Decoder) outputReferenceFrameImage(info StreamInfo, src *vp8common.I
 		CurrentFrame:    d.visibleFrames,
 		KeyFrame:        info.KeyFrame,
 	}
+	if d.post.Img.Width != src.Width || d.post.Img.Height != src.Height || d.post.BufferLen() == 0 {
+		if err := d.post.Resize(src.Width, src.Height, 32, 32); err != nil {
+			return nil, ErrInvalidData
+		}
+	}
 	if err := vp8dec.ApplyPostProcessWithOptions(src, &d.post, d.mbRows, d.mbCols, d.modes, loopFilter.Level, d.postprocScratch, opts, &d.postprocState); err != nil {
 		return nil, ErrInvalidData
 	}
@@ -875,8 +882,11 @@ func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
 	if err := d.current.Resize(info.Width, info.Height, 32, 32); err != nil {
 		return ErrInvalidData
 	}
-	if err := d.post.Resize(info.Width, info.Height, 32, 32); err != nil {
-		return ErrInvalidData
+	flags := d.opts.effectivePostProcessFlags()
+	if flags != 0 {
+		if err := d.post.Resize(info.Width, info.Height, 32, 32); err != nil {
+			return ErrInvalidData
+		}
 	}
 	if err := d.lastRef.Resize(info.Width, info.Height, 32, 32); err != nil {
 		return ErrInvalidData
@@ -887,7 +897,6 @@ func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
 	if err := d.altRef.Resize(info.Width, info.Height, 32, 32); err != nil {
 		return ErrInvalidData
 	}
-	flags := d.opts.effectivePostProcessFlags()
 	if flags&PostProcessMFQE != 0 {
 		if err := d.postprocState.EnsureMFQE(info.Width, info.Height); err != nil {
 			return ErrInvalidData
@@ -1222,9 +1231,13 @@ func (d *VP8Decoder) ensureWorkspace(width int, height int) {
 	d.modes = buffers.EnsureLen(d.modes, count)
 	d.prevModes = buffers.EnsureLen(d.prevModes, count)
 	// Persistent error-concealment overlap buffer (libvpx pbi->overlaps).
-	// Sized once per workspace resize so concealed inter frames don't
-	// allocate per Decode call (see TestDecodeErrorConcealmentAllocatesZero).
-	d.ecOverlaps = buffers.EnsureLen(d.ecOverlaps, count)
+	// Allocated only when error concealment is enabled so normal decoders
+	// avoid ~21 MiB of unused 720p overlap tables, while concealed inter frames
+	// still run with zero allocations per Decode call (see
+	// TestDecodeErrorConcealmentAllocatesZero).
+	if d.opts.ErrorConcealment {
+		d.ecOverlaps = buffers.EnsureLen(d.ecOverlaps, count)
+	}
 	d.tokens = buffers.EnsureLen(d.tokens, count)
 	d.tokenAbove = buffers.EnsureLen(d.tokenAbove, cols)
 	d.segmentMap = buffers.EnsureLen(d.segmentMap, count)

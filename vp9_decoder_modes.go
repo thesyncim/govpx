@@ -847,6 +847,30 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 			}
 			avg := refIdx == 1
 			if mi.SbType < common.Block8x8 {
+				params := vp9InterPredictPlaneParams{
+					hdr:       hdr,
+					pd:        pd,
+					mi:        mi,
+					sf:        sf,
+					dst:       dst,
+					src:       src,
+					bsize:     bsize,
+					miRow:     miRow,
+					miCol:     miCol,
+					srcBaseX:  x0,
+					srcBaseY:  y0,
+					dstBaseX:  x0,
+					dstBaseY:  y0,
+					bw:        bw,
+					bh:        bh,
+					dstStride: dstStride,
+					dstRows:   dstRows,
+					srcStride: srcStride,
+					srcRows:   srcRows,
+					srcWidth:  srcWidth,
+					srcHeight: srcHeight,
+					avg:       vp9dec.BoolInt(avg),
+				}
 				block := 0
 				num4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
 				num4x4H := int(common.Num4x4BlocksHighLookup[planeBsize])
@@ -854,10 +878,7 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 					for x := range num4x4W {
 						mv := vp9dec.AverageSplitMvs(&mi.Bmi, refIdx, block,
 							int(pd.SubsamplingX), int(pd.SubsamplingY))
-						if !d.reconstructVP9InterPredictPlaneAt(hdr, pd, mi, bsize,
-							miRow, miCol, x0, y0, x0, y0, 4*x, 4*y, bw, bh, 4, 4,
-							dst, dstStride, dstRows, src, srcStride, srcRows,
-							srcWidth, srcHeight, sf, mv, vp9dec.BoolInt(avg)) {
+						if !d.reconstructVP9InterPredictPlaneAt(&params, 4*x, 4*y, 4, 4, mv) {
 							return false
 						}
 						block++
@@ -881,10 +902,31 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 				}
 				continue
 			}
-			if !d.reconstructVP9InterPredictPlaneAt(hdr, pd, mi, bsize,
-				miRow, miCol, x0, y0, x0, y0, 0, 0, bw, bh, bw, bh,
-				dst, dstStride, dstRows, src, srcStride, srcRows,
-				srcWidth, srcHeight, sf, mi.Mv[refIdx], vp9dec.BoolInt(avg)) {
+			params := vp9InterPredictPlaneParams{
+				hdr:       hdr,
+				pd:        pd,
+				mi:        mi,
+				sf:        sf,
+				dst:       dst,
+				src:       src,
+				bsize:     bsize,
+				miRow:     miRow,
+				miCol:     miCol,
+				srcBaseX:  x0,
+				srcBaseY:  y0,
+				dstBaseX:  x0,
+				dstBaseY:  y0,
+				bw:        bw,
+				bh:        bh,
+				dstStride: dstStride,
+				dstRows:   dstRows,
+				srcStride: srcStride,
+				srcRows:   srcRows,
+				srcWidth:  srcWidth,
+				srcHeight: srcHeight,
+				avg:       vp9dec.BoolInt(avg),
+			}
+			if !d.reconstructVP9InterPredictPlaneAt(&params, 0, 0, bw, bh, mi.Mv[refIdx]) {
 				return false
 			}
 		}
@@ -959,6 +1001,28 @@ func (d *VP9Decoder) reconstructVP9InterPredictLumaTo(
 		}
 		avg := refIdx == 1
 		if mi.SbType < common.Block8x8 {
+			params := vp9InterPredictPlaneParams{
+				hdr:       hdr,
+				pd:        pd,
+				mi:        mi,
+				sf:        sf,
+				dst:       dst,
+				src:       src,
+				bsize:     bsize,
+				miRow:     miRow,
+				miCol:     miCol,
+				srcBaseX:  x0,
+				srcBaseY:  y0,
+				bw:        bw,
+				bh:        bh,
+				dstStride: dstStride,
+				dstRows:   dstRows,
+				srcStride: srcStride,
+				srcRows:   srcRows,
+				srcWidth:  srcWidth,
+				srcHeight: srcHeight,
+				avg:       vp9dec.BoolInt(avg),
+			}
 			block := 0
 			num4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
 			num4x4H := int(common.Num4x4BlocksHighLookup[planeBsize])
@@ -966,10 +1030,7 @@ func (d *VP9Decoder) reconstructVP9InterPredictLumaTo(
 				for x := range num4x4W {
 					mv := vp9dec.AverageSplitMvs(&mi.Bmi, refIdx, block,
 						int(pd.SubsamplingX), int(pd.SubsamplingY))
-					if !d.reconstructVP9InterPredictPlaneAt(hdr, pd, mi, bsize,
-						miRow, miCol, x0, y0, 0, 0, 4*x, 4*y, bw, bh, 4, 4,
-						dst, dstStride, dstRows, src, srcStride, srcRows,
-						srcWidth, srcHeight, sf, mv, vp9dec.BoolInt(avg)) {
+					if !d.reconstructVP9InterPredictPlaneAt(&params, 4*x, 4*y, 4, 4, mv) {
 						return false
 					}
 					block++
@@ -993,10 +1054,29 @@ func (d *VP9Decoder) reconstructVP9InterPredictLumaTo(
 			}
 			continue
 		}
-		if !d.reconstructVP9InterPredictPlaneAt(hdr, pd, mi, bsize,
-			miRow, miCol, x0, y0, 0, 0, 0, 0, bw, bh, bw, bh,
-			dst, dstStride, dstRows, src, srcStride, srcRows,
-			srcWidth, srcHeight, sf, mi.Mv[refIdx], vp9dec.BoolInt(avg)) {
+		params := vp9InterPredictPlaneParams{
+			hdr:       hdr,
+			pd:        pd,
+			mi:        mi,
+			sf:        sf,
+			dst:       dst,
+			src:       src,
+			bsize:     bsize,
+			miRow:     miRow,
+			miCol:     miCol,
+			srcBaseX:  x0,
+			srcBaseY:  y0,
+			bw:        bw,
+			bh:        bh,
+			dstStride: dstStride,
+			dstRows:   dstRows,
+			srcStride: srcStride,
+			srcRows:   srcRows,
+			srcWidth:  srcWidth,
+			srcHeight: srcHeight,
+			avg:       vp9dec.BoolInt(avg),
+		}
+		if !d.reconstructVP9InterPredictPlaneAt(&params, 0, 0, bw, bh, mi.Mv[refIdx]) {
 			return false
 		}
 	}
@@ -1044,50 +1124,64 @@ func (d *VP9Decoder) vp9PredictRefFrame(slot int) *vp9ReferenceFrame {
 	return &d.refFrames[slot]
 }
 
+type vp9InterPredictPlaneParams struct {
+	hdr       *vp9dec.UncompressedHeader
+	pd        *vp9dec.MacroblockdPlane
+	mi        *vp9dec.NeighborMi
+	sf        *vp9dec.ScaleFactors
+	dst       []byte
+	src       []byte
+	bsize     common.BlockSize
+	miRow     int
+	miCol     int
+	srcBaseX  int
+	srcBaseY  int
+	dstBaseX  int
+	dstBaseY  int
+	bw        int
+	bh        int
+	dstStride int
+	dstRows   int
+	srcStride int
+	srcRows   int
+	srcWidth  int
+	srcHeight int
+	avg       int
+}
+
 func (d *VP9Decoder) reconstructVP9InterPredictPlaneAt(
-	hdr *vp9dec.UncompressedHeader,
-	pd *vp9dec.MacroblockdPlane,
-	mi *vp9dec.NeighborMi,
-	bsize common.BlockSize,
-	miRow, miCol int,
-	srcBaseX, srcBaseY, dstBaseX, dstBaseY int,
-	blockX, blockY, bw, bh, predW, predH int,
-	dst []byte,
-	dstStride, dstRows int,
-	src []byte,
-	srcStride, srcRows int,
-	srcWidth, srcHeight int,
-	sf *vp9dec.ScaleFactors,
+	p *vp9InterPredictPlaneParams,
+	blockX, blockY, predW, predH int,
 	mv vp9dec.MV,
-	avg int,
 ) bool {
 	if vp9PhaseStatsEnabled {
 		d.vp9PhaseIncInterPredictPlane()
 	}
-	filterIdx := int(mi.InterpFilter)
+	filterIdx := int(p.mi.InterpFilter)
 	if filterIdx < 0 || filterIdx >= int(vp9dec.InterpSwitchable) {
 		d.markVP9Unsupported()
 		return true
 	}
-	miRows := int((hdr.Height + 7) >> 3)
-	miCols := int((hdr.Width + 7) >> 3)
+	miRows := int((p.hdr.Height + 7) >> 3)
+	miCols := int((p.hdr.Width + 7) >> 3)
 	edges := vp9dec.BlockBoundsEdges{
-		MbToLeftEdge:   -((miCol * common.MiSize) * 8),
-		MbToRightEdge:  ((miCols - int(common.Num8x8BlocksWideLookup[bsize]) - miCol) * common.MiSize) * 8,
-		MbToTopEdge:    -((miRow * common.MiSize) * 8),
-		MbToBottomEdge: ((miRows - int(common.Num8x8BlocksHighLookup[bsize]) - miRow) * common.MiSize) * 8,
+		MbToLeftEdge:   -((p.miCol * common.MiSize) * 8),
+		MbToRightEdge:  ((miCols - int(common.Num8x8BlocksWideLookup[p.bsize]) - p.miCol) * common.MiSize) * 8,
+		MbToTopEdge:    -((p.miRow * common.MiSize) * 8),
+		MbToBottomEdge: ((miRows - int(common.Num8x8BlocksHighLookup[p.bsize]) - p.miRow) * common.MiSize) * 8,
 	}
-	mvQ4 := vp9dec.ClampMvToUmvBorderSb(edges, mv, bw, bh,
-		int(pd.SubsamplingX), int(pd.SubsamplingY))
-	dstX := dstBaseX + blockX
-	dstY := dstBaseY + blockY
-	srcX := srcBaseX + blockX
-	srcY := srcBaseY + blockY
+	mvQ4 := vp9dec.ClampMvToUmvBorderSb(edges, mv, p.bw, p.bh,
+		int(p.pd.SubsamplingX), int(p.pd.SubsamplingY))
+	dstX := p.dstBaseX + blockX
+	dstY := p.dstBaseY + blockY
+	srcX := p.srcBaseX + blockX
+	srcY := p.srcBaseY + blockY
 	srcX16 := srcX << vp9dec.SubpelBitsConst
 	srcY16 := srcY << vp9dec.SubpelBitsConst
 	scaledMV := vp9dec.MV32{Row: int32(mvQ4.Row), Col: int32(mvQ4.Col)}
 	xStepQ4 := vp9dec.SubpelShifts
 	yStepQ4 := vp9dec.SubpelShifts
+	sf := p.sf
 	scaled := sf != nil && sf.IsScaled()
 	if scaled {
 		srcX16 = sf.ScaleValueX(srcX16)
@@ -1095,7 +1189,7 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlaneAt(
 		srcX = sf.ScaleValueX(srcX)
 		srcY = sf.ScaleValueY(srcY)
 		scaledMV = vp9dec.ScaleMv(mvQ4,
-			miCol*common.MiSize+blockX, miRow*common.MiSize+blockY, sf)
+			p.miCol*common.MiSize+blockX, p.miRow*common.MiSize+blockY, sf)
 		xStepQ4 = sf.XStepQ4
 		yStepQ4 = sf.YStepQ4
 	}
@@ -1106,6 +1200,11 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlaneAt(
 	srcX16 += int(scaledMV.Col)
 	srcY16 += int(scaledMV.Row)
 
+	src := p.src
+	srcStride := p.srcStride
+	srcRows := p.srcRows
+	srcWidth := p.srcWidth
+	srcHeight := p.srcHeight
 	srcOffset := srcY*srcStride + srcX
 	if scaled || scaledMV.Col != 0 || scaledMV.Row != 0 ||
 		(srcWidth&0x7) != 0 || (srcHeight&0x7) != 0 {
@@ -1138,8 +1237,11 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlaneAt(
 			srcRows = extH
 		}
 	}
+	dst := p.dst
+	dstStride := p.dstStride
+	avg := p.avg
 	if srcOffset < 0 || srcOffset >= len(src) ||
-		dstX+predW > dstStride || dstY+predH > dstRows || srcRows <= 0 {
+		dstX+predW > dstStride || dstY+predH > p.dstRows || srcRows <= 0 {
 		return false
 	}
 	if vp9PhaseStatsEnabled {

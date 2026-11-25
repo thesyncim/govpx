@@ -61,10 +61,25 @@ func typePtrBytes(t reflect.Type) int64 {
 	}
 }
 
+type gcMemRange struct {
+	start uintptr
+	end   uintptr
+}
+
 type gcScanReport struct {
 	noscanBytes int64
 	scanBytes   int64
 	scanSlices  []string
+	ranges      []gcMemRange
+}
+
+func (r *gcScanReport) overlapsRange(start uintptr) bool {
+	for _, mr := range r.ranges {
+		if start >= mr.start && start < mr.end {
+			return true
+		}
+	}
+	return false
 }
 
 func auditValueGCScan(v reflect.Value, path string, seen map[uintptr]bool, rep *gcScanReport) {
@@ -93,12 +108,13 @@ func auditValueGCScan(v reflect.Value, path string, seen map[uintptr]bool, rep *
 			return
 		}
 		ptr := v.Pointer()
-		if seen[ptr] {
+		if seen[ptr] || rep.overlapsRange(ptr) {
 			return
 		}
 		seen[ptr] = true
 		elemType := t.Elem()
 		totalBytes := int64(v.Cap()) * int64(elemType.Size())
+		rep.ranges = append(rep.ranges, gcMemRange{start: ptr, end: ptr + uintptr(totalBytes)})
 		if typeHasPointers(elemType) {
 			elemPB := typePtrBytes(elemType)
 			scanTotal := int64(v.Cap()-1)*int64(elemType.Size()) + elemPB
@@ -143,18 +159,24 @@ func TestGCInvisibilityAudit(t *testing.T) {
 	ycbcr := image.NewYCbCr(image.Rect(0, 0, w, h), image.YCbCrSubsampleRatio420)
 	pkt := make([]byte, w*h)
 
-	logReport := func(name string, obj any, minNoscanPct float64) {
+	logReport := func(name string, obj any, minNoscanPct float64, maxScanKiB int64) {
 		var rep gcScanReport
-		auditValueGCScan(reflect.ValueOf(obj), name, map[uintptr]bool{}, &rep)
+		rv := reflect.ValueOf(obj)
+		auditValueGCScan(rv, name, map[uintptr]bool{}, &rep)
 		total := rep.noscanBytes + rep.scanBytes
 		pct := 100 * float64(rep.noscanBytes) / float64(total)
-		t.Logf("%-22s noscan=%6d KiB  scan=%5d KiB  (%.2f%% noscan)",
-			name+":", rep.noscanBytes>>10, rep.scanBytes>>10, pct)
+		elemT := rv.Type().Elem()
+		scanKiB := rep.scanBytes >> 10
+		t.Logf("%-22s noscan=%6d KiB  scan=%5d KiB  (%.2f%% noscan)  structPtrBytes=%d/%d B",
+			name+":", rep.noscanBytes>>10, scanKiB, pct, typePtrBytes(elemT), elemT.Size())
 		for _, s := range rep.scanSlices {
 			t.Logf("  [SCAN] %s", s)
 		}
 		if pct < minNoscanPct {
-			t.Errorf("%s: noscan %.2f%% < required %.2f%% (scan=%d KiB)", name, pct, minNoscanPct, rep.scanBytes>>10)
+			t.Errorf("%s: noscan %.2f%% < required %.2f%% (scan=%d KiB)", name, pct, minNoscanPct, scanKiB)
+		}
+		if scanKiB > maxScanKiB {
+			t.Errorf("%s: scan %d KiB > max %d KiB", name, scanKiB, maxScanKiB)
 		}
 	}
 
@@ -184,7 +206,7 @@ func TestGCInvisibilityAudit(t *testing.T) {
 	if _, err := vp8Enc.EncodeInto(pkt, img, 1, 1, 0); err != nil {
 		t.Fatal(err)
 	}
-	logReport("VP8Encoder 720p 1T", vp8Enc, 99.9)
+	logReport("VP8Encoder 720p 1T", vp8Enc, 99.90, 24)
 
 	vp8Enc4, err := NewVP8Encoder(EncoderOptions{
 		Width:             w,
@@ -205,7 +227,7 @@ func TestGCInvisibilityAudit(t *testing.T) {
 	if _, err := vp8Enc4.EncodeInto(pkt, img, 1, 1, 0); err != nil {
 		t.Fatal(err)
 	}
-	logReport("VP8Encoder 720p 4T", vp8Enc4, 99.6)
+	logReport("VP8Encoder 720p 4T", vp8Enc4, 99.60, 135)
 
 	// 2. VP8Decoder
 	vp8Dec, err := NewVP8Decoder(DecoderOptions{})
@@ -216,7 +238,7 @@ func TestGCInvisibilityAudit(t *testing.T) {
 	if err := vp8Dec.Decode(kf8); err != nil {
 		t.Fatal(err)
 	}
-	logReport("VP8Decoder 720p", vp8Dec, 99.9)
+	logReport("VP8Decoder 720p", vp8Dec, 99.90, 16)
 
 	// 3. VP9Encoder (1T & 4T RowMT)
 	vp9Enc, err := NewVP9Encoder(VP9EncoderOptions{
@@ -239,7 +261,7 @@ func TestGCInvisibilityAudit(t *testing.T) {
 	if _, err := vp9Enc.EncodeIntoWithResult(ycbcr, pkt); err != nil {
 		t.Fatal(err)
 	}
-	logReport("VP9Encoder 720p 1T", vp9Enc, 99.8)
+	logReport("VP9Encoder 720p 1T", vp9Enc, 99.90, 40)
 
 	vp9Enc4, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:             w,
@@ -260,7 +282,7 @@ func TestGCInvisibilityAudit(t *testing.T) {
 	if _, err := vp9Enc4.EncodeIntoWithResult(ycbcr, pkt); err != nil {
 		t.Fatal(err)
 	}
-	logReport("VP9Encoder 720p 4T", vp9Enc4, 99.4)
+	logReport("VP9Encoder 720p 4T", vp9Enc4, 99.75, 250)
 
 	// 4. VP9Decoder
 	vp9Dec, err := NewVP9Decoder(VP9DecoderOptions{})
@@ -271,5 +293,5 @@ func TestGCInvisibilityAudit(t *testing.T) {
 	if err := vp9Dec.Decode(kf9); err != nil {
 		t.Fatal(err)
 	}
-	logReport("VP9Decoder 720p", vp9Dec, 99.8)
+	logReport("VP9Decoder 720p", vp9Dec, 99.85, 8)
 }

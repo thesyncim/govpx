@@ -77,6 +77,7 @@ type predictedMacroblockCoefficientArgs struct {
 // loop's per-block context evolution still runs end-to-end on top of the
 // cached DCTs so all token-context outputs stay byte-identical.
 type interRDCoeffCacheState struct {
+	predictorRef   *vp8common.Image
 	valid          bool
 	predictorValid bool
 	is4x4          bool
@@ -96,7 +97,6 @@ type interRDCoeffCacheState struct {
 	YDCTs [16 * 16]int16
 	// UVDCTs holds the 8 chroma DCTs (U0..U3 then V0..V3).
 	UVDCTs        [8 * 16]int16
-	predictorRef  *vp8common.Image
 	predictorMode vp8enc.InterFrameMacroblockMode
 	predictor     interMacroblockImageSnapshot
 }
