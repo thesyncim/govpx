@@ -255,7 +255,6 @@ type VP9Encoder struct {
 	// path as the real decoder without per-block allocations after warmup.
 	interPredictScratch []byte
 	nonrdPredCtx        vp9NonrdPredBlockCtx
-	interPredictor      VP9Decoder
 
 	reconFrame Image
 	reconYFull []byte
@@ -668,6 +667,12 @@ type VP9Encoder struct {
 	countArfFrameUsageMiCols   int
 	countArfFrameUsageMiRows   int
 	countArfFrameUsageMiStride int
+
+	// interPredictor is placed as the last pointer-containing field so Go's
+	// GC stops scanning VP9Encoder at VP9Decoder's ~4 KiB PtrBytes and skips
+	// both VP9Decoder's ~40 KiB tail and all ~150 KiB of VP9Encoder's pure-value
+	// tables below.
+	interPredictor VP9Decoder
 
 	// --- Pure value / pointer-free tail (beyond Go GC PtrBytes: 0 scan cost) ---
 	frameContexts          [common.FrameContexts]vp9dec.FrameContext

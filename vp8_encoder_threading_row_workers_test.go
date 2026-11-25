@@ -210,7 +210,10 @@ func TestRowWorkerPoolMergeMatchesLibvpxThreadedState(t *testing.T) {
 		required    = 4
 	)
 	pool := &rowWorkerPool{
-		workers: make([]rowEncoderState, workerCount),
+		workers: make([]*rowEncoderState, workerCount),
+	}
+	for i := range pool.workers {
+		pool.workers[i] = new(rowEncoderState)
 	}
 	modeIndex := libvpxThrNew2
 	primary := &pool.workers[0].enc
@@ -276,7 +279,10 @@ func TestRowWorkerPoolMergeMatchesLibvpxThreadedState(t *testing.T) {
 func TestMergeThreadedInterFrameCoefCountsOmitsHelperEOBOnly(t *testing.T) {
 	const workerCount = 2
 	pool := &rowWorkerPool{
-		workers: make([]rowEncoderState, workerCount),
+		workers: make([]*rowEncoderState, workerCount),
+	}
+	for i := range pool.workers {
+		pool.workers[i] = new(rowEncoderState)
 	}
 	counts0 := &pool.workers[0].interCoefTokenCounts
 	counts1 := &pool.workers[1].interCoefTokenCounts

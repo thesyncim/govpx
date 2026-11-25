@@ -134,13 +134,15 @@ func (s *vp9LfSync) markRowsDone(startSbRow, step, sbRows, sbCols int) {
 // vp9EncodeLfJob carries one worker's share of the row-interleaved loop
 // filter walk, mirroring libvpx's LFWorkerData for thread_loop_filter_rows.
 type vp9EncodeLfJob struct {
-	d      VP9Decoder
 	lfSync *vp9LfSync
 	miRows int
 	miCols int
 	start  int
 	step   int
 	ok     bool
+	// d is placed last so Go's GC stops at VP9Decoder's ~4 KiB PtrBytes
+	// instead of scanning its ~40 KiB pure-value tail.
+	d VP9Decoder
 }
 
 func runVP9EncodeLfJob(job *vp9EncodeLfJob) {
@@ -234,7 +236,10 @@ func (e *VP9Encoder) applyVP9EncoderLoopFilterMT(d *VP9Decoder,
 	pool.lfJobs = buffers.EnsureLen(pool.lfJobs, pool.workerCount)
 	pool.lfSync.reset(sbRows, width)
 	for i := 0; i < pool.workerCount; i++ {
-		job := &pool.lfJobs[i]
+		if pool.lfJobs[i] == nil {
+			pool.lfJobs[i] = new(vp9EncodeLfJob)
+		}
+		job := pool.lfJobs[i]
 		start := i
 		if i >= workers {
 			// Inactive worker: no rows. Mirrors num_active_workers in
@@ -253,7 +258,7 @@ func (e *VP9Encoder) applyVP9EncoderLoopFilterMT(d *VP9Decoder,
 		}
 	}
 	pool.startHelperWorkers(vp9TileWorkerJobLoopFilter)
-	runVP9EncodeLfJob(&pool.lfJobs[0])
+	runVP9EncodeLfJob(pool.lfJobs[0])
 	pool.waitHelperWorkers()
 	ok := true
 	for i := range pool.lfJobs {

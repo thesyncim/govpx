@@ -789,7 +789,7 @@ func (p *rowWorkerPool) mergeThreadedInterFrameState(e *VP8Encoder, workerCount 
 	var mergedBins [1024]uint32
 	mergedDotSuppress := 0
 	for workerIndex := range workerCount {
-		worker := &p.workers[workerIndex]
+		worker := p.workers[workerIndex]
 		workerEnc := &worker.enc
 		for i := range mergedBins {
 			mergedBins[i] += workerEnc.interModeErrorBins[i]
