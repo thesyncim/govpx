@@ -774,7 +774,8 @@ func (e *VP9Encoder) prewarmVP9EncodeBuffers() {
 		return
 	}
 	w, h := e.opts.Width, e.opts.Height
-	layout := common.NewFrameLayout(w, h)
+	ssX, ssY := e.opts.vp9SubsamplingShifts()
+	layout := common.NewFrameLayoutSubsampled(w, h, ssX, ssY)
 	e.warmVP9EncoderFramePool(layout)
 	miRows := (h + 7) >> 3
 	miCols := (w + 7) >> 3
@@ -788,7 +789,7 @@ func (e *VP9Encoder) prewarmVP9EncodeBuffers() {
 		e.denoiser.ensure(w, h)
 	}
 	rect := image.Rect(0, 0, w, h)
-	e.lastSource = *image.NewYCbCr(rect, image.YCbCrSubsampleRatio420)
+	e.lastSource = *image.NewYCbCr(rect, e.opts.vp9YCbCrSubsampleRatio())
 	yPadW := w + 2*common.VP9EncBorderInPixels
 	yPadH := h + 2*common.VP9EncBorderInPixels
 	e.lastBordered.Pixels = buffers.EnsureCapacity(e.lastBordered.Pixels, yPadW*yPadH)

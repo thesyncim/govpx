@@ -447,6 +447,9 @@ func (e *VP9Encoder) writeVP9ModesSb(bw *bitstream.Writer, miRows, miCols, miRow
 	bs := (1 << uint(bsl)) / 4
 	target := e.pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol,
 		bsize, tile, partitionProbs, txMode, kind, key, inter)
+	if !e.vp9ChromaBlockSizeValid(target) {
+		target = common.SubsizeLookup[common.PartitionSplit][bsize]
+	}
 	partition := common.PartitionLookup[bsl][target]
 	counts := vp9EncodeCountsForState(key, inter)
 	if counts != nil {

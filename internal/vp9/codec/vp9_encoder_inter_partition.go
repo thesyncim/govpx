@@ -828,6 +828,12 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		// it on the keyframe walker.
 		NonRdKeyframe: e.sf.NonrdKeyframe != 0,
 	}
+	switch e.opts.Subsampling {
+	case Subsampling422:
+		args.ChromaPlaneBlockOK = vp9ChromaBlockOK422
+	case Subsampling440:
+		args.ChromaPlaneBlockOK = vp9ChromaBlockOK440
+	}
 	switch {
 	case key != nil && key.img != nil && key.dq != nil:
 		src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
@@ -1696,7 +1702,7 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 				hasRows, hasCols, qindex)
 		})
 	}
-	if hasRows {
+	if hasRows && e.vp9ChromaBlockSizeValid(horzSize) {
 		consider(func() (vp9InterPartitionRD, bool) {
 			if predFromNone {
 				inter.predInterpFilter = noneRD.predInterpFilter
@@ -1707,7 +1713,7 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 				common.PartitionHorz, bs, 0, hasRows, hasCols, qindex)
 		})
 	}
-	if hasCols {
+	if hasCols && e.vp9ChromaBlockSizeValid(vertSize) {
 		consider(func() (vp9InterPartitionRD, bool) {
 			if predFromNone {
 				inter.predInterpFilter = noneRD.predInterpFilter

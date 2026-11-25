@@ -733,7 +733,8 @@ func (e *VP9Encoder) prepareVP9EncoderOutputFrame(width, height int) {
 	// slot aliases before clearing/re-arming the planes (libvpx
 	// vp9_encoder.c:6315-6319; see vp9_encoder_ref_pool.go).
 	e.acquireVP9ReconFrameBuffer()
-	layout := common.NewFrameLayout(width, height)
+	ssX, ssY := e.opts.vp9SubsamplingShifts()
+	layout := common.NewFrameLayoutSubsampled(width, height, ssX, ssY)
 	e.warmVP9EncoderFramePool(layout)
 	if cap(e.reconYFull) < layout.YFullLen {
 		e.reconYFull = buffers.NewAligned(layout.YFullLen, 32)
@@ -757,14 +758,15 @@ func (e *VP9Encoder) prepareVP9EncoderOutputFrame(width, height int) {
 	e.reconU = e.reconUFull[layout.UVOrigin:]
 	e.reconV = e.reconVFull[layout.UVOrigin:]
 	e.reconFrame = Image{
-		Width:   width,
-		Height:  height,
-		Y:       e.reconY,
-		U:       e.reconU,
-		V:       e.reconV,
-		YStride: layout.YStride,
-		UStride: layout.UVStride,
-		VStride: layout.UVStride,
+		Width:       width,
+		Height:      height,
+		Y:           e.reconY,
+		U:           e.reconU,
+		V:           e.reconV,
+		YStride:     layout.YStride,
+		UStride:     layout.UVStride,
+		VStride:     layout.UVStride,
+		Subsampling: e.opts.Subsampling,
 	}
 	e.syncVP9ReconPoolBacking()
 }

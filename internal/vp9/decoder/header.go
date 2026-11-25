@@ -321,15 +321,21 @@ func HeaderRenderSize(hdr *UncompressedHeader) (int, int) {
 }
 
 // SupportedOutputFormat reports whether hdr describes an output format that
-// the public decoder can currently publish.
+// the public decoder can currently publish (Profile 0 8-bit 4:2:0 and
+// Profile 1 8-bit 4:2:2 / 4:4:0 / 4:4:4 / RGB).
 func SupportedOutputFormat(hdr *UncompressedHeader) bool {
-	if hdr.Profile != common.Profile0 ||
-		hdr.BitDepthColor.BitDepth != Bits8 ||
-		hdr.BitDepthColor.SubsamplingX != 1 ||
-		hdr.BitDepthColor.SubsamplingY != 1 {
+	if hdr.BitDepthColor.BitDepth != Bits8 {
 		return false
 	}
-	return true
+	switch hdr.Profile {
+	case common.Profile0:
+		return hdr.BitDepthColor.SubsamplingX == 1 && hdr.BitDepthColor.SubsamplingY == 1
+	case common.Profile1:
+		return hdr.BitDepthColor.SubsamplingX <= 1 && hdr.BitDepthColor.SubsamplingY <= 1 &&
+			!(hdr.BitDepthColor.SubsamplingX == 1 && hdr.BitDepthColor.SubsamplingY == 1)
+	default:
+		return false
+	}
 }
 
 // FrameRefSignBias converts the uncompressed-header reference sign-bias fields

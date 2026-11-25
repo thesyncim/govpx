@@ -171,7 +171,7 @@ func (d *VP9Decoder) applyVP9LoopFilterRowsInterleaved(miRows, miCols,
 			c := miCol >> common.MiBlockSizeLog2
 			lfSync.read(r, c)
 			lfm, ok := d.vp9LoopFilterMaskAt(miRow, miCol)
-			if !ok || !d.vp9FilterLoopBlock(miRows, miRow, miCol, lfm) {
+			if !ok || !d.vp9FilterLoopBlock(miRows, miCols, miRow, miCol, lfm) {
 				// Defensive bail: release the rows this worker owns so
 				// siblings blocked in read never deadlock, then report
 				// the failure to the dispatcher.
@@ -205,7 +205,7 @@ func (d *VP9Decoder) applyVP9LoopFilterRowMT(miRows, miCols, miRow int,
 		c := miCol >> common.MiBlockSizeLog2
 		lfSync.read(r, c)
 		lfm, ok := d.vp9LoopFilterMaskAt(miRow, miCol)
-		if !ok || !d.vp9FilterLoopBlock(miRows, miRow, miCol, lfm) {
+		if !ok || !d.vp9FilterLoopBlock(miRows, miCols, miRow, miCol, lfm) {
 			lfSync.write(r, sbCols-1, sbCols)
 			lfSync.markRowsDone(r+1, 1, sbRows, sbCols)
 			return false

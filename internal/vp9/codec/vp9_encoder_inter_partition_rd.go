@@ -361,7 +361,7 @@ func (e *VP9Encoder) rdPickVP9InterPartition(inter *vp9InterEncodeState,
 	goodFastPart := e.vp9GoodHDFastPath()
 	allowRect := !(goodFastPart && e.sf.UseSquarePartitionOnly != 0 &&
 		(root > e.sf.UseSquareOnlyThreshHigh || root < e.sf.UseSquareOnlyThreshLow))
-	if hasRows && (allowRect || !hasCols) {
+	if hasRows && e.vp9ChromaBlockSizeValid(horzSize) && (allowRect || !hasCols) {
 		_ = node.loadPredMv() // load_pred_mv before PARTITION_HORZ (:4037)
 		if score, ok := e.scoreVP9InterPartitionPairShallow(inter, tile,
 			miRows, miCols, miRow, miCol, horzSize, bs, 0); ok {
@@ -373,7 +373,7 @@ func (e *VP9Encoder) rdPickVP9InterPartition(inter *vp9InterEncodeState,
 			}
 		}
 	}
-	if hasCols && (allowRect || !hasRows) {
+	if hasCols && e.vp9ChromaBlockSizeValid(vertSize) && (allowRect || !hasRows) {
 		_ = node.loadPredMv() // load_pred_mv before PARTITION_VERT (:4087)
 		if score, ok := e.scoreVP9InterPartitionPairShallow(inter, tile,
 			miRows, miCols, miRow, miCol, vertSize, 0, bs); ok {

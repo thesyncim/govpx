@@ -93,7 +93,7 @@ func (e *VP9Encoder) EncodeShowExistingFrameInto(dst []byte, slot uint8) (int, e
 	}
 	var bw encoder.BitWriter
 	bw.Init(dst)
-	return encoder.WriteShowExistingFrameHeader(&bw, common.Profile0, slot), nil
+	return encoder.WriteShowExistingFrameHeader(&bw, e.opts.vp9Profile(), slot), nil
 }
 
 // EncodeShowExistingFrame is the allocating wrapper around

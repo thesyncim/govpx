@@ -112,7 +112,7 @@ func (d *VP9Decoder) applyVP9LoopFilterSerialCached(miRows, miCols int) bool {
 			if !ok {
 				return false
 			}
-			if !d.vp9FilterLoopBlock(miRows, miRow, miCol, lfm) {
+			if !d.vp9FilterLoopBlock(miRows, miCols, miRow, miCol, lfm) {
 				return false
 			}
 		}
@@ -252,7 +252,7 @@ func (d *VP9Decoder) applyVP9LoopFilterPlaneRowsCached(miRows, miCols int,
 			if !ok {
 				return false
 			}
-			if !d.vp9FilterLoopBlockPlane(miRows, miRow, miCol, plane, lfm) {
+			if !d.vp9FilterLoopBlockPlane(miRows, miCols, miRow, miCol, plane, lfm) {
 				return false
 			}
 		}
@@ -621,22 +621,40 @@ func vp9AdjustLoopFilterMask(miRows, miCols, miRow, miCol int, lfm *vp9LoopFilte
 	}
 }
 
-func (d *VP9Decoder) vp9FilterLoopBlock(miRows, miRow, miCol int,
+func (d *VP9Decoder) vp9FilterLoopBlock(miRows, miCols, miRow, miCol int,
 	lfm *vp9LoopFilterMask,
 ) bool {
 	if !d.vp9FilterLoopBlockPlaneSS00(d.frameYFull, d.frameYOrigin, d.lastFrame.YStride,
 		miRows, miRow, miCol, lfm) {
 		return false
 	}
-	if !d.vp9FilterLoopBlockPlaneSS11(d.frameUFull, d.frameUOrigin, d.lastFrame.UStride,
-		miRows, miRow, miCol, lfm) {
-		return false
+	ssX, ssY := d.lastFrame.Subsampling.Shifts()
+	switch {
+	case ssX == 1 && ssY == 1:
+		if !d.vp9FilterLoopBlockPlaneSS11(d.frameUFull, d.frameUOrigin, d.lastFrame.UStride,
+			miRows, miRow, miCol, lfm) {
+			return false
+		}
+		return d.vp9FilterLoopBlockPlaneSS11(d.frameVFull, d.frameVOrigin, d.lastFrame.VStride,
+			miRows, miRow, miCol, lfm)
+	case ssX == 0 && ssY == 0:
+		if !d.vp9FilterLoopBlockPlaneSS00(d.frameUFull, d.frameUOrigin, d.lastFrame.UStride,
+			miRows, miRow, miCol, lfm) {
+			return false
+		}
+		return d.vp9FilterLoopBlockPlaneSS00(d.frameVFull, d.frameVOrigin, d.lastFrame.VStride,
+			miRows, miRow, miCol, lfm)
+	default:
+		if !d.vp9FilterLoopBlockPlaneNon420(d.frameUFull, d.frameUOrigin, d.lastFrame.UStride,
+			miRows, miCols, miRow, miCol, uint8(ssX), uint8(ssY)) {
+			return false
+		}
+		return d.vp9FilterLoopBlockPlaneNon420(d.frameVFull, d.frameVOrigin, d.lastFrame.VStride,
+			miRows, miCols, miRow, miCol, uint8(ssX), uint8(ssY))
 	}
-	return d.vp9FilterLoopBlockPlaneSS11(d.frameVFull, d.frameVOrigin, d.lastFrame.VStride,
-		miRows, miRow, miCol, lfm)
 }
 
-func (d *VP9Decoder) vp9FilterLoopBlockPlane(miRows, miRow, miCol int,
+func (d *VP9Decoder) vp9FilterLoopBlockPlane(miRows, miCols, miRow, miCol int,
 	plane vp9LoopFilterPlane, lfm *vp9LoopFilterMask,
 ) bool {
 	switch plane {
@@ -644,13 +662,194 @@ func (d *VP9Decoder) vp9FilterLoopBlockPlane(miRows, miRow, miCol int,
 		return d.vp9FilterLoopBlockPlaneSS00(d.frameYFull, d.frameYOrigin,
 			d.lastFrame.YStride, miRows, miRow, miCol, lfm)
 	case vp9LoopFilterPlaneU:
-		return d.vp9FilterLoopBlockPlaneSS11(d.frameUFull, d.frameUOrigin,
-			d.lastFrame.UStride, miRows, miRow, miCol, lfm)
+		return d.vp9FilterLoopBlockChromaPlane(d.frameUFull, d.frameUOrigin,
+			d.lastFrame.UStride, miRows, miCols, miRow, miCol, lfm)
 	case vp9LoopFilterPlaneV:
-		return d.vp9FilterLoopBlockPlaneSS11(d.frameVFull, d.frameVOrigin,
-			d.lastFrame.VStride, miRows, miRow, miCol, lfm)
+		return d.vp9FilterLoopBlockChromaPlane(d.frameVFull, d.frameVOrigin,
+			d.lastFrame.VStride, miRows, miCols, miRow, miCol, lfm)
 	default:
 		return false
+	}
+}
+
+func (d *VP9Decoder) vp9FilterLoopBlockChromaPlane(plane []byte, origin, stride int,
+	miRows, miCols, miRow, miCol int, lfm *vp9LoopFilterMask,
+) bool {
+	ssX, ssY := d.lastFrame.Subsampling.Shifts()
+	switch {
+	case ssX == 1 && ssY == 1:
+		return d.vp9FilterLoopBlockPlaneSS11(plane, origin, stride, miRows, miRow, miCol, lfm)
+	case ssX == 0 && ssY == 0:
+		return d.vp9FilterLoopBlockPlaneSS00(plane, origin, stride, miRows, miRow, miCol, lfm)
+	default:
+		return d.vp9FilterLoopBlockPlaneNon420(plane, origin, stride,
+			miRows, miCols, miRow, miCol, uint8(ssX), uint8(ssY))
+	}
+}
+
+// vp9FilterLoopBlockPlaneNon420 ports libvpx's vp9_filter_block_plane_non420
+// (vp9/common/vp9_loopfilter.c) for asymmetric chroma subsampling (4:2:2 and 4:4:0).
+func (d *VP9Decoder) vp9FilterLoopBlockPlaneNon420(plane []byte, origin, stride int,
+	miRows, miCols, miRow, miCol int, ssX, ssY uint8,
+) bool {
+	if stride <= 0 || len(plane) == 0 {
+		return false
+	}
+	base := origin + ((miRow*common.MiSize)>>ssY)*stride + ((miCol * common.MiSize) >> ssX)
+	if base < 0 || base >= len(plane) {
+		return false
+	}
+	rowStep := 1 << ssY
+	colStep := 1 << ssX
+
+	var mask16 [common.MiBlockSize]uint32
+	var mask8 [common.MiBlockSize]uint32
+	var mask4 [common.MiBlockSize]uint32
+	var mask4Int [common.MiBlockSize]uint32
+	var lfl [common.MiBlockSize * common.MiBlockSize]uint8
+
+	offset := base
+	for r := 0; r < common.MiBlockSize && miRow+r < miRows; r += rowStep {
+		var mask16C, mask8C, mask4C uint32
+		for c := 0; c < common.MiBlockSize && miCol+c < miCols; c += colStep {
+			mi := d.vp9DecoderMiAt(miRows, miCols, miRow+r, miCol+c)
+			if mi == nil || mi.SbType >= common.BlockSizes || mi.TxSize >= common.TxSizes {
+				return false
+			}
+			sbType := mi.SbType
+			skipThis := mi.Skip != 0 && mi.RefFrame[0] > vp9dec.IntraFrame
+			blockEdgeLeft := true
+			if common.Num4x4BlocksWideLookup[sbType] > 1 {
+				blockEdgeLeft = (c & (int(common.Num8x8BlocksWideLookup[sbType]) - 1)) == 0
+			}
+			skipThisC := skipThis && !blockEdgeLeft
+			blockEdgeAbove := true
+			if common.Num4x4BlocksHighLookup[sbType] > 1 {
+				blockEdgeAbove = (r & (int(common.Num8x8BlocksHighLookup[sbType]) - 1)) == 0
+			}
+			skipThisR := skipThis && !blockEdgeAbove
+			txSize := common.UvTxsizeLookup[sbType][mi.TxSize][ssX][ssY]
+			if txSize >= common.TxSizes {
+				return false
+			}
+			skipBorder4x4C := ssX != 0 && miCol+c == miCols-1
+			skipBorder4x4R := ssY != 0 && miRow+r == miRows-1
+
+			level := d.vp9LoopFilterLevel(mi)
+			lfl[(r<<3)+(c>>ssX)] = level
+			if level == 0 {
+				continue
+			}
+
+			bit := uint32(1) << uint(c>>ssX)
+			switch txSize {
+			case common.Tx32x32:
+				if !skipThisC && ((c>>ssX)&3) == 0 {
+					if !skipBorder4x4C {
+						mask16C |= bit
+					} else {
+						mask8C |= bit
+					}
+				}
+				if !skipThisR && ((r>>ssY)&3) == 0 {
+					if !skipBorder4x4R {
+						mask16[r] |= bit
+					} else {
+						mask8[r] |= bit
+					}
+				}
+			case common.Tx16x16:
+				if !skipThisC && ((c>>ssX)&1) == 0 {
+					if !skipBorder4x4C {
+						mask16C |= bit
+					} else {
+						mask8C |= bit
+					}
+				}
+				if !skipThisR && ((r>>ssY)&1) == 0 {
+					if !skipBorder4x4R {
+						mask16[r] |= bit
+					} else {
+						mask8[r] |= bit
+					}
+				}
+			default:
+				if !skipThisC {
+					if txSize == common.Tx8x8 || ((c>>ssX)&3) == 0 {
+						mask8C |= bit
+					} else {
+						mask4C |= bit
+					}
+				}
+				if !skipThisR {
+					if txSize == common.Tx8x8 || ((r>>ssY)&3) == 0 {
+						mask8[r] |= bit
+					} else {
+						mask4[r] |= bit
+					}
+				}
+				if !skipThis && txSize < common.Tx8x8 && !skipBorder4x4C {
+					mask4Int[r] |= bit
+				}
+			}
+		}
+
+		borderMask := ^uint32(0)
+		if miCol == 0 {
+			borderMask = ^uint32(1)
+		}
+		vp9FilterSelectivelyVert(plane, offset, stride,
+			mask16C&borderMask, mask8C&borderMask, mask4C&borderMask, mask4Int[r],
+			&d.lfi, lfl[r<<3:])
+		offset += 8 * stride
+	}
+
+	offset = base
+	for r := 0; r < common.MiBlockSize && miRow+r < miRows; r += rowStep {
+		skipBorder4x4R := ssY != 0 && miRow+r == miRows-1
+		mask4IntR := mask4Int[r]
+		if skipBorder4x4R {
+			mask4IntR = 0
+		}
+		var mask16R, mask8R, mask4R uint32
+		if miRow+r != 0 {
+			mask16R = mask16[r]
+			mask8R = mask8[r]
+			mask4R = mask4[r]
+		}
+		vp9FilterSelectivelyHoriz(plane, offset, stride,
+			mask16R, mask8R, mask4R, mask4IntR,
+			&d.lfi, lfl[r<<3:])
+		offset += 8 * stride
+	}
+	return true
+}
+
+func vp9FilterSelectivelyVert(plane []byte, offset, pitch int,
+	mask16, mask8, mask4, mask4Int uint32,
+	lfi *vp9dec.LoopFilterInfoN, lfl []uint8,
+) {
+	for mask := mask16 | mask8 | mask4 | mask4Int; mask != 0; mask >>= 1 {
+		level := &lfi.Lfthr[lfl[0]]
+		if mask&1 != 0 {
+			switch {
+			case mask16&1 != 0:
+				dsp.VpxLpfVertical16Thr(plane, offset, pitch, level)
+			case mask8&1 != 0:
+				dsp.VpxLpfVertical8Thr(plane, offset, pitch, level)
+			case mask4&1 != 0:
+				dsp.VpxLpfVertical4Thr(plane, offset, pitch, level)
+			}
+		}
+		if mask4Int&1 != 0 {
+			dsp.VpxLpfVertical4Thr(plane, offset+4, pitch, level)
+		}
+		offset += 8
+		lfl = lfl[1:]
+		mask16 >>= 1
+		mask8 >>= 1
+		mask4 >>= 1
+		mask4Int >>= 1
 	}
 }
 

@@ -326,9 +326,8 @@ func writeSyncCode(w *BitWriter) {
 	w.WriteLiteral(uint32(common.VP9SyncCode2), 8)
 }
 
-// writeBitdepthColorspaceSampling mirrors the profile-0 fast path of
-// libvpx's write_bitdepth_colorspace_sampling. Profile-0 always
-// emits color_space (3 bits) and the color_range bit.
+// writeBitdepthColorspaceSampling mirrors libvpx's
+// write_bitdepth_colorspace_sampling across profiles 0..3.
 func writeBitdepthColorspaceSampling(w *BitWriter, h *vp9dec.UncompressedHeader) {
 	if h.Profile >= common.Profile2 {
 		// Bit depth bit (10 → 0, 12 → 1).
@@ -341,6 +340,13 @@ func writeBitdepthColorspaceSampling(w *BitWriter, h *vp9dec.UncompressedHeader)
 	w.WriteLiteral(uint32(h.BitDepthColor.ColorSpace), 3)
 	if h.BitDepthColor.ColorSpace != common.CSSRGB {
 		w.WriteBit(uint32(h.BitDepthColor.ColorRange))
+		if h.Profile == common.Profile1 || h.Profile == common.Profile3 {
+			w.WriteBit(uint32(h.BitDepthColor.SubsamplingX))
+			w.WriteBit(uint32(h.BitDepthColor.SubsamplingY))
+			w.WriteBit(0) // reserved zero
+		}
+	} else if h.Profile == common.Profile1 || h.Profile == common.Profile3 {
+		w.WriteBit(0) // reserved zero
 	}
 }
 

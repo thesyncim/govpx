@@ -378,7 +378,7 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 			_ = splitRD
 		}
 	}
-	if horzAllowed && (doRect || vp9ActiveHEdge(miRow, bs, miRows)) {
+	if horzAllowed && e.vp9ChromaBlockSizeValid(horzSize) && (doRect || vp9ActiveHEdge(miRow, bs, miRows)) {
 		partRate := RDPartitionCost(partitionProbs, ctx, common.PartitionHorz)
 		consider(common.PartitionHorz, e.vp9KeyframeRDPartitionRectBestRD(
 			rdmult, bestRD, best, bestSet, partRate),
@@ -393,7 +393,7 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 			doRect = false
 		}
 	}
-	if vertAllowed && (doRect || vp9ActiveVEdge(miCol, bs, miCols)) {
+	if vertAllowed && e.vp9ChromaBlockSizeValid(vertSize) && (doRect || vp9ActiveVEdge(miCol, bs, miCols)) {
 		partRate := RDPartitionCost(partitionProbs, ctx, common.PartitionVert)
 		consider(common.PartitionVert, e.vp9KeyframeRDPartitionRectBestRD(
 			rdmult, bestRD, best, bestSet, partRate),
