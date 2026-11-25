@@ -15,6 +15,9 @@ git_cmd=${GIT:-git}
 		/^internal\/pixel\// { print; next }
 		/^internal\/vp8\// { print; next }
 		/^internal\/vp9\// { print; next }
+		/^internal\/vpx\/codecapi\// { print; next }
+		$0 == "vp8.go" { print; next }
+		$0 == "vp9.go" { print; next }
 		/^vp8_encoder/ { print; next }
 		/^vp8_decoder/ { print; next }
 		/^vp9_/ { print; next }

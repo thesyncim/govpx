@@ -1,135 +1,100 @@
 package govpx
 
+import "github.com/thesyncim/govpx/internal/vpx/codecapi"
+
 // RateControlMode selects the encoder bitrate-control strategy.
-type RateControlMode int
+type RateControlMode = codecapi.RateControlMode
 
 const (
-	// RateControlVBR selects variable bitrate mode.
-	RateControlVBR RateControlMode = iota
-	// RateControlCBR selects constant bitrate mode.
-	RateControlCBR
-	// RateControlCQ selects constrained-quality mode.
-	RateControlCQ
-	// RateControlQ selects libvpx VPX_Q constant-quality mode.
-	RateControlQ
+	RateControlVBR = codecapi.RateControlVBR
+	RateControlCBR = codecapi.RateControlCBR
+	RateControlCQ  = codecapi.RateControlCQ
+	RateControlQ   = codecapi.RateControlQ
 )
 
 // RealtimeFrameDropMode selects how SetRealtimeTarget changes frame dropping.
-type RealtimeFrameDropMode int
+type RealtimeFrameDropMode = codecapi.RealtimeFrameDropMode
 
 const (
-	// RealtimeFrameDropUnchanged leaves the current frame-drop setting intact.
-	RealtimeFrameDropUnchanged RealtimeFrameDropMode = iota
-	// RealtimeFrameDropDisabled disables realtime frame dropping.
-	RealtimeFrameDropDisabled
-	// RealtimeFrameDropEnabled enables realtime frame dropping.
-	RealtimeFrameDropEnabled
+	RealtimeFrameDropUnchanged = codecapi.RealtimeFrameDropUnchanged
+	RealtimeFrameDropDisabled  = codecapi.RealtimeFrameDropDisabled
+	RealtimeFrameDropEnabled   = codecapi.RealtimeFrameDropEnabled
 )
 
-// RateControlConfig is the runtime-updatable subset of encoder rate-control
-// options.
-type RateControlConfig struct {
-	// Mode selects VBR, CBR, constrained-quality, or VPX_Q behavior.
-	Mode RateControlMode
+// RateControlConfig is the runtime-updatable subset of encoder rate-control options.
+type RateControlConfig = codecapi.RateControlConfig
 
-	// TargetBitrateKbps is the total target bitrate.
-	TargetBitrateKbps int
-	// MinBitrateKbps and MaxBitrateKbps optionally bound runtime bitrate
-	// updates.
-	MinBitrateKbps int
-	MaxBitrateKbps int
+// RealtimeTarget describes a low-latency runtime target update.
+type RealtimeTarget = codecapi.RealtimeTarget
 
-	// MinQuantizer and MaxQuantizer bound the public 0..63 quantizer range.
-	MinQuantizer int
-	MaxQuantizer int
-	// CQLevel is the public quantizer level for RateControlCQ and
-	// RateControlQ. RateControlCQ applies it as a floor; RateControlQ
-	// mirrors libvpx's VPX_Q validation without applying the CQ floor.
-	CQLevel int
+// Deadline selects the encoder speed/quality operating mode.
+type Deadline = codecapi.Deadline
 
-	// UndershootPct and OvershootPct cap libvpx-style rate adjustment.
-	// Valid range is [0, 100]; zero selects the libvpx default.
-	UndershootPct int
-	OvershootPct  int
+const (
+	DeadlineBestQuality = codecapi.DeadlineBestQuality
+	DeadlineGoodQuality = codecapi.DeadlineGoodQuality
+	DeadlineRealtime    = codecapi.DeadlineRealtime
+)
 
-	// BufferSizeMs, BufferInitialSizeMs, and BufferOptimalSizeMs describe the
-	// virtual rate-control buffer in milliseconds.
-	BufferSizeMs        int
-	BufferInitialSizeMs int
-	BufferOptimalSizeMs int
+// ScalingMode mirrors libvpx's vpx_scaling_mode_t enum.
+type ScalingMode = codecapi.ScalingMode
 
-	// DropFrameAllowed enables rate-control frame dropping when
-	// DropFrameWaterMark is positive.
-	DropFrameAllowed bool
-	// DropFrameWaterMark is the buffer-level percentage at which rate
-	// control begins dropping frames. Values >100 are clamped to 100; zero
-	// disables dropping. Mirrors libvpx's oxcf.drop_frames_water_mark /
-	// rc_dropframe_thresh.
-	DropFrameWaterMark int
+const (
+	ScalingNormal    = codecapi.ScalingNormal
+	ScalingFourFive  = codecapi.ScalingFourFive
+	ScalingThreeFive = codecapi.ScalingThreeFive
+	ScalingOneTwo    = codecapi.ScalingOneTwo
+)
 
-	// MaxIntraBitratePct caps key-frame bitrate as a percentage of target.
-	MaxIntraBitratePct int
-	// GFCBRBoostPct controls golden-frame boost in CBR mode.
-	GFCBRBoostPct int
-}
+// Tuning selects the encoder's visual quality model.
+type Tuning = codecapi.Tuning
 
-// RealtimeTarget describes a low-latency runtime target update applied
-// by [VP8Encoder.SetRealtimeTarget].
-//
-// Each field uses its zero value as "leave the current setting alone",
-// so a bandwidth-estimator update is safe to send as a sparse delta
-// (typically only BitrateKbps). All non-zero fields are validated
-// before any mutation, and a validation failure leaves the encoder
-// fully usable at its previous configuration.
-//
-// Mirrors libvpx's `vpx_codec_enc_config_set` for the fields a WebRTC sender
-// typically updates per BWE step. VP9 consumes BitrateKbps / FPS /
-// MinQuantizer / MaxQuantizer / Width / Height through
-// VP9Encoder.SetRealtimeTarget; frame-drop controls are accepted by VP9 only
-// when the encoder was created with VP9 CBR rate control enabled.
-type RealtimeTarget struct {
-	// BitrateKbps changes the total target bitrate when non-zero.
-	// Equivalent to [VP8Encoder.SetBitrateKbps]. VP9 applies it when the
-	// encoder was created with explicit rate control enabled.
-	BitrateKbps int
-	// FPS changes the timebase to 1/FPS when non-zero. The realtime
-	// adaptive-Speed timing window is reset on VP8 so the auto-speed
-	// selector recomputes from cold start against the new frame budget.
-	FPS int
+const (
+	TunePSNR = codecapi.TunePSNR
+	TuneSSIM = codecapi.TuneSSIM
+)
 
-	// Width and Height drive caller-driven runtime resolution change
-	// when both are positive. Setting them to the encoder's current
-	// dimensions is a no-op (accepted for sparse BWE deltas that echo
-	// the active size). Setting them to a new W x H pair resizes every
-	// size-dependent encoder buffer in place (capacity is reused),
-	// invalidates the LAST / GOLDEN / ALTREF references, and forces
-	// the next encoded frame to be a key frame at the new dimensions.
-	//
-	// Mirrors libvpx's `vpx_codec_enc_config_set` with a new width /
-	// height. The libvpx spatial resampler ([VP8E_SET_SCALEMODE],
-	// `rc_resize_*`) is not implemented; callers drive the coded size
-	// directly. The decoder also handles key-frame resolution change;
-	// see [DecoderOptions.RejectResolutionChange].
-	//
-	// VP8 resize is refused with [ErrInvalidConfig] when the lookahead
-	// queue is non-empty or a hidden alt-ref input is staged; drain the
-	// encoder with [VP8Encoder.FlushInto] before resizing in those
-	// modes. Invalid dimensions (zero, negative, or larger than the
-	// codec maximum) are likewise refused without mutating encoder
-	// state.
-	Width  int
-	Height int
+// EncodeFlags controls per-frame reference and packet behavior.
+type EncodeFlags = codecapi.EncodeFlags
 
-	// MinQuantizer and MaxQuantizer update the public 0..63 quantizer
-	// range when non-zero. Mirrors the runtime side of
-	// [EncoderOptions.MinQuantizer] / [EncoderOptions.MaxQuantizer].
-	MinQuantizer int
-	MaxQuantizer int
+const (
+	EncodeForceKeyFrame     = codecapi.EncodeForceKeyFrame
+	EncodeInvisibleFrame    = codecapi.EncodeInvisibleFrame
+	EncodeNoReferenceLast   = codecapi.EncodeNoReferenceLast
+	EncodeNoReferenceGolden = codecapi.EncodeNoReferenceGolden
+	EncodeNoReferenceAltRef = codecapi.EncodeNoReferenceAltRef
+	EncodeNoUpdateLast      = codecapi.EncodeNoUpdateLast
+	EncodeNoUpdateGolden    = codecapi.EncodeNoUpdateGolden
+	EncodeNoUpdateAltRef    = codecapi.EncodeNoUpdateAltRef
+	EncodeNoUpdateEntropy   = codecapi.EncodeNoUpdateEntropy
+	EncodeForceGoldenFrame  = codecapi.EncodeForceGoldenFrame
+	EncodeForceAltRefFrame  = codecapi.EncodeForceAltRefFrame
+)
 
-	// FrameDrop changes realtime frame dropping. The zero value
-	// ([RealtimeFrameDropUnchanged]) leaves the current setting
-	// unchanged, which is the right default for bitrate-only WebRTC
-	// bandwidth-estimation updates that should not accidentally
-	// disable dropping.
-	FrameDrop RealtimeFrameDropMode
+// PostProcessFlag selects optional libvpx-style decoder postprocessing.
+type PostProcessFlag = codecapi.PostProcessFlag
+
+const (
+	PostProcessDeblock      = codecapi.PostProcessDeblock
+	PostProcessDemacroblock = codecapi.PostProcessDemacroblock
+	PostProcessAddNoise     = codecapi.PostProcessAddNoise
+	PostProcessMFQE         = codecapi.PostProcessMFQE
+	allPostProcessFlags     = codecapi.AllPostProcessFlags
+)
+
+// VP8Decryptor mirrors libvpx v1.16.0 vpx_decrypt_cb.
+type VP8Decryptor = codecapi.VP8Decryptor
+
+// ROIMap configures libvpx-style region-of-interest segments.
+type ROIMap = codecapi.ROIMap
+
+// EncoderPhaseStats accumulates opt-in coarse encoder phase timing and counters.
+type EncoderPhaseStats = codecapi.EncoderPhaseStats
+
+// FirstPassFrameStats mirrors libvpx FIRSTPASS_STATS.
+type FirstPassFrameStats = codecapi.FirstPassFrameStats
+
+// FinalizeFirstPassStats appends the terminal total-stats record.
+func FinalizeFirstPassStats(stats []FirstPassFrameStats) []FirstPassFrameStats {
+	return codecapi.FinalizeFirstPassStats(stats)
 }

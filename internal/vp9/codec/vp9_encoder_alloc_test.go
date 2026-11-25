@@ -1,0 +1,645 @@
+package codec
+
+import (
+	"bytes"
+	"errors"
+	"image"
+	"runtime"
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
+)
+
+// TestVP9EncoderEncodeIntoSteadyStateAlloc verifies that the
+// caller-owned output path allocates only during setup / growth. The
+// hot path reuses the compressed-header scratch, partition contexts,
+// and MI grid across frames.
+func TestVP9EncoderEncodeIntoSteadyStateAlloc(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 256, Height: 192})
+	img := vp9test.NewYCbCr(256, 192, 128, 128, 128)
+	dst := make([]byte, 65536)
+
+	if _, err := e.EncodeInto(img, dst); err != nil {
+		t.Fatalf("warm EncodeInto: %v", err)
+	}
+
+	var n int
+	var err error
+	allocs := testing.AllocsPerRun(vp9EncoderKeyframeAllocRuns, func() {
+		e.frameIndex = 0
+		n, err = e.EncodeInto(img, dst)
+	})
+	if err != nil {
+		t.Fatalf("EncodeInto: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("EncodeInto wrote no bytes")
+	}
+	if allocs != 0 {
+		t.Fatalf("EncodeInto steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9EncoderEncodeIntoSourceKeyframeSteadyStateAlloc(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 256, Height: 192})
+	img := vp9test.NewYCbCr(256, 192, 87, 144, 39)
+	dst := make([]byte, 65536)
+
+	if _, err := e.EncodeInto(img, dst); err != nil {
+		t.Fatalf("warm EncodeInto: %v", err)
+	}
+
+	var n int
+	var err error
+	allocs := testing.AllocsPerRun(vp9EncoderKeyframeAllocRuns, func() {
+		e.frameIndex = 0
+		n, err = e.EncodeInto(img, dst)
+	})
+	if err != nil {
+		t.Fatalf("EncodeInto source keyframe: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("EncodeInto source keyframe wrote no bytes")
+	}
+	if allocs != 0 {
+		t.Fatalf("EncodeInto source keyframe steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+// TestVP9EncoderEncodeIntoInterSteadyStateAlloc verifies that visible
+// inter-frame header/mode emission reuses the keyframe-allocated scratch,
+// partition contexts, and MI grid.
+func TestVP9EncoderEncodeIntoInterSteadyStateAlloc(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 256, Height: 192})
+	img := vp9test.NewYCbCr(256, 192, 128, 128, 128)
+	dst := make([]byte, 65536)
+
+	if _, err := e.EncodeInto(img, dst); err != nil {
+		t.Fatalf("warm keyframe EncodeInto: %v", err)
+	}
+	if _, err := e.EncodeInto(img, dst); err != nil {
+		t.Fatalf("warm inter EncodeInto: %v", err)
+	}
+
+	var n int
+	var err error
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+		e.frameIndex = 1
+		n, err = e.EncodeInto(img, dst)
+	})
+	if err != nil {
+		t.Fatalf("EncodeInto inter: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("EncodeInto inter wrote no bytes")
+	}
+	if allocs != 0 {
+		t.Fatalf("EncodeInto inter steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9EncoderEncodeIntoInterResidueSteadyStateAlloc(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 256, Height: 192})
+	keySrc := vp9test.NewYCbCr(256, 192, 81, 123, 210)
+	interSrc := vp9test.NewYCbCr(256, 192, 113, 123, 210)
+	dst := make([]byte, 65536)
+
+	if _, err := e.EncodeInto(keySrc, dst); err != nil {
+		t.Fatalf("warm keyframe EncodeInto: %v", err)
+	}
+	var keyRef vp9ReferenceFrame
+	keyRef.store(e.reconFrame)
+	if _, err := e.EncodeInto(interSrc, dst); err != nil {
+		t.Fatalf("warm inter EncodeInto: %v", err)
+	}
+
+	var n int
+	var err error
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+		e.frameIndex = 1
+		e.refFrames[0].store(keyRef.img)
+		n, err = e.EncodeInto(interSrc, dst)
+	})
+	if err != nil {
+		t.Fatalf("EncodeInto inter residue: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("EncodeInto inter residue wrote no bytes")
+	}
+	if allocs != 0 {
+		t.Fatalf("EncodeInto inter residue steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9EncoderCyclicRefreshAQInterSteadyStateAlloc(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              128,
+		Height:             128,
+		FPS:                30,
+		TargetBitrateKbps:  300,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		AQMode:             VP9AQCyclicRefresh,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	keySrc := vp9test.NewYCbCr(128, 128, 81, 123, 210)
+	interSrc := vp9test.NewYCbCr(128, 128, 113, 123, 210)
+	dst := make([]byte, 65536)
+
+	if _, err := e.EncodeInto(keySrc, dst); err != nil {
+		t.Fatalf("warm keyframe EncodeInto: %v", err)
+	}
+	var keyRef vp9ReferenceFrame
+	keyRef.store(e.reconFrame)
+	if _, err := e.EncodeInto(interSrc, dst); err != nil {
+		t.Fatalf("warm cyclic inter EncodeInto: %v", err)
+	}
+
+	var n int
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+		e.frameIndex = 1
+		e.refFrames[0].store(keyRef.img)
+		n, err = e.EncodeInto(interSrc, dst)
+	})
+	if err != nil {
+		t.Fatalf("EncodeInto cyclic inter: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("EncodeInto cyclic inter wrote no bytes")
+	}
+	if allocs != 0 {
+		t.Fatalf("VP9 cyclic AQ inter steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9EncoderActiveMapInterSteadyStateAlloc(t *testing.T) {
+	const width, height = 128, 128
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	rows := encoderMacroblockRows(height)
+	cols := encoderMacroblockCols(width)
+	activeMap := make([]uint8, rows*cols)
+	for row := range rows {
+		for col := range cols {
+			activeMap[row*cols+col] = 1
+			if (row+col)&1 == 0 {
+				activeMap[row*cols+col] = 0
+			}
+		}
+	}
+	if err := e.SetActiveMap(activeMap, rows, cols); err != nil {
+		t.Fatalf("SetActiveMap: %v", err)
+	}
+	keySrc := vp9test.NewYCbCr(width, height, 81, 123, 210)
+	interSrc := vp9test.NewYCbCr(width, height, 113, 123, 210)
+	dst := make([]byte, 65536)
+
+	if _, err := e.EncodeInto(keySrc, dst); err != nil {
+		t.Fatalf("warm keyframe EncodeInto: %v", err)
+	}
+	var keyRef vp9ReferenceFrame
+	keyRef.store(e.reconFrame)
+	if _, err := e.EncodeInto(interSrc, dst); err != nil {
+		t.Fatalf("warm active-map inter EncodeInto: %v", err)
+	}
+
+	var n int
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+		e.frameIndex = 1
+		e.refFrames[0].store(keyRef.img)
+		n, err = e.EncodeInto(interSrc, dst)
+	})
+	if err != nil {
+		t.Fatalf("EncodeInto active-map inter: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("EncodeInto active-map inter wrote no bytes")
+	}
+	if allocs != 0 {
+		t.Fatalf("VP9 active-map inter steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9EncoderROIMapInterSteadyStateAlloc(t *testing.T) {
+	const width, height = 128, 128
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	miRows := (height + 7) >> 3
+	miCols := (width + 7) >> 3
+	roi := ROIMap{
+		Enabled:   true,
+		Rows:      miRows,
+		Cols:      miCols,
+		SegmentID: make([]uint8, miRows*miCols),
+	}
+	for row := range miRows {
+		for col := range miCols {
+			if row == col || row+col == miCols-1 {
+				roi.SegmentID[row*miCols+col] = 1
+			}
+		}
+	}
+	roi.DeltaQuantizer[1] = -4
+	roi.DeltaLoopFilter[1] = 3
+	if err := e.SetROIMap(&roi); err != nil {
+		t.Fatalf("SetROIMap: %v", err)
+	}
+	keySrc := vp9test.NewYCbCr(width, height, 81, 123, 210)
+	interSrc := vp9test.NewYCbCr(width, height, 113, 123, 210)
+	dst := make([]byte, 65536)
+
+	if _, err := e.EncodeInto(keySrc, dst); err != nil {
+		t.Fatalf("warm keyframe EncodeInto: %v", err)
+	}
+	var keyRef vp9ReferenceFrame
+	keyRef.store(e.reconFrame)
+	if _, err := e.EncodeInto(interSrc, dst); err != nil {
+		t.Fatalf("warm ROI inter EncodeInto: %v", err)
+	}
+
+	var n int
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+		e.frameIndex = 1
+		e.refFrames[0].store(keyRef.img)
+		n, err = e.EncodeInto(interSrc, dst)
+	})
+	if err != nil {
+		t.Fatalf("EncodeInto ROI inter: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("EncodeInto ROI inter wrote no bytes")
+	}
+	if allocs != 0 {
+		t.Fatalf("VP9 ROI inter steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9EncoderDenoiserInterSteadyStateAlloc(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:            width,
+		Height:           height,
+		NoiseSensitivity: 3,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	keySrc := vp9test.NewYCbCr(width, height, 100, 96, 160)
+	interSrc := vp9test.NewYCbCr(width, height, 102, 98, 158)
+	dst := make([]byte, 65536)
+
+	if _, err := e.EncodeInto(keySrc, dst); err != nil {
+		t.Fatalf("warm keyframe EncodeInto: %v", err)
+	}
+	var keyRef vp9ReferenceFrame
+	keyRef.store(e.reconFrame)
+	keyAvg := *image.NewYCbCr(image.Rect(0, 0, width, height),
+		image.YCbCrSubsampleRatio420)
+	copyVP9LookaheadImage(&keyAvg, &e.denoiser.runningAvg[vp9DenoiserAvgLast],
+		width, height)
+	if _, err := e.EncodeInto(interSrc, dst); err != nil {
+		t.Fatalf("warm denoiser inter EncodeInto: %v", err)
+	}
+
+	var n int
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+		e.frameIndex = 1
+		e.refFrames[0].store(keyRef.img)
+		copyVP9LookaheadImage(&e.denoiser.runningAvg[vp9DenoiserAvgLast],
+			&keyAvg, width, height)
+		e.denoiser.reset = false
+		n, err = e.EncodeInto(interSrc, dst)
+	})
+	if err != nil {
+		t.Fatalf("EncodeInto denoiser inter: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("EncodeInto denoiser inter wrote no bytes")
+	}
+	if allocs != 0 {
+		t.Fatalf("VP9 denoiser inter steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9EncoderAutoAltRefLookaheadSteadyStateAlloc(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		Deadline:           DeadlineRealtime,
+		CpuUsed:            4,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  300,
+		LookaheadFrames:    4,
+		AutoAltRef:         true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	sources := [8]*image.YCbCr{
+		vp9test.NewYCbCr(width, height, 80, 128, 128),
+		vp9test.NewYCbCr(width, height, 96, 128, 128),
+		vp9test.NewYCbCr(width, height, 112, 128, 128),
+		vp9test.NewYCbCr(width, height, 128, 128, 128),
+		vp9test.NewYCbCr(width, height, 144, 128, 128),
+		vp9test.NewYCbCr(width, height, 160, 128, 128),
+		vp9test.NewYCbCr(width, height, 176, 128, 128),
+		vp9test.NewYCbCr(width, height, 192, 128, 128),
+	}
+	dst := make([]byte, 65536)
+	for i := range 5 {
+		_, err := e.EncodeIntoWithResult(sources[i], dst)
+		if errors.Is(err, ErrFrameNotReady) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("warm EncodeIntoWithResult frame %d: %v", i, err)
+		}
+	}
+	if !e.autoAltRefPendingSet || !e.autoAltRefEmitted {
+		t.Fatalf("auto-alt-ref warm state = pending:%t emitted:%t, want true/true",
+			e.autoAltRefPendingSet, e.autoAltRefEmitted)
+	}
+
+	idx := 5
+	var result VP9EncodeResult
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+		result, err = e.EncodeIntoWithResult(sources[idx&7], dst)
+		idx++
+	})
+	if err != nil {
+		t.Fatalf("EncodeIntoWithResult auto-alt-ref steady state: %v", err)
+	}
+	if result.Dropped || !result.ShowFrame || len(result.Data) == 0 {
+		t.Fatalf("auto-alt-ref steady packet = dropped:%t show:%t bytes:%d, want visible packet",
+			result.Dropped, result.ShowFrame, len(result.Data))
+	}
+	if allocs != 0 {
+		t.Fatalf("VP9 auto-alt-ref lookahead steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9EncoderCBRDropSteadyStateAlloc(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              256,
+		Height:             192,
+		FPS:                30,
+		TargetBitrateKbps:  1,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		DropFrameAllowed:   true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	img := vp9test.NewYCbCr(256, 192, 128, 128, 128)
+	dst := make([]byte, 65536)
+	if _, err := e.EncodeIntoWithResult(img, dst); err != nil {
+		t.Fatalf("warm keyframe EncodeIntoWithResult: %v", err)
+	}
+
+	var result VP9EncodeResult
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+		e.frameIndex = 1
+		e.rc.bufferLevelBits = -1
+		result, err = e.EncodeIntoWithResult(img, dst)
+	})
+	if err != nil {
+		t.Fatalf("drop EncodeIntoWithResult: %v", err)
+	}
+	if !result.Dropped || len(result.Data) != 0 {
+		t.Fatalf("drop result = dropped:%t data:%d, want dropped empty output",
+			result.Dropped, len(result.Data))
+	}
+	if allocs != 0 {
+		t.Fatalf("VP9 CBR drop steady state: got %v allocs/op, want 0", allocs)
+	}
+}
+
+func TestVP9EncoderAllocatingWrapperGrowsForLargePacket(t *testing.T) {
+	const width, height = 512, 512
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width:     width,
+		Height:    height,
+		Quantizer: 1,
+	})
+	img := vp9test.NewCheckerYCbCr(width, height, 16, 240, 96, 224)
+	packet, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode large keyframe: %v", err)
+	}
+	if len(packet) <= 65536 {
+		t.Fatalf("large keyframe packet size = %d, want > 65536 to cover allocating growth", len(packet))
+	}
+	info, err := PeekVP9StreamInfo(packet)
+	if err != nil {
+		t.Fatalf("PeekVP9StreamInfo large keyframe: %v", err)
+	}
+	if !info.KeyFrame || info.Width != width || info.Height != height {
+		t.Fatalf("large keyframe info = %+v, want %dx%d keyframe", info, width, height)
+	}
+}
+
+func TestVP9EncoderBufferFullInterRetryPreservesFrameContext(t *testing.T) {
+	const width, height = 64, 64
+	keySrc := vp9test.NewCheckerYCbCr(width, height, 48, 208, 128, 128)
+	interSrc := vp9test.NewMotionYCbCr(width, height)
+
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if _, err := e.Encode(keySrc); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	if _, err := e.EncodeInto(interSrc, make([]byte, 512)); !errors.Is(err, vp9enc.ErrPackBufferFull) &&
+		!errors.Is(err, vp9enc.ErrTileBufferFull) {
+		t.Fatalf("short inter EncodeInto error = %v, want VP9 buffer-full error", err)
+	}
+	got, err := e.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("retry Encode inter: %v", err)
+	}
+
+	fresh, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	if _, err := fresh.Encode(keySrc); err != nil {
+		t.Fatalf("fresh Encode keyframe: %v", err)
+	}
+	want, err := fresh.Encode(interSrc)
+	if err != nil {
+		t.Fatalf("fresh Encode inter: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("inter retry changed packet after buffer-full failure: got %x want %x", got, want)
+	}
+}
+
+func TestVP9EncoderEncodeIntoRejectsTinyBuffer(t *testing.T) {
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	img := vp9test.NewYCbCr(64, 64, 128, 128, 128)
+	if _, err := e.EncodeInto(img, make([]byte, vp9MinEncodeIntoBuffer-1)); !errors.Is(err, ErrBufferTooSmall) {
+		t.Fatalf("tiny EncodeInto error = %v, want ErrBufferTooSmall", err)
+	}
+}
+
+func TestCopyVP9LookaheadImageMatchesRowLoop(t *testing.T) {
+	tests := []struct {
+		name          string
+		width, height int
+		yStride       int
+		cStride       int
+	}{
+		{name: "contiguous_720p", width: 1280, height: 720},
+		{name: "padded", width: 19, height: 17, yStride: 24, cStride: 16},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			src := newVP9CopyTestImage(tc.width, tc.height, tc.yStride, tc.cStride)
+			got := newVP9CopyTestImage(tc.width, tc.height, tc.yStride, tc.cStride)
+			want := newVP9CopyTestImage(tc.width, tc.height, tc.yStride, tc.cStride)
+			for i := range src.Y {
+				src.Y[i] = byte(i*17 + 3)
+			}
+			for i := range src.Cb {
+				src.Cb[i] = byte(i*11 + 5)
+				src.Cr[i] = byte(i*7 + 9)
+			}
+			for i := range got.Y {
+				got.Y[i] = 0xa5
+				want.Y[i] = 0xa5
+			}
+			for i := range got.Cb {
+				got.Cb[i], got.Cr[i] = 0x5a, 0x33
+				want.Cb[i], want.Cr[i] = 0x5a, 0x33
+			}
+
+			copyVP9LookaheadImage(&got, &src, tc.width, tc.height)
+			copyVP9LookaheadImageRowLoopTest(&want, &src, tc.width, tc.height)
+			if !bytes.Equal(got.Y, want.Y) ||
+				!bytes.Equal(got.Cb, want.Cb) ||
+				!bytes.Equal(got.Cr, want.Cr) {
+				t.Fatal("copyVP9LookaheadImage mismatch")
+			}
+		})
+	}
+}
+
+var benchmarkVP9LookaheadCopySink byte
+
+func BenchmarkCopyVP9LookaheadImage(b *testing.B) {
+	const width, height = 1280, 720
+	src := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	dst := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	for i := range src.Y {
+		src.Y[i] = byte(i)
+	}
+	for i := range src.Cb {
+		src.Cb[i] = byte(i * 3)
+		src.Cr[i] = byte(i * 5)
+	}
+	bytesPerImage := width*height + 2*((width+1)>>1)*((height+1)>>1)
+	for _, tc := range []struct {
+		name string
+		copy func(*image.YCbCr, *image.YCbCr, int, int)
+	}{
+		{name: "row_loop", copy: copyVP9LookaheadImageRowLoopTest},
+		{name: "visible_plane", copy: copyVP9LookaheadImage},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(bytesPerImage))
+			for b.Loop() {
+				tc.copy(dst, src, width, height)
+			}
+			benchmarkVP9LookaheadCopySink ^= dst.Y[0]
+		})
+	}
+}
+
+func newVP9CopyTestImage(width, height, yStride, cStride int) image.YCbCr {
+	if yStride == 0 {
+		yStride = width
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	if cStride == 0 {
+		cStride = uvWidth
+	}
+	return image.YCbCr{
+		Y:              make([]byte, yStride*height),
+		Cb:             make([]byte, cStride*uvHeight),
+		Cr:             make([]byte, cStride*uvHeight),
+		YStride:        yStride,
+		CStride:        cStride,
+		SubsampleRatio: image.YCbCrSubsampleRatio420,
+		Rect:           image.Rect(0, 0, width, height),
+	}
+}
+
+func copyVP9LookaheadImageRowLoopTest(dst *image.YCbCr, src *image.YCbCr,
+	width int, height int,
+) {
+	for y := range height {
+		copy(dst.Y[y*dst.YStride:][:width], src.Y[y*src.YStride:][:width])
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	for y := range uvHeight {
+		copy(dst.Cb[y*dst.CStride:][:uvWidth], src.Cb[y*src.CStride:][:uvWidth])
+		copy(dst.Cr[y*dst.CStride:][:uvWidth], src.Cr[y*src.CStride:][:uvWidth])
+	}
+}
+
+// TestVP9EncoderZeroAllocFromFrameZero verifies that a freshly constructed
+// realtime 720p VP9Encoder encodes both keyframes and interframes with zero
+// heap allocations starting from frame 0.
+func TestVP9EncoderZeroAllocFromFrameZero(t *testing.T) {
+	const (
+		width  = 1280
+		height = 720
+	)
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:             width,
+		Height:            height,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           8,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 2500,
+		NoiseSensitivity:  4,
+		Threads:           1,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+
+	frames := make([]*image.YCbCr, 5)
+	for f := range frames {
+		img := vp9test.NewYCbCr(width, height, byte(40+f*20), 128, 128)
+		for y := 0; y < height; y += 8 {
+			for x := 0; x < width; x += 8 {
+				img.Y[y*img.YStride+x] = byte((x + y + f*17) & 0xff)
+			}
+		}
+		frames[f] = img
+	}
+	dst := make([]byte, 1<<20)
+
+	var memBefore, memAfter runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&memBefore)
+	for i, img := range frames {
+		if _, err := e.EncodeIntoWithResult(img, dst); err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", i, err)
+		}
+	}
+	runtime.ReadMemStats(&memAfter)
+	if got := memAfter.Mallocs - memBefore.Mallocs; got != 0 {
+		t.Fatalf("EncodeIntoWithResult from frame 0 allocated %d objects across %d frames, want 0", got, len(frames))
+	}
+}
