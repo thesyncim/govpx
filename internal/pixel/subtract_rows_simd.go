@@ -37,12 +37,38 @@ func subtractSmallRows4(src []byte, ss int, pred []byte, ps int, out []int16, os
 }
 
 func subtractSmallRows8(src []byte, ss int, pred []byte, ps int, out []int16, os, h int) bool {
+	if h <= 0 {
+		return false
+	}
+	_ = src[(h-1)*ss+7]
+	_ = pred[(h-1)*ps+7]
+	_ = out[(h-1)*os+7]
 	var bits archsimd.Int16x8
-	for y := range h {
-		a := (archsimd.Uint64x2{}).SetElem(0, binary.LittleEndian.Uint64(src[y*ss:])).ReshapeToUint8s()
-		b := (archsimd.Uint64x2{}).SetElem(0, binary.LittleEndian.Uint64(pred[y*ps:])).ReshapeToUint8s()
+	so, po, oo := 0, 0, 0
+	y := 0
+	for ; y+1 < h; y += 2 {
+		a := archsimd.LoadUint64x2Array(&[2]uint64{
+			binary.LittleEndian.Uint64(src[so:]),
+			binary.LittleEndian.Uint64(src[so+ss:]),
+		}).ReshapeToUint8s()
+		b := archsimd.LoadUint64x2Array(&[2]uint64{
+			binary.LittleEndian.Uint64(pred[po:]),
+			binary.LittleEndian.Uint64(pred[po+ps:]),
+		}).ReshapeToUint8s()
+		d0 := widen8(a).Sub(widen8(b))
+		d1 := widen8(a.HiToLo()).Sub(widen8(b.HiToLo()))
+		d0.StoreArray((*[8]int16)(out[oo : oo+8]))
+		d1.StoreArray((*[8]int16)(out[oo+os : oo+os+8]))
+		bits = bits.Or(d0).Or(d1)
+		so += 2 * ss
+		po += 2 * ps
+		oo += 2 * os
+	}
+	if y < h {
+		a := (archsimd.Uint64x2{}).SetElem(0, binary.LittleEndian.Uint64(src[so:])).ReshapeToUint8s()
+		b := (archsimd.Uint64x2{}).SetElem(0, binary.LittleEndian.Uint64(pred[po:])).ReshapeToUint8s()
 		d := widen8(a).Sub(widen8(b))
-		d.Store(out[y*os:])
+		d.StoreArray((*[8]int16)(out[oo : oo+8]))
 		bits = bits.Or(d)
 	}
 	q := bits.ToBits().ReshapeToUint64s()

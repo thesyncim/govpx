@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"image"
-	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -114,19 +113,22 @@ type vp9TileWorkerPool struct {
 	vp9TileWorkerPhaseStatsOptions
 
 	workers     []*VP9Encoder
-	countJobs   []vp9CountTileJob
+	countJobs   []*vp9CountTileJob
 	countCounts []encoder.FrameCounts
 	countTokens []encoder.TokenFrameBuffer
-	encodeJobs  []vp9EncodeTileJob
+	encodeJobs  []*vp9EncodeTileJob
 	outputs     [][]byte
 	outputSize  int
 
-	// wakeSlots / doneCount drive helper launch and join using pure atomics
-	// during active frames (zero channel ops, zero runtime.acquireSudog
-	// allocations), parking cleanly on the wake channel only when idle.
+	// wakeSlots drive helper launch; remaining + doneWake join helpers without
+	// CPU spinning (the last helper to decrement remaining to 0 signals doneWake).
 	wakeSlots     []workerWakeSlot
 	dispatchEpoch uint64
-	doneCount     atomic.Int32
+	remaining     atomic.Int32
+	doneWake      chan struct{}
+	prepRemaining atomic.Int32
+	prepDoneWake  chan struct{}
+	encodeGoWake  []chan struct{}
 	shutdown      chan struct{}
 	wg            sync.WaitGroup
 
@@ -155,24 +157,25 @@ type vp9TileWorkerPool struct {
 	// by the most recent ensureRowWorkers call. Reset across pool rebuilds.
 	rowMTThreadCount int
 
-	jobKind        atomic.Uint32
-	encodePrepDone atomic.Int32
-	encodeStart    atomic.Uint32
-	workerCount    int
+	jobKind     atomic.Uint32
+	encodeStart atomic.Uint32
+	workerCount int
 }
 
 // vp9RowMTSync mirrors libvpx's VP9RowMTSync (vp9/encoder/vp9_ethread.h). It
 // tracks the latest column index encoded for each SB row inside a tile column
 // and exposes Read / Write primitives matching vp9_row_mt_sync_read /
 // vp9_row_mt_sync_write. SyncRange (libvpx's sync_range) caps how far ahead a
-// row can advance before publishing progress. Row jobs are active together for
-// a short count-pass batch, so progress uses atomic handoff rather than parking
-// and waking an OS thread for every SB.
+// row can advance before publishing progress. Fast path is a single atomic
+// Load; when a row genuinely waits on the row above, it parks on a
+// pre-allocated buffered channel instead of spinning.
 type vp9RowMTSync struct {
-	curCol    []atomic.Int32
-	rows      int
-	syncRange int
-	aborted   atomic.Bool
+	curCol     []atomic.Int32
+	rowWaiting []atomic.Bool
+	rowWake    []chan struct{}
+	rows       int
+	syncRange  int
+	aborted    atomic.Bool
 }
 
 // vp9EncodeBarrierPhase is the explicit state of the two-phase tile encode
@@ -197,11 +200,23 @@ func (s *vp9RowMTSync) reset(rows int) {
 	}
 	if cap(s.curCol) < rows {
 		s.curCol = make([]atomic.Int32, rows)
+		s.rowWaiting = make([]atomic.Bool, rows)
+		s.rowWake = make([]chan struct{}, rows)
+		for r := range s.rowWake {
+			s.rowWake[r] = make(chan struct{}, 1)
+		}
 	} else {
 		s.curCol = s.curCol[:rows]
+		s.rowWaiting = s.rowWaiting[:rows]
+		s.rowWake = s.rowWake[:rows]
 	}
 	for r := range s.curCol {
 		s.curCol[r].Store(-1)
+		s.rowWaiting[r].Store(false)
+		select {
+		case <-s.rowWake[r]:
+		default:
+		}
 	}
 	s.rows = rows
 	if s.syncRange == 0 {
@@ -215,6 +230,14 @@ func (s *vp9RowMTSync) abort() {
 		return
 	}
 	s.aborted.Store(true)
+	for r := range s.rowWake {
+		if s.rowWake[r] != nil {
+			select {
+			case s.rowWake[r] <- struct{}{}:
+			default:
+			}
+		}
+	}
 }
 
 func (s *vp9RowMTSync) release() {
@@ -222,6 +245,8 @@ func (s *vp9RowMTSync) release() {
 		return
 	}
 	s.curCol = s.curCol[:0]
+	s.rowWaiting = s.rowWaiting[:0]
+	s.rowWake = s.rowWake[:0]
 	s.rows = 0
 }
 
@@ -237,15 +262,19 @@ func (s *vp9RowMTSync) read(r, c int) {
 		return
 	}
 	target := int32(c - nsync + 1)
-	for spins := 0; s.curCol[r-1].Load() < target; spins++ {
+	for s.curCol[r-1].Load() < target {
 		if s.aborted.Load() {
 			return
 		}
-		runtimeProcYield(30)
-		if spins >= rowWorkerIdleSchedulerBackoff &&
-			spins%rowWorkerIdleSchedulerBackoff == 0 {
-			runtime.Gosched()
+		s.rowWaiting[r-1].Store(true)
+		if s.curCol[r-1].Load() >= target {
+			s.rowWaiting[r-1].Store(false)
+			return
 		}
+		if s.aborted.Load() {
+			return
+		}
+		<-s.rowWake[r-1]
 	}
 }
 
@@ -274,6 +303,12 @@ func (s *vp9RowMTSync) write(r, c, cols int) {
 		return
 	}
 	s.curCol[r].Store(cur)
+	if s.rowWaiting[r].Load() && s.rowWaiting[r].Swap(false) {
+		select {
+		case s.rowWake[r] <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // ensureRowMTSync arms one vp9RowMTSync per tile column sized to sbRows when
@@ -386,8 +421,27 @@ func (e *VP9Encoder) initVP9TileWorkerPool() {
 		return
 	}
 	if size, err := vp9AllocatingEncodeBufferSize(e.opts.Width, e.opts.Height); err == nil {
-		pool.ensureOutputSize(size)
+		pool.ensureOutputSize(vp9InitialTileOutputCapacity(size, tileCols, e.opts.Width, e.opts.Height))
 	}
+}
+
+// vp9InitialTileOutputCapacity sizes each tile worker's scratch bitstream
+// buffer proportionally to a single tile's uncompressed pixel budget instead of
+// duplicating a full 6*W*H worst-case frame buffer across every tile column.
+// If an incompressible/lossless tile ever exceeds this budget,
+// encodeVP9TilesParallel grows to the caller's full output buffer and retries.
+func vp9InitialTileOutputCapacity(maxSize, tileCols, width, height int) int {
+	if maxSize <= 0 {
+		return 0
+	}
+	if tileCols <= 1 {
+		return maxSize
+	}
+	tileBudget := max(64*1024, (width*height*3/2)/tileCols)
+	if tileBudget < maxSize {
+		return tileBudget
+	}
+	return maxSize
 }
 
 func (e *VP9Encoder) ensureVP9TileWorkerPool(tileJobs int) *vp9TileWorkerPool {
@@ -461,26 +515,33 @@ func newVP9TileWorkerPool(workers int) *vp9TileWorkerPool {
 		return nil
 	}
 	pool := &vp9TileWorkerPool{
-		workers:     make([]*VP9Encoder, workers),
-		countJobs:   make([]vp9CountTileJob, workers),
-		countCounts: make([]encoder.FrameCounts, workers),
-		countTokens: make([]encoder.TokenFrameBuffer, workers),
-		encodeJobs:  make([]vp9EncodeTileJob, workers),
-		outputs:     make([][]byte, workers),
-		wakeSlots:   make([]workerWakeSlot, workers),
-		shutdown:    make(chan struct{}),
-		workerCount: workers,
+		workers:      make([]*VP9Encoder, workers),
+		countJobs:    make([]*vp9CountTileJob, workers),
+		countCounts:  make([]encoder.FrameCounts, workers),
+		countTokens:  make([]encoder.TokenFrameBuffer, workers),
+		encodeJobs:   make([]*vp9EncodeTileJob, workers),
+		outputs:      make([][]byte, workers),
+		wakeSlots:    make([]workerWakeSlot, workers),
+		doneWake:     make(chan struct{}, 1),
+		prepDoneWake: make(chan struct{}, 1),
+		encodeGoWake: make([]chan struct{}, workers),
+		shutdown:     make(chan struct{}),
+		workerCount:  workers,
 	}
 	for i := range pool.workers {
 		pool.workers[i] = new(VP9Encoder)
+		pool.countJobs[i] = new(vp9CountTileJob)
+		pool.encodeJobs[i] = new(vp9EncodeTileJob)
 	}
 	for i := 1; i < workers; i++ {
 		pool.wakeSlots[i].Init()
+		pool.encodeGoWake[i] = make(chan struct{}, 1)
 		pool.wg.Add(1)
 		go pool.workerLoop(i)
 	}
 	for i := range pool.workers {
 		pool.workers[i].initVP9NmvCostCache()
+		pool.workers[i].interPredictor = new(VP9Decoder)
 		pool.workers[i].interPredictScratch = make([]byte, 80*80)
 	}
 	return pool
@@ -517,7 +578,9 @@ func (p *vp9TileWorkerPool) workerLoop(workerIndex int) {
 			return
 		}
 		p.runHelperWorkerJob(workerIndex)
-		p.doneCount.Add(1)
+		if p.remaining.Add(-1) == 0 {
+			p.doneWake <- struct{}{}
+		}
 	}
 }
 
@@ -527,25 +590,21 @@ func (p *vp9TileWorkerPool) runHelperWorkerJob(workerIndex int) {
 	}
 	switch vp9TileWorkerJobKind(p.jobKind.Load()) {
 	case vp9TileWorkerJobCount:
-		runVP9CountTileJobNoWG(&p.countJobs[workerIndex])
+		runVP9CountTileJobNoWG(p.countJobs[workerIndex])
 	case vp9TileWorkerJobLoopFilter:
 		if workerIndex < len(p.lfJobs) {
 			runVP9EncodeLfJob(p.lfJobs[workerIndex])
 		}
 	default:
-		runVP9EncodeTilePrepJob(&p.encodeJobs[workerIndex])
-		p.encodePrepDone.Add(1)
-		for spins := 0; vp9EncodeBarrierPhase(p.encodeStart.Load()) == vp9EncodeBarrierWaiting; spins++ {
-			runtimeProcYield(30)
-			if spins >= rowWorkerIdleSchedulerBackoff &&
-				spins%rowWorkerIdleSchedulerBackoff == 0 {
-				runtime.Gosched()
-			}
+		runVP9EncodeTilePrepJob(p.encodeJobs[workerIndex])
+		if p.prepRemaining.Add(-1) == 0 {
+			p.prepDoneWake <- struct{}{}
 		}
+		<-p.encodeGoWake[workerIndex]
 		if vp9EncodeBarrierPhase(p.encodeStart.Load()) == vp9EncodeBarrierAborted {
 			return
 		}
-		runVP9EncodeTileJob(&p.encodeJobs[workerIndex])
+		runVP9EncodeTileJob(p.encodeJobs[workerIndex])
 	}
 }
 
@@ -597,7 +656,7 @@ func (p *vp9TileWorkerPool) startHelperWorkers(kind vp9TileWorkerJobKind) {
 		p.vp9PhaseAddTileWorkerWakeSignals(int64(p.workerCount - 1))
 	}
 	p.jobKind.Store(uint32(kind))
-	p.doneCount.Store(0)
+	p.remaining.Store(int32(p.workerCount - 1))
 	p.dispatchEpoch++
 	epoch := p.dispatchEpoch
 	for workerIndex := 1; workerIndex < p.workerCount; workerIndex++ {
@@ -605,20 +664,13 @@ func (p *vp9TileWorkerPool) startHelperWorkers(kind vp9TileWorkerJobKind) {
 	}
 }
 
-// waitHelperWorkers collects completion from all launched helpers via atomic
-// doneCount (zero channel/sudog allocations).
+// waitHelperWorkers collects completion from all launched helpers without
+// CPU spinning: the last helper signals doneWake on transition to 0.
 func (p *vp9TileWorkerPool) waitHelperWorkers() {
 	if p == nil || p.workerCount <= 1 {
 		return
 	}
-	want := int32(p.workerCount - 1)
-	for spins := 0; p.doneCount.Load() < want; spins++ {
-		runtimeProcYield(30)
-		if spins >= rowWorkerIdleSchedulerBackoff &&
-			spins%rowWorkerIdleSchedulerBackoff == 0 {
-			runtime.Gosched()
-		}
-	}
+	<-p.doneWake
 }
 
 func (p *vp9TileWorkerPool) shutdownPool() {
@@ -638,6 +690,12 @@ func (p *vp9TileWorkerPool) shutdownPool() {
 		close(p.shutdown)
 		for workerIndex := 1; workerIndex < len(p.wakeSlots); workerIndex++ {
 			p.wakeSlots[workerIndex].Close()
+			if workerIndex < len(p.encodeGoWake) && p.encodeGoWake[workerIndex] != nil {
+				select {
+				case p.encodeGoWake[workerIndex] <- struct{}{}:
+				default:
+				}
+			}
 		}
 	}
 	p.wg.Wait()
@@ -721,7 +779,7 @@ func (e *VP9Encoder) collectVP9FrameTileCountsThreaded(width, height, miRows, mi
 	for tileCol := range tileCols {
 		worker := e.vp9CountWorkers[tileCol]
 		counts := &e.vp9CountCounts[tileCol]
-		job := &e.vp9CountJobs[tileCol]
+		job := e.vp9CountJobs[tileCol]
 		prepareVP9CountTileJob(job, worker, counts, miRows, miCols,
 			vp9EncoderTileBounds(0, tileCol, miRows, miCols, tileInfo),
 			partitionProbs, seg, baseMi, txMode, kind, seed)
@@ -796,7 +854,7 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 	for tileCol := range tileCols {
 		worker := pool.workers[tileCol]
 		counts := &pool.countCounts[tileCol]
-		job := &pool.countJobs[tileCol]
+		job := pool.countJobs[tileCol]
 		tile := vp9EncoderTileBounds(0, tileCol, miRows, miCols, tileInfo)
 		prepareVP9CountTileJob(job, worker, counts, miRows, miCols,
 			tile, partitionProbs, seg, baseMi, txMode, kind, seed)
@@ -816,7 +874,7 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 		}
 	}
 	pool.startHelperWorkers(vp9TileWorkerJobCount)
-	runVP9CountTileJobNoWG(&pool.countJobs[0])
+	runVP9CountTileJobNoWG(pool.countJobs[0])
 	pool.waitHelperWorkers()
 	if collectTokens && !e.finishVP9ThreadedCountTokenCollection(pool, miRows, tileCols) {
 		e.vp9TokenFrame.Reset()
@@ -838,7 +896,7 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 }
 
 func (e *VP9Encoder) mergeVP9CountWorkerCodingState(width, height, miRows, miCols, tileCols int,
-	jobs []vp9CountTileJob,
+	jobs []*vp9CountTileJob,
 ) bool {
 	// The mode-info grid needs no merge: count workers write their tile
 	// columns directly into the dispatcher's shared grid.
@@ -860,7 +918,7 @@ func (e *VP9Encoder) mergeVP9CountWorkerCodingState(width, height, miRows, miCol
 }
 
 func (e *VP9Encoder) mergeVP9CountWorkerVarPartState(miRows, miCols, tileCols int,
-	jobs []vp9CountTileJob,
+	jobs []*vp9CountTileJob,
 ) bool {
 	if e == nil || tileCols <= 0 || len(jobs) < tileCols {
 		return false
@@ -871,7 +929,7 @@ func (e *VP9Encoder) mergeVP9CountWorkerVarPartState(miRows, miCols, tileCols in
 	sbCount := sbRows * sbCols
 	merged := false
 	for tileCol := range tileCols {
-		job := &jobs[tileCol]
+		job := jobs[tileCol]
 		w := job.worker
 		if w == nil || !w.varPartFrameValid {
 			continue
@@ -1044,7 +1102,10 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 	if pool == nil || pool.workerCount != tileCols {
 		return 0, nil, false
 	}
-	pool.ensureOutputSize(len(output))
+	tileOutCap := vp9InitialTileOutputCapacity(len(output), tileCols, miCols<<3, miRows<<3)
+	if pool.outputSize < tileOutCap {
+		pool.ensureOutputSize(tileOutCap)
+	}
 	if !e.opts.RowMT {
 		if len(pool.rowMTSyncs) > 0 {
 			pool.releaseRowMTSync()
@@ -1057,49 +1118,62 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 	if seed.hasInter {
 		e.prepareVP9SharedSubpelRefBordered(seed.interRefMask)
 	}
-	for tileCol := range tileCols {
-		worker := e
-		if tileCol > 0 {
-			worker = pool.workers[tileCol]
-		}
-		prepareVP9EncodeTileJob(&pool.encodeJobs[tileCol], worker,
-			pool.outputs[tileCol], miRows, miCols,
-			vp9EncoderTileBounds(0, tileCol, miRows, miCols, tileInfo),
-			partitionProbs, seg, baseMi, txMode, kind, seed, nil)
-		if tileCol > 0 {
-			pool.encodeJobs[tileCol].prepSrc = e
-		}
-		if e.vp9TokenReplay.active {
-			pool.encodeJobs[tileCol].replayTokens = true
-			if e.vp9ThreadedTokenReplayReady && tileCol < len(pool.countTokens) {
-				pool.encodeJobs[tileCol].replayFrame = &pool.countTokens[tileCol]
+	for retry := range 2 {
+		for tileCol := range tileCols {
+			worker := e
+			if tileCol > 0 {
+				worker = pool.workers[tileCol]
 			}
-			pool.encodeJobs[tileCol].replayTileRow = 0
-			pool.encodeJobs[tileCol].replayTileCol = tileCol
+			prepareVP9EncodeTileJob(pool.encodeJobs[tileCol], worker,
+				pool.outputs[tileCol], miRows, miCols,
+				vp9EncoderTileBounds(0, tileCol, miRows, miCols, tileInfo),
+				partitionProbs, seg, baseMi, txMode, kind, seed, nil)
+			if tileCol > 0 {
+				pool.encodeJobs[tileCol].prepSrc = e
+			}
+			if e.vp9TokenReplay.active {
+				pool.encodeJobs[tileCol].replayTokens = true
+				if e.vp9ThreadedTokenReplayReady && tileCol < len(pool.countTokens) {
+					pool.encodeJobs[tileCol].replayFrame = &pool.countTokens[tileCol]
+				}
+				pool.encodeJobs[tileCol].replayTileRow = 0
+				pool.encodeJobs[tileCol].replayTileCol = tileCol
+			}
 		}
-	}
 
-	// Helpers prepare and encode under one launch. The preparation barrier
-	// keeps tile column 0 quiescent until every helper has finished cloning
-	// shared encoder state, then releases all columns into the write pass.
-	pool.encodePrepDone.Store(0)
-	pool.encodeStart.Store(0)
-	pool.startHelperWorkers(vp9TileWorkerJobEncode)
-	wantPrep := int32(pool.workerCount - 1)
-	for spins := 0; pool.encodePrepDone.Load() < wantPrep; spins++ {
-		runtimeProcYield(30)
-		if spins >= rowWorkerIdleSchedulerBackoff &&
-			spins%rowWorkerIdleSchedulerBackoff == 0 {
-			runtime.Gosched()
+		// Helpers prepare and encode under one launch. The preparation barrier
+		// keeps tile column 0 quiescent until every helper has finished cloning
+		// shared encoder state, then releases all columns into the write pass.
+		pool.prepRemaining.Store(int32(pool.workerCount - 1))
+		pool.encodeStart.Store(0)
+		pool.startHelperWorkers(vp9TileWorkerJobEncode)
+		if pool.workerCount > 1 {
+			<-pool.prepDoneWake
 		}
+		pool.encodeStart.Store(1)
+		for workerIndex := 1; workerIndex < pool.workerCount; workerIndex++ {
+			pool.encodeGoWake[workerIndex] <- struct{}{}
+		}
+		runVP9EncodeTileJob(pool.encodeJobs[0])
+		pool.waitHelperWorkers()
+
+		needGrow := false
+		for idx := range tileCols {
+			if errors.Is(pool.encodeJobs[idx].err, encoder.ErrTileBufferFull) && pool.outputSize < len(output) {
+				needGrow = true
+				break
+			}
+		}
+		if needGrow && retry == 0 {
+			pool.ensureOutputSize(len(output))
+			continue
+		}
+		break
 	}
-	pool.encodeStart.Store(1)
-	runVP9EncodeTileJob(&pool.encodeJobs[0])
-	pool.waitHelperWorkers()
 
 	totalSize := 0
 	for idx := range tileCols {
-		job := &pool.encodeJobs[idx]
+		job := pool.encodeJobs[idx]
 		if job.err != nil {
 			return totalSize, job.err, true
 		}
@@ -1132,6 +1206,11 @@ func (e *VP9Encoder) ensureVP9CountWorkers(workers int) {
 	}
 	e.vp9CountCounts = buffers.EnsureLen(e.vp9CountCounts, workers)
 	e.vp9CountJobs = buffers.EnsureLen(e.vp9CountJobs, workers)
+	for i := range e.vp9CountJobs {
+		if e.vp9CountJobs[i] == nil {
+			e.vp9CountJobs[i] = new(vp9CountTileJob)
+		}
+	}
 }
 
 func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRows, miCols int) {
@@ -1185,6 +1264,9 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	w.vp9LeafKeyframeDecisions = keyframeDecisions
 	w.partitionReconScratch = partitionReconScratch
 	w.interPredictScratch = interPredictScratch
+	if interPredictor == nil {
+		interPredictor = new(VP9Decoder)
+	}
 	w.interPredictor = interPredictor
 	// Reconstruction buffers are shared with the dispatching encoder, the
 	// same way libvpx tile workers all write into cm->frame_to_show: the
@@ -1308,6 +1390,9 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	w.vp9LeafKeyframeDecisions = keyframeDecisions
 	w.partitionReconScratch = partitionReconScratch
 	w.interPredictScratch = interPredictScratch
+	if interPredictor == nil {
+		interPredictor = new(VP9Decoder)
+	}
 	w.interPredictor = interPredictor
 	w.varPartGrid = varPartGrid
 	w.varPartSBComputed = varPartSBComputed

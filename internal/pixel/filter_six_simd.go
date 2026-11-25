@@ -13,7 +13,7 @@ func filterFourNarrow8(src []byte, ss int, dst []byte, ds, w, h, step int, taps 
 	if w != 4 && h > 1 && step == ss && filterVerticalFour8(src, ss, dst, ds, w, h, taps) {
 		return
 	}
-	if step == 1 && w >= 16 && w%16 == 0 && filterHorizFour16(src, ss, dst, ds, w, h, taps) {
+	if step == 1 && w >= 8 && w%8 == 0 && filterHorizFour16(src, ss, dst, ds, w, h, taps) {
 		return
 	}
 	c0, c1 := archsimd.BroadcastInt16x8(taps[0]), archsimd.BroadcastInt16x8(taps[1])
@@ -189,7 +189,7 @@ func filterSixNarrow8(src []byte, ss int, dst []byte, ds, w, h, step int, taps [
 	if w != 4 && h > 1 && step == ss && filterVerticalSix8(src, ss, dst, ds, w, h, taps) {
 		return true
 	}
-	if step == 1 && w >= 16 && w%16 == 0 && filterHorizSix16(src, ss, dst, ds, w, h, taps) {
+	if step == 1 && w >= 8 && w%8 == 0 && filterHorizSix16(src, ss, dst, ds, w, h, taps) {
 		return true
 	}
 	c0, c1, c2 := archsimd.BroadcastInt16x8(taps[0]), archsimd.BroadcastInt16x8(taps[1]), archsimd.BroadcastInt16x8(taps[2])

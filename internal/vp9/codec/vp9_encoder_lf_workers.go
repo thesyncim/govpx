@@ -1,7 +1,6 @@
 package codec
 
 import (
-	"runtime"
 	"sync/atomic"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -14,15 +13,16 @@ import (
 // superblock's top horizontal edge writes pixels that the row above's
 // vertical pass must have finished first.
 //
-// Uses lock-free atomic handoff with brief spin-yield (mirroring vp9RowMTSync)
-// so 4T realtime loop filtering does not park/wake OS threads via condvars on
-// every superblock row boundary.
+// Fast path is a single atomic Load; when a row genuinely has to wait on the
+// row above, it parks on a pre-allocated buffered channel instead of spinning.
 type vp9LfSync struct {
-	curSbCol  []atomic.Int32
-	tilesDone []atomic.Int32
-	rows      int
-	syncRange int
-	aborted   atomic.Bool
+	curSbCol   []atomic.Int32
+	tilesDone  []atomic.Int32
+	rowWaiting []atomic.Bool
+	rowWake    []chan struct{}
+	rows       int
+	syncRange  int
+	aborted    atomic.Bool
 }
 
 // vp9LfSyncRange mirrors get_sync_range (vp9_thread_common.c:249):
@@ -56,13 +56,25 @@ func (s *vp9LfSync) reset(sbRows, width int) {
 	if cap(s.curSbCol) < sbRows {
 		s.curSbCol = make([]atomic.Int32, sbRows)
 		s.tilesDone = make([]atomic.Int32, sbRows)
+		s.rowWaiting = make([]atomic.Bool, sbRows)
+		s.rowWake = make([]chan struct{}, sbRows)
+		for r := range s.rowWake {
+			s.rowWake[r] = make(chan struct{}, 1)
+		}
 	} else {
 		s.curSbCol = s.curSbCol[:sbRows]
 		s.tilesDone = s.tilesDone[:sbRows]
+		s.rowWaiting = s.rowWaiting[:sbRows]
+		s.rowWake = s.rowWake[:sbRows]
 	}
 	for r := range s.curSbCol {
 		s.curSbCol[r].Store(-1)
 		s.tilesDone[r].Store(0)
+		s.rowWaiting[r].Store(false)
+		select {
+		case <-s.rowWake[r]:
+		default:
+		}
 	}
 	s.rows = sbRows
 	s.syncRange = vp9LfSyncRange(width)
@@ -74,6 +86,14 @@ func (s *vp9LfSync) abort() {
 		return
 	}
 	s.aborted.Store(true)
+	for r := range s.rowWake {
+		if s.rowWake[r] != nil {
+			select {
+			case s.rowWake[r] <- struct{}{}:
+			default:
+			}
+		}
+	}
 }
 
 // tileRowDone mirrors lpf_map_write_check: the final tile reconstruction for
@@ -97,15 +117,19 @@ func (s *vp9LfSync) read(r, c int) bool {
 		return true
 	}
 	target := int32(c + nsync)
-	for spins := 0; s.curSbCol[r-1].Load() < target; spins++ {
+	for s.curSbCol[r-1].Load() < target {
 		if s.aborted.Load() {
 			return false
 		}
-		runtimeProcYield(30)
-		if spins >= rowWorkerIdleSchedulerBackoff &&
-			spins%rowWorkerIdleSchedulerBackoff == 0 {
-			runtime.Gosched()
+		s.rowWaiting[r-1].Store(true)
+		if s.curSbCol[r-1].Load() >= target {
+			s.rowWaiting[r-1].Store(false)
+			return true
 		}
+		if s.aborted.Load() {
+			return false
+		}
+		<-s.rowWake[r-1]
 	}
 	return true
 }
@@ -134,6 +158,12 @@ func (s *vp9LfSync) write(r, c, sbCols int) {
 		return
 	}
 	s.curSbCol[r].Store(cur)
+	if s.rowWaiting[r].Load() && s.rowWaiting[r].Swap(false) {
+		select {
+		case s.rowWake[r] <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // markRowsDone releases any rows this worker still owns so sibling workers

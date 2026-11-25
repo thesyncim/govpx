@@ -317,13 +317,13 @@ func TestVP9InterPredictionChromaDirectMatchesGeneric(t *testing.T) {
 			}
 			e.prepareVP9EncoderOutputFrame(width, height)
 			if tc.planeOnly != 0 {
-				e.interPredictor.predictChromaPlane = int8(tc.planeOnly)
+				e.interPred().predictChromaPlane = int8(tc.planeOnly)
 			}
 			if !e.predictVP9InterBlockOpts(inter, miRows, miCols,
 				tc.miRow, tc.miCol, tc.bsize, &mi, false, true) {
 				t.Fatal("generic chroma predictor returned !ok")
 			}
-			e.interPredictor.predictChromaPlane = 0
+			e.interPred().predictChromaPlane = 0
 			wantU := copyVP9PredictionPlaneRectForTest(e, 1, tc.bsize, tc.miRow, tc.miCol)
 			wantV := copyVP9PredictionPlaneRectForTest(e, 2, tc.bsize, tc.miRow, tc.miCol)
 

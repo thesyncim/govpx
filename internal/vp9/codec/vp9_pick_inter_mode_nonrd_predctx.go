@@ -366,7 +366,7 @@ func (e *VP9Encoder) vp9NonrdCtxPredictChromaPlaneInner(c *vp9NonrdPredBlockCtx,
 	srcY16 += int(mvQ4.Row)
 
 	srcOffset := srcY*srcStride + srcX
-	d := &e.interPredictor
+	d := e.interPred()
 	d.unsupportedReconstruct = false
 	d.interPredictScratch = e.interPredictScratch
 	if mvQ4.Col != 0 || mvQ4.Row != 0 ||
@@ -554,7 +554,7 @@ func (e *VP9Encoder) vp9NonrdCtxPredictLuma(c *vp9NonrdPredBlockCtx,
 		// Mirror the legacy counting shape: the zero-MV copy fast path
 		// counted only the block, not a plane predictor.
 		if !(mv == (vp9dec.MV{}) && rp.dims8) {
-			d := &e.interPredictor
+			d := e.interPred()
 			d.setVP9PhaseStats(e.vp9PhaseStats())
 			d.vp9PhaseIncInterPredictPlane()
 			key := 0
@@ -571,7 +571,7 @@ func (e *VP9Encoder) vp9NonrdCtxPredictLuma(c *vp9NonrdPredBlockCtx,
 	vp9dec.InterPredictorWithScratch(rp.pre, rp.preStride, dst, dstStride,
 		subpelX, subpelY, tables.FilterKernels[filterIdx],
 		vp9dec.SubpelShifts, vp9dec.SubpelShifts, c.blockW, c.blockH, 0, off,
-		&e.interPredictor.convolveScratch)
+		&e.interPred().convolveScratch)
 	return true
 }
 

@@ -116,18 +116,19 @@ func TestDecodeReusesReferenceFrameBuffers(t *testing.T) {
 	}
 	packet := vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)
 	_ = d.Decode(packet)
-	firstY := &d.current.Img.Y[0]
-	firstLastY := &d.lastRef.Img.Y[0]
+	var poolY [4]*byte
+	for i := range d.refPool {
+		poolY[i] = &d.refPool[i].Img.Y[0]
+	}
 	firstModes := &d.modes[0]
 	firstTokens := &d.tokens[0]
 
 	_ = d.Decode(packet)
 
-	if &d.current.Img.Y[0] != firstY {
-		t.Fatalf("current frame buffer was reallocated for same resolution")
-	}
-	if &d.lastRef.Img.Y[0] != firstLastY {
-		t.Fatalf("last reference buffer was reallocated for same resolution")
+	for i := range d.refPool {
+		if &d.refPool[i].Img.Y[0] != poolY[i] {
+			t.Fatalf("reference pool slot %d was reallocated for same resolution", i)
+		}
 	}
 	if &d.modes[0] != firstModes || &d.tokens[0] != firstTokens {
 		t.Fatalf("macroblock workspace was reallocated for same resolution")

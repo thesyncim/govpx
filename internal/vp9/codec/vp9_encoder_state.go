@@ -673,10 +673,15 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffersImpl(miRows, miCols int,
 	// source plane. The padded LAST mirror (e.lastBordered) is rebuilt at
 	// end-of-frame inside refreshVP9EncoderRefs, not here.
 	e.intProSrcBorderedValid = false
-	// ML_BASED_PARTITION's per-SB context cache must be reset per frame
-	// (libvpx vp9_encodeframe.c:5314 — get_estimated_pred fills x->est_pred
-	// fresh for every SB on every frame). See vp9_nonrd_pick_partition.go.
-	e.vp9ResetMLPartitionCache(miRows, miCols)
+	// ML_BASED_PARTITION only fires when w*h <= 352*288
+	// (vp9_speed_features.c:751-768). Skipping allocation above that size
+	// avoids ~2.5 MiB per worker at 720p while remaining independent of
+	// speed-feature dispatch ordering on small frames.
+	if (miRows<<3)*(miCols<<3) <= 352*288 {
+		e.vp9ResetMLPartitionCache(miRows, miCols)
+	} else {
+		e.mlPartitionCtxLen = 0
+	}
 	e.ensureVP9LeafInterDecisionCache(miRows, miCols)
 	// The depth-first full-RD inter SEARCH->WRITE replay cache is allocated
 	// only when its opt-in flag is active; production (flag off) leaves the

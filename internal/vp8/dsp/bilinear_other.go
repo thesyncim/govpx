@@ -42,6 +42,9 @@ func bilinearPredictGo(src []byte, ss, x, y int, dst []byte, ds, w, h int) {
 	}
 	fx := tables.BilinearFilters[x]
 	fy := tables.BilinearFilters[y]
+	if pixel.FilterBilinear2D(src, ss, dst, ds, w, h, uint8(fx[0]), uint8(fx[1]), uint8(fy[0]), uint8(fy[1])) {
+		return
+	}
 	var tmp [17 * 16]byte
 	pixel.FilterBilinear(src, ss, tmp[:], w, w, h+1, 1, uint8(fx[0]), uint8(fx[1]))
 	pixel.FilterBilinear(tmp[:], w, dst, ds, w, h, w, uint8(fy[0]), uint8(fy[1]))

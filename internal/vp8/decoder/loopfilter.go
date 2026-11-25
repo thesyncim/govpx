@@ -240,9 +240,11 @@ func applySimpleLoopFilterPartialLumaMB(img *common.Image, row int, col int, yOf
 		dsp.LoopFilterSimpleVerticalEdge(img.Y[yOff-2:], img.YStride, mblim)
 	}
 	if !skipLF {
-		dsp.LoopFilterSimpleVerticalEdge(img.Y[yOff+2:], img.YStride, blim)
-		dsp.LoopFilterSimpleVerticalEdge(img.Y[yOff+6:], img.YStride, blim)
-		dsp.LoopFilterSimpleVerticalEdge(img.Y[yOff+10:], img.YStride, blim)
+		if !pixel.LoopFilterSimpleVertical3Inner16(img.Y[yOff+2:], img.YStride, blim) {
+			dsp.LoopFilterSimpleVerticalEdge(img.Y[yOff+2:], img.YStride, blim)
+			dsp.LoopFilterSimpleVerticalEdge(img.Y[yOff+6:], img.YStride, blim)
+			dsp.LoopFilterSimpleVerticalEdge(img.Y[yOff+10:], img.YStride, blim)
+		}
 	}
 
 	if row > 0 || topContext {
@@ -513,18 +515,22 @@ func applySimpleLoopFilterMB(img *common.Image, row int, col int, yOff int, mode
 		dsp.LoopFilterSimpleVerticalEdge(img.Y[yOff-2:], img.YStride, mblim)
 	}
 	if !skipLF {
-		dsp.LoopFilterSimpleVerticalEdge(img.Y[yOff+2:], img.YStride, blim)
-		dsp.LoopFilterSimpleVerticalEdge(img.Y[yOff+6:], img.YStride, blim)
-		dsp.LoopFilterSimpleVerticalEdge(img.Y[yOff+10:], img.YStride, blim)
+		if !pixel.LoopFilterSimpleVertical3Inner16(img.Y[yOff+2:], img.YStride, blim) {
+			dsp.LoopFilterSimpleVerticalEdge(img.Y[yOff+2:], img.YStride, blim)
+			dsp.LoopFilterSimpleVerticalEdge(img.Y[yOff+6:], img.YStride, blim)
+			dsp.LoopFilterSimpleVerticalEdge(img.Y[yOff+10:], img.YStride, blim)
+		}
 	}
 
 	if row > 0 {
 		dsp.LoopFilterSimpleHorizontalEdge(img.Y[yOff-2*img.YStride:], img.YStride, mblim)
 	}
 	if !skipLF {
-		dsp.LoopFilterSimpleHorizontalEdge(img.Y[yOff+2*img.YStride:], img.YStride, blim)
-		dsp.LoopFilterSimpleHorizontalEdge(img.Y[yOff+6*img.YStride:], img.YStride, blim)
-		dsp.LoopFilterSimpleHorizontalEdge(img.Y[yOff+10*img.YStride:], img.YStride, blim)
+		if !pixel.LoopFilterSimpleHorizontal3Inner16(img.Y[yOff+2*img.YStride:], img.YStride, blim) {
+			dsp.LoopFilterSimpleHorizontalEdge(img.Y[yOff+2*img.YStride:], img.YStride, blim)
+			dsp.LoopFilterSimpleHorizontalEdge(img.Y[yOff+6*img.YStride:], img.YStride, blim)
+			dsp.LoopFilterSimpleHorizontalEdge(img.Y[yOff+10*img.YStride:], img.YStride, blim)
+		}
 	}
 }
 

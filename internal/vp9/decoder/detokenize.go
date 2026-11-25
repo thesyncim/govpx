@@ -302,7 +302,7 @@ func DecodeCoefsWithCountsScratch(
 	var eob int
 	if counts == nil {
 		eob = decodeCoefsReaderState(&rs, txSize, planeType, isInter,
-			dequant, ctx, scan, neighbors, fc, dqcoeff, tokenCache)
+			dequant, ctx, scan, neighbors, fc, dqcoeff, tokenCache, false)
 	} else {
 		eob = decodeCoefsWithCountsReaderState(&rs, txSize, planeType, isInter,
 			dequant, ctx, scan, neighbors, fc, counts, dqcoeff, tokenCache)
@@ -331,10 +331,28 @@ func DecodeCoefsState(
 ) int {
 	if counts == nil {
 		return decodeCoefsReaderState(rs, txSize, planeType, isInter,
-			dequant, ctx, so.Scan, so.Neighbors, fc, dqcoeff, tokenCache)
+			dequant, ctx, so.Scan, so.Neighbors, fc, dqcoeff, tokenCache, false)
 	}
 	return decodeCoefsWithCountsReaderState(rs, txSize, planeType, isInter,
 		dequant, ctx, so.Scan, so.Neighbors, fc, counts, dqcoeff, tokenCache)
+}
+
+// DecodeCoefsStateAfterEOB decodes a counts-less transform block whose initial
+// c==0 EOB bit was already consumed as 1 by the caller.
+func DecodeCoefsStateAfterEOB(
+	rs *bitstream.ReaderState,
+	txSize common.TxSize,
+	planeType int,
+	isInter int,
+	dequant [2]int16,
+	ctx int,
+	so *common.ScanOrder,
+	fc *FrameCoefProbs,
+	dqcoeff *[1024]int16,
+	tokenCache *[1024]uint8,
+) int {
+	return decodeCoefsReaderState(rs, txSize, planeType, isInter,
+		dequant, ctx, so.Scan, so.Neighbors, fc, dqcoeff, tokenCache, true)
 }
 
 // decodeCoefsReaderState is the call-free fast token loop (counts-less,
@@ -351,6 +369,7 @@ func decodeCoefsReaderState(
 	fc *FrameCoefProbs,
 	dqcoeff *[1024]int16,
 	tokenCache *[1024]uint8,
+	skipFirstEOB bool,
 ) int {
 	maxEob := maxEobForTxSize(txSize)
 	_ = scan[maxEob-1]
@@ -373,7 +392,7 @@ func decodeCoefsReaderState(
 
 	c := 0
 	slowResume := false
-	skipEob := false
+	skipEob := skipFirstEOB
 
 fastLoop:
 	for c < maxEob {
@@ -391,10 +410,14 @@ fastLoop:
 			value, count, pos = bitstream.FillFast(buf, pos, value, count)
 		}
 		var bit uint32
-		bit, value, rng, count = vpxReadNoFill(uint32(probs[eobContextNode]),
-			value, rng, count)
-		if bit == 0 {
-			break
+		if skipEob {
+			skipEob = false
+		} else {
+			bit, value, rng, count = vpxReadNoFill(uint32(probs[eobContextNode]),
+				value, rng, count)
+			if bit == 0 {
+				break
+			}
 		}
 
 		bit, value, rng, count = vpxReadNoFill(uint32(probs[zeroContextNode]),
@@ -522,41 +545,35 @@ fastLoop:
 					value, count, pos = bitstream.FillFast(buf, pos, value, count)
 				}
 				bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
-				if bit != 0 {
-					v = -v
-				}
-				dqcoeff[int(scan[c])&1023] = int16(v)
+				sign := -int(bit)
+				dqcoeff[int(scan[c])&1023] = int16((v ^ sign) - sign)
 			} else {
+				idx := int(scan[c]) & 1023
 				bit, value, rng, count = vpxReadNoFill(uint32(p[1]), value,
 					rng, count)
 				if bit != 0 {
-					tokenCache[int(scan[c])&1023] = 3
+					tokenCache[idx] = 3
 					bit, value, rng, count = vpxReadNoFill(uint32(p[2]),
 						value, rng, count)
 					v := ((3 + int(bit)) * int(dqv)) >> dqShift
 					bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
-					if bit != 0 {
-						v = -v
-					}
-					dqcoeff[int(scan[c])&1023] = int16(v)
+					sign := -int(bit)
+					dqcoeff[idx] = int16((v ^ sign) - sign)
 				} else {
-					tokenCache[int(scan[c])&1023] = 2
+					tokenCache[idx] = 2
 					v := (2 * int(dqv)) >> dqShift
 					bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
-					if bit != 0 {
-						v = -v
-					}
-					dqcoeff[int(scan[c])&1023] = int16(v)
+					sign := -int(bit)
+					dqcoeff[idx] = int16((v ^ sign) - sign)
 				}
 			}
 		} else {
-			tokenCache[int(scan[c])&1023] = 1
+			idx := int(scan[c]) & 1023
+			tokenCache[idx] = 1
 			v := int(dqv) >> dqShift
 			bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
-			if bit != 0 {
-				v = -v
-			}
-			dqcoeff[int(scan[c])&1023] = int16(v)
+			sign := -int(bit)
+			dqcoeff[idx] = int16((v ^ sign) - sign)
 		}
 
 		c++

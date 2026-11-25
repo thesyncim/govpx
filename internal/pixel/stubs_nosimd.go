@@ -14,6 +14,42 @@ func CopyBlock(src []byte, ss int, dst []byte, ds, w, h int) {
 	}
 }
 
+func ExtendPlaneBorder(full []byte, origin, stride, width, height, borderX, borderY int) bool {
+	if len(full) == 0 || stride <= 0 || width <= 0 || height <= 0 || borderX <= 0 || borderY <= 0 {
+		return false
+	}
+	if origin < borderY*stride+borderX || origin+(height-1+borderY)*stride+width+borderX > len(full) {
+		return false
+	}
+	rowStart := origin
+	for range height {
+		leftFill := full[rowStart]
+		leftDst := full[rowStart-borderX : rowStart]
+		for i := range leftDst {
+			leftDst[i] = leftFill
+		}
+		rightFill := full[rowStart+width-1]
+		rightDst := full[rowStart+width : rowStart+width+borderX]
+		for i := range rightDst {
+			rightDst[i] = rightFill
+		}
+		rowStart += stride
+	}
+	span := width + 2*borderX
+	topSrc := full[origin-borderX : origin-borderX+span]
+	for y := 1; y <= borderY; y++ {
+		dstStart := origin - y*stride - borderX
+		copy(full[dstStart:dstStart+span], topSrc)
+	}
+	botOrigin := origin + (height-1)*stride
+	botSrc := full[botOrigin-borderX : botOrigin-borderX+span]
+	for y := 1; y <= borderY; y++ {
+		dstStart := botOrigin + y*stride - borderX
+		copy(full[dstStart:dstStart+span], botSrc)
+	}
+	return true
+}
+
 // DCPairNative is false outside the native SIMD selection; public DSP retains
 // its original libvpx v1.16.0 idctllm.c dispatch and scalar fallback.
 const DCPairNative = false
@@ -46,7 +82,9 @@ func LoopFilterMacroInternal16(p []byte, step, outer, mblimit, blimit, limit, th
 
 func LoopFilter(_ []byte, _ int, _ int, _ int, _ int, _ int, _ int, _ int, _ int) bool { return false }
 func LoopFilterSimpleHorizontal16(_ []byte, _ int, _ byte) bool                        { return false }
+func LoopFilterSimpleHorizontal3Inner16(_ []byte, _ int, _ byte) bool                  { return false }
 func LoopFilterSimpleVertical16(_ []byte, _ int, _ byte) bool                          { return false }
+func LoopFilterSimpleVertical3Inner16(_ []byte, _ int, _ byte) bool                    { return false }
 func LoopFilterUV8(_, _ []byte, _, _, _, _, _, _ int) bool                             { return false }
 
 func quantizeFPBlockSIMD(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [2]int16, classes []byte) int {
@@ -56,6 +94,14 @@ func quantizeFPBlockSIMD(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [
 // QuantizeVP8Batch leaves unsupported builds to per-block quantization.
 func QuantizeVP8Batch(coeff []int16, round, quant, dequant *[16]int16, qcoeff, dqcoeff []int16, iscan *[16]int16, eobs []uint8, count int) bool {
 	return false
+}
+
+// VP9DenoisePlane falls back to the scalar VP9 denoiser on non-SIMD builds.
+func VP9DenoisePlane(
+	_ []byte, _ int, _ []byte, _ int, _ []byte, _ int,
+	_, _, _, _, _, _, _, _, _ int,
+) (bool, bool) {
+	return false, false
 }
 
 // QuantizeVP8BatchOnly leaves unsupported builds to per-block quantization.

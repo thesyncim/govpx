@@ -81,6 +81,37 @@ func DequantIDCTAddFull2x(q *[32]int16, dq *[16]int16, dst []byte, stride int) {
 	dequantIDCTAddFull2xSIMD(q, dq, dst, stride)
 }
 
+// DequantIDCTAddFull2xBlocks runs fused dequant + 4x4 IDCT + saturating add
+// directly from two caller-owned 16-int16 blocks without staging into a
+// contiguous 32-int16 scratch buffer.
+func DequantIDCTAddFull2xBlocks(q0, q1 *[16]int16, dq *[16]int16, dst []byte, stride int) {
+	if dequantInverse4BlocksGo(q0, q1, dq, dst, stride) {
+		return
+	}
+	var tmp [16]int16
+	for i := range 16 {
+		tmp[i] = q0[i] * dq[i]
+	}
+	IDCT4x4Add(&tmp, dst, stride, dst, stride)
+	for i := range 16 {
+		tmp[i] = q1[i] * dq[i]
+	}
+	IDCT4x4Add(&tmp, dst[4:], stride, dst[4:], stride)
+}
+
+// DequantIDCTAddFull1x runs fused dequant + 4x4 IDCT + saturating add on a
+// single 4x4 block in place.
+func DequantIDCTAddFull1x(q *[16]int16, dq *[16]int16, dst []byte, stride int) {
+	if dequantInverse4SingleGo(q, dq, dst, stride) {
+		return
+	}
+	var tmp [16]int16
+	for i := range 16 {
+		tmp[i] = q[i] * dq[i]
+	}
+	IDCT4x4Add(&tmp, dst, stride, dst, stride)
+}
+
 // dequantIDCTAddFull2xFallback composes the fused pair kernel from the
 // per-block primitives: full 16-position wrapping dequant followed by
 // the standard inverse transform. Matches the NEON pair kernel for VP8

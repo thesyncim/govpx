@@ -19,17 +19,22 @@ const (
 )
 
 type vp9KeyframeEncodeState struct {
+	// Pointer fields grouped first to minimize Go GC PtrBytes.
 	img      *image.YCbCr
 	hdr      *vp9dec.UncompressedHeader
 	dq       *vp9dec.DequantTables
-	lossless bool
 	counts   *encoder.FrameCounts
+	lossless bool
 }
 
 type vp9InterEncodeState struct {
-	img             *image.YCbCr
-	dq              *vp9dec.DequantTables
-	ref             *vp9ReferenceFrame
+	// Pointer fields grouped first to minimize Go GC PtrBytes (~7 KiB -> 40 B).
+	img          *image.YCbCr
+	dq           *vp9dec.DequantTables
+	ref          *vp9ReferenceFrame
+	nmvCostTable *encoder.NmvCostTable
+	counts       *encoder.FrameCounts
+
 	refMask         uint8
 	allowHP         bool
 	selectFc        vp9dec.FrameContext
@@ -46,7 +51,6 @@ type vp9InterEncodeState struct {
 	// default), as on the first inter frame after two adjacent keyframes.
 	mvCostFc                   vp9dec.FrameContext
 	mvCostFcBuilt              bool
-	nmvCostTable               *encoder.NmvCostTable
 	interModeCosts             [common.InterModeContexts][4]int
 	interModeCostsValid        bool
 	switchableInterpCosts      [vp9dec.SwitchableFilterContexts][int(vp9dec.InterpSwitchable)]int
@@ -59,7 +63,6 @@ type vp9InterEncodeState struct {
 	predInterpFilter           vp9dec.InterpFilter
 	lossless                   bool
 	txMode                     common.TxMode
-	counts                     *encoder.FrameCounts
 	isSrcFrameAltRef           bool
 	showFrame                  bool
 	predFilterValid            bool

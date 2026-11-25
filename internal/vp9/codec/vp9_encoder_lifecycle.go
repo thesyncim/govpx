@@ -405,7 +405,7 @@ type VP9Encoder struct {
 	vp9DenoiserCountStateReady bool
 	vp9CountWorkers            []*VP9Encoder
 	vp9CountCounts             []encoder.FrameCounts
-	vp9CountJobs               []vp9CountTileJob
+	vp9CountJobs               []*vp9CountTileJob
 	vp9TilePool                *vp9TileWorkerPool
 	// vp9LeafInterDecisions caches the finalized leaf decision for fallback
 	// writes and tx-mode-demotion count reruns. The normal packed write reads
@@ -512,8 +512,6 @@ type VP9Encoder struct {
 	// motion correlation can pick a hint-derived MV that the local
 	// 16-px search radius would miss. nil disables hint biasing.
 	mvHints *vp9MVHintMap
-	// rdThresh carries rowBaseThreshFreqFact slice, so keep it above the pure-value tail.
-	rdThresh encoder.RDThreshState
 
 	// contentStateSbFd mirrors libvpx's cpi->content_state_sb_fd: a per-SB
 	// uint8 counter incremented on every SB whose tmp_sad reading falls
@@ -563,14 +561,20 @@ type VP9Encoder struct {
 	countArfFrameUsageMiRows   int
 	countArfFrameUsageMiStride int
 
-	// vp9NmvCostCache contains pointer fields, so keep it above interPredictor.
+	// interPredictor lives behind a pointer so per-frame tile worker copies
+	// (*w = *src) do not memcpy the 46 KiB VP9Decoder struct three times per
+	// worker per pass.
+	interPredictor *VP9Decoder
+
+	// vp9NmvCostCache contains pointer fields, so keep it above rdThresh.
 	vp9NmvCostCache vp9NmvCostCache
 
-	// interPredictor is placed as the last pointer-containing field so Go's
-	// GC stops scanning VP9Encoder at VP9Decoder's ~4 KiB PtrBytes and skips
-	// both VP9Decoder's ~40 KiB tail and all ~150 KiB of VP9Encoder's pure-value
-	// tables below.
-	interPredictor VP9Decoder
+	// rdThresh is placed as the last pointer-containing field: its sole slice
+	// (rowBaseThreshFreqFact) sits at offset 0 of RDThreshState, so Go's GC
+	// stops scanning VP9Encoder immediately after that slice header and skips
+	// both the ~5.6 KiB threshold tables inside rdThresh and the entire
+	// pointer-free tail below.
+	rdThresh encoder.RDThreshState
 
 	// --- Pure value / pointer-free tail (beyond Go GC PtrBytes: 0 scan cost) ---
 	temporal               temporalState
@@ -730,6 +734,7 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 		sourceTS:      newEncoderSourceTimestampState(vp9TimingStateFromOptions(opts)),
 	}
 	e.initVP9NmvCostCache()
+	e.interPredictor = new(VP9Decoder)
 	e.initVP9EncoderFramePool()
 	e.blockCoeffScratch = &vp9EncoderBlockCoeffScratch{}
 	e.vp9LatchDeadlineModePreviousFrame()
@@ -795,7 +800,10 @@ func (e *VP9Encoder) prewarmVP9EncodeBuffers() {
 	yPadH := h + 2*common.VP9EncBorderInPixels
 	e.lastBordered.Pixels = buffers.EnsureCapacity(e.lastBordered.Pixels, yPadW*yPadH)
 	e.intProSrcBordered.Pixels = buffers.EnsureCapacity(e.intProSrcBordered.Pixels, yPadW*yPadH)
-	for i := range e.subpelRefBordered {
+	// Prewarm only the 3 primary reference slots (LAST/GOLDEN/ALTREF);
+	// remaining slots (SVC / custom ref maps) allocate lazily on demand.
+	// Saves ~8 MiB per 720p encoder (5 * 1.59 MiB) with zero steady-state allocs.
+	for i := range min(len(e.subpelRefBordered), 3) {
 		e.subpelRefBordered[i].Pixels = buffers.EnsureCapacity(e.subpelRefBordered[i].Pixels, yPadW*yPadH)
 	}
 	sbRows := (miRows + common.MiBlockSize - 1) >> common.MiBlockSizeLog2

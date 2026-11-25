@@ -1,7 +1,6 @@
 package codec
 
 import (
-	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -46,10 +45,10 @@ type vp9RowWorkerPool struct {
 	queue   []int
 	nextRow atomic.Int32
 
-	// doneCount tracks completion so the dispatcher can join the workers
-	// without sync.WaitGroup overhead per row job (mirrors the VP8
-	// rowWorkerPool waitHelperWorkers shape).
-	doneCount atomic.Int32
+	// remaining + doneWake join helper workers with zero CPU spinning:
+	// the last helper to decrement remaining to 0 signals doneWake.
+	remaining atomic.Int32
+	doneWake  chan struct{}
 
 	// abort is set by any worker that hits an error; remaining workers
 	// observe it and exit their row claim loop early.
@@ -299,6 +298,7 @@ func newVP9RowWorkerPool(workers int) *vp9RowWorkerPool {
 	pool := &vp9RowWorkerPool{
 		workers:     make([]vp9RowEncoderState, workers),
 		wakeSlots:   make([]workerWakeSlot, workers),
+		doneWake:    make(chan struct{}, 1),
 		shutdown:    make(chan struct{}),
 		errors:      make([]error, workers),
 		workerCount: workers,
@@ -324,7 +324,9 @@ func (p *vp9RowWorkerPool) workerLoop(workerIndex int) {
 		if workerIndex < p.workerCount {
 			p.consumeRows(workerIndex)
 		}
-		p.doneCount.Add(1)
+		if p.remaining.Add(-1) == 0 {
+			p.doneWake <- struct{}{}
+		}
 	}
 }
 
@@ -375,7 +377,7 @@ func (p *vp9RowWorkerPool) dispatch(rows []int, job vp9RowWorkerJob) error {
 	p.queue = rows
 	p.job = job
 	p.nextRow.Store(0)
-	p.doneCount.Store(0)
+	p.remaining.Store(int32(p.workerCount - 1))
 	p.abort.Store(0)
 	for i := range p.errors {
 		p.errors[i] = nil
@@ -390,13 +392,9 @@ func (p *vp9RowWorkerPool) dispatch(rows []int, job vp9RowWorkerJob) error {
 	if p.workerCount > 0 {
 		p.consumeRows(0)
 	}
-	// Join helpers.
-	want := int32(p.workerCount - 1)
-	for spins := 0; p.doneCount.Load() < want; spins++ {
-		runtimeProcYield(30)
-		if spins >= rowWorkerIdleSchedulerBackoff && spins%rowWorkerIdleSchedulerBackoff == 0 {
-			runtime.Gosched()
-		}
+	// Join helpers without spinning.
+	if p.workerCount > 1 {
+		<-p.doneWake
 	}
 	for _, err := range p.errors {
 		if err != nil {

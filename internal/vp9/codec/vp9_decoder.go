@@ -3,6 +3,7 @@ package codec
 import (
 	"errors"
 
+	"github.com/thesyncim/govpx/internal/pixel"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
@@ -336,11 +337,17 @@ type vp9ReferenceFrame struct {
 	highbd       *vp9RefHighBDPlanes
 	external     *vp9ExternalFrameLease
 	internal     *vp9InternalFrameLease
+	yOrigin      int32
+	uOrigin      int32
+	vOrigin      int32
+	yBorder      uint8
+	uvBorderX    uint8
+	uvBorderY    uint8
+	valid        bool
 	renderWidth  int
 	renderHeight int
 	bitDepth     int
 	generation   uint64
-	valid        bool
 }
 
 type vp9ExternalFrameLease struct {
@@ -418,6 +425,12 @@ func (f *vp9ReferenceFrame) storeWithRenderAndBitDepth(src Image,
 			BitDepth:    src.BitDepth,
 		}
 	}
+	f.yOrigin = 0
+	f.uOrigin = 0
+	f.vOrigin = 0
+	f.yBorder = 0
+	f.uvBorderX = 0
+	f.uvBorderY = 0
 	f.renderWidth = renderWidth
 	f.renderHeight = renderHeight
 	f.bitDepth = bitDepth
@@ -445,6 +458,12 @@ func (f *vp9ReferenceFrame) storeExternalWithRenderAndBitDepth(src Image,
 		Subsampling: src.Subsampling,
 		BitDepth:    src.BitDepth,
 	}
+	f.yOrigin = 0
+	f.uOrigin = 0
+	f.vOrigin = 0
+	f.yBorder = 0
+	f.uvBorderX = 0
+	f.uvBorderY = 0
 	f.renderWidth = renderWidth
 	f.renderHeight = renderHeight
 	f.bitDepth = bitDepth
@@ -456,6 +475,7 @@ func (f *vp9ReferenceFrame) storeExternalWithRenderAndBitDepth(src Image,
 
 func (f *vp9ReferenceFrame) storeInternalWithRenderAndBitDepth(src Image,
 	lease *vp9InternalFrameLease, renderWidth, renderHeight, bitDepth int,
+	yOrigin, uOrigin, vOrigin, yBorder, uvBorderX, uvBorderY int,
 ) {
 	f.img = Image{
 		Width:       src.Width,
@@ -472,6 +492,12 @@ func (f *vp9ReferenceFrame) storeInternalWithRenderAndBitDepth(src Image,
 		Subsampling: src.Subsampling,
 		BitDepth:    src.BitDepth,
 	}
+	f.yOrigin = int32(yOrigin)
+	f.uOrigin = int32(uOrigin)
+	f.vOrigin = int32(vOrigin)
+	f.yBorder = uint8(yBorder)
+	f.uvBorderX = uint8(uvBorderX)
+	f.uvBorderY = uint8(uvBorderY)
 	f.renderWidth = renderWidth
 	f.renderHeight = renderHeight
 	f.bitDepth = bitDepth
@@ -1398,9 +1424,39 @@ func (d *VP9Decoder) vp9ConcealmentReference(
 	return nil
 }
 
+func vp9ExtendPlaneBorder(full []byte, origin, stride, width, height, borderX, borderY int) bool {
+	return pixel.ExtendPlaneBorder(full, origin, stride, width, height, borderX, borderY)
+}
+
 func (d *VP9Decoder) refreshVP9ReferenceFrames(hdr *vp9dec.UncompressedHeader) {
 	flags := hdr.RefreshFrameFlags
+	if flags == 0 {
+		return
+	}
 	renderWidth, renderHeight := vp9dec.HeaderRenderSize(hdr)
+	var yOrigin, uOrigin, vOrigin, yBorder, uvBorderX, uvBorderY int
+	if d.frameExternal == nil && d.frameInternal != nil &&
+		d.lastFrame.BitDepth <= 8 && vp9ImageAliasesPlane(d.lastFrame, d.frameY) {
+		ssX, ssY := d.lastFrame.Subsampling.Shifts()
+		yb := common.VP9DecBorderInPixels
+		uvBX := yb >> ssX
+		uvBY := yb >> ssY
+		uvW := (d.lastFrame.Width + (1 << ssX) - 1) >> ssX
+		uvH := (d.lastFrame.Height + (1 << ssY) - 1) >> ssY
+		if vp9ExtendPlaneBorder(d.frameYFull, d.frameYOrigin, d.lastFrame.YStride,
+			d.lastFrame.Width, d.lastFrame.Height, yb, yb) &&
+			vp9ExtendPlaneBorder(d.frameUFull, d.frameUOrigin, d.lastFrame.UStride,
+				uvW, uvH, uvBX, uvBY) &&
+			vp9ExtendPlaneBorder(d.frameVFull, d.frameVOrigin, d.lastFrame.VStride,
+				uvW, uvH, uvBX, uvBY) {
+			yOrigin = d.frameYOrigin
+			uOrigin = d.frameUOrigin
+			vOrigin = d.frameVOrigin
+			yBorder = yb
+			uvBorderX = uvBX
+			uvBorderY = uvBY
+		}
+	}
 	for slot := range d.refFrames {
 		if flags&(1<<uint(slot)) != 0 {
 			d.releaseVP9ReferenceFrame(slot)
@@ -1413,7 +1469,8 @@ func (d *VP9Decoder) refreshVP9ReferenceFrames(hdr *vp9dec.UncompressedHeader) {
 					(d.lastFrame.BitDepth > 8 && d.highbd != nil && vp9ImageAliasesPlane16(d.lastFrame, d.highbd.frameY16))) {
 				d.refFrames[slot].storeInternalWithRenderAndBitDepth(d.lastFrame,
 					d.retainVP9InternalFrame(d.frameInternal), renderWidth,
-					renderHeight, int(hdr.BitDepthColor.BitDepth))
+					renderHeight, int(hdr.BitDepthColor.BitDepth),
+					yOrigin, uOrigin, vOrigin, yBorder, uvBorderX, uvBorderY)
 			} else {
 				d.refFrames[slot].storeWithRenderAndBitDepth(d.lastFrame,
 					renderWidth, renderHeight, int(hdr.BitDepthColor.BitDepth))

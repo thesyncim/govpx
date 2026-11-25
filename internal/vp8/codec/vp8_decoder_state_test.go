@@ -20,19 +20,19 @@ func TestDecodeInitializesReferenceFrameBuffers(t *testing.T) {
 		t.Fatalf("Decode error = %v, want nil", err)
 	}
 
-	if d.current.Img.Width != 5 || d.current.Img.Height != 3 {
-		t.Fatalf("current visible dimensions = %dx%d, want 5x3", d.current.Img.Width, d.current.Img.Height)
+	if d.curBuf().Img.Width != 5 || d.curBuf().Img.Height != 3 {
+		t.Fatalf("current visible dimensions = %dx%d, want 5x3", d.curBuf().Img.Width, d.curBuf().Img.Height)
 	}
-	if d.current.Img.CodedWidth != 16 || d.current.Img.CodedHeight != 16 {
-		t.Fatalf("current coded dimensions = %dx%d, want 16x16", d.current.Img.CodedWidth, d.current.Img.CodedHeight)
+	if d.curBuf().Img.CodedWidth != 16 || d.curBuf().Img.CodedHeight != 16 {
+		t.Fatalf("current coded dimensions = %dx%d, want 16x16", d.curBuf().Img.CodedWidth, d.curBuf().Img.CodedHeight)
 	}
-	if d.lastRef.BufferLen() == 0 || d.goldenRef.BufferLen() == 0 || d.altRef.BufferLen() == 0 {
+	if d.lastBuf().BufferLen() == 0 || d.goldenBuf().BufferLen() == 0 || d.altBuf().BufferLen() == 0 {
 		t.Fatalf("reference buffers were not initialized")
 	}
 	if d.mbRows != 1 || d.mbCols != 1 || len(d.modes) != 1 || len(d.tokens) != 1 || len(d.tokenAbove) != 1 {
 		t.Fatalf("workspace rows/cols/lens = %dx%d %d/%d/%d, want 1x1 1/1/1", d.mbRows, d.mbCols, len(d.modes), len(d.tokens), len(d.tokenAbove))
 	}
-	if d.current.Img.CodedWidth < d.mbCols*16 || d.current.Img.CodedHeight < d.mbRows*16 {
+	if d.curBuf().Img.CodedWidth < d.mbCols*16 || d.curBuf().Img.CodedHeight < d.mbRows*16 {
 		t.Fatalf("coded frame is smaller than macroblock workspace")
 	}
 }

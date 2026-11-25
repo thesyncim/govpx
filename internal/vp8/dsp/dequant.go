@@ -15,6 +15,18 @@ func DequantizeBlock(qcoeff *[16]int16, dequant *[16]int16, dqcoeff *[16]int16) 
 	}
 }
 
+// DequantizeBlockDisjoint dequantizes a 4x4 block when dqcoeff is known not to
+// partially alias qcoeff or dequant (e.g. a stack-local destination).
+func DequantizeBlockDisjoint(qcoeff *[16]int16, dequant *[16]int16, dqcoeff *[16]int16) {
+	if pixel.Enabled {
+		pixel.Mul16(qcoeff[:], dequant[:], dqcoeff[:], 16)
+		return
+	}
+	for i := range 16 {
+		dqcoeff[i] = qcoeff[i] * dequant[i]
+	}
+}
+
 func dequantBlocksPartiallyOverlap(src, dst *[16]int16) bool {
 	if src == dst {
 		return false

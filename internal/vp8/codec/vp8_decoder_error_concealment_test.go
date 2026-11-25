@@ -32,7 +32,7 @@ func TestDecodeErrorConcealmentConcealsCorruptInterFrame(t *testing.T) {
 	if err := d.Decode(keyPacket); err != nil {
 		t.Fatalf("key Decode error = %v, want nil", err)
 	}
-	previous := d.lastRef.Img.Y[0]
+	previous := d.lastBuf().Img.Y[0]
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatalf("key NextFrame returned no frame")
 	}
@@ -68,14 +68,14 @@ func TestDecodeErrorConcealmentConcealsMissingFrameTag(t *testing.T) {
 	if err := d.DecodeWithPTS([]byte{0x11, 0}, 101); !errors.Is(err, ErrInvalidData) {
 		t.Fatalf("initial missing tag DecodeWithPTS error = %v, want ErrInvalidData before EC is active", err)
 	}
-	fillVP8Image(&d.lastRef.Img, 77)
+	fillVP8Image(&d.lastBuf().Img, 77)
 	if err := d.Decode(vp8test.InterFramePacketWithFirstPartition(vp8test.InterFirstPartitionLastZeroMVWithConfig(vp8common.OnePartition, false, 0))); err != nil {
 		t.Fatalf("priming inter Decode error = %v, want nil", err)
 	}
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatalf("priming inter NextFrame returned no frame")
 	}
-	previous := d.lastRef.Img.Y[0]
+	previous := d.lastBuf().Img.Y[0]
 
 	err = d.DecodeWithPTS([]byte{0x11, 0}, 102)
 	if err != nil {
@@ -166,7 +166,7 @@ func TestDecodeIntoErrorConcealmentConcealsCorruptInterFrame(t *testing.T) {
 	if err := d.Decode(keyPacket); err != nil {
 		t.Fatalf("key Decode error = %v, want nil", err)
 	}
-	previous := d.lastRef.Img.Y[0]
+	previous := d.lastBuf().Img.Y[0]
 	dst := newTestImage(16, 16)
 	fillImage(dst, 7, 8, 9)
 
@@ -197,14 +197,14 @@ func TestDecodeIntoErrorConcealmentConcealsMissingFrameTag(t *testing.T) {
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatalf("key NextFrame returned no frame")
 	}
-	fillVP8Image(&d.lastRef.Img, 77)
+	fillVP8Image(&d.lastBuf().Img, 77)
 	if err := d.Decode(vp8test.InterFramePacketWithFirstPartition(vp8test.InterFirstPartitionLastZeroMVWithConfig(vp8common.OnePartition, false, 0))); err != nil {
 		t.Fatalf("priming inter Decode error = %v, want nil", err)
 	}
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatalf("priming inter NextFrame returned no frame")
 	}
-	previous := d.lastRef.Img.Y[0]
+	previous := d.lastBuf().Img.Y[0]
 	dst := newTestImage(16, 16)
 	fillImage(dst, 7, 8, 9)
 
@@ -284,13 +284,13 @@ func TestDecodePostProcessConcealsCorruptInterFrameIntoPostFrame(t *testing.T) {
 	if !ok {
 		t.Fatalf("concealed NextFrame returned no frame")
 	}
-	if len(frame.Y) == 0 || len(d.post.Img.Y) == 0 || len(d.lastRef.Img.Y) == 0 {
+	if len(frame.Y) == 0 || len(d.post.Img.Y) == 0 || len(d.lastBuf().Img.Y) == 0 {
 		t.Fatalf("decoded frame buffers are empty")
 	}
 	if &frame.Y[0] != &d.post.Img.Y[0] {
 		t.Fatalf("concealed postprocess output did not use decoder postprocess buffer")
 	}
-	if &frame.Y[0] == &d.lastRef.Img.Y[0] {
+	if &frame.Y[0] == &d.lastBuf().Img.Y[0] {
 		t.Fatalf("concealed postprocess output aliases reference buffer")
 	}
 }

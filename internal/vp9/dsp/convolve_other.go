@@ -1,6 +1,7 @@
 package dsp
 
 import (
+	"github.com/thesyncim/govpx/internal/pixel"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
@@ -43,6 +44,14 @@ func VpxConvolve8Horiz(src []byte, srcStride int, dst []byte, dstStride int,
 ) {
 	_ = y0Q4
 	_ = yStepQ4
+	if pixel.Enabled && xStepQ4 == tables.SubpelShifts && srcOffset >= 0 && (w == 4 || (w > 0 && w%8 == 0)) && h > 0 && srcStride >= 0 && dstStride >= 0 {
+		f := &filter[x0Q4]
+		if (f[0]|f[1]|f[2]|f[5]|f[6]|f[7]) == 0 && f[3] >= 0 && f[4] >= 0 &&
+			len(src)-srcOffset >= (h-1)*srcStride+w+1 && len(dst) >= (h-1)*dstStride+w {
+			pixel.FilterBilinear(src[srcOffset:], srcStride, dst, dstStride, w, h, 1, uint8(f[3]), uint8(f[4]))
+			return
+		}
+	}
 	convolveHoriz(src, srcStride, dst, dstStride, filter, x0Q4, xStepQ4, w, h, srcOffset)
 }
 
@@ -53,6 +62,14 @@ func VpxConvolve8Vert(src []byte, srcStride int, dst []byte, dstStride int,
 ) {
 	_ = x0Q4
 	_ = xStepQ4
+	if pixel.Enabled && yStepQ4 == tables.SubpelShifts && srcOffset >= 0 && (w == 4 || (w > 0 && w%8 == 0)) && h > 0 && srcStride >= 0 && dstStride >= 0 {
+		f := &filter[y0Q4]
+		if (f[0]|f[1]|f[2]|f[5]|f[6]|f[7]) == 0 && f[3] >= 0 && f[4] >= 0 &&
+			len(src)-srcOffset >= h*srcStride+w && len(dst) >= (h-1)*dstStride+w {
+			pixel.FilterBilinear(src[srcOffset:], srcStride, dst, dstStride, w, h, srcStride, uint8(f[3]), uint8(f[4]))
+			return
+		}
+	}
 	convolveVert(src, srcStride, dst, dstStride, filter, y0Q4, yStepQ4, w, h, srcOffset)
 }
 
@@ -73,6 +90,16 @@ func VpxConvolve8WithScratch(src []byte, srcStride int, dst []byte, dstStride in
 	x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset int,
 	scratch *Convolve8Scratch,
 ) {
+	if xStepQ4 == tables.SubpelShifts && yStepQ4 == tables.SubpelShifts && srcOffset >= 0 && srcOffset < len(src) {
+		fx := &filter[x0Q4]
+		fy := &filter[y0Q4]
+		if (fx[0]|fx[1]|fx[2]|fx[5]|fx[6]|fx[7]|fy[0]|fy[1]|fy[2]|fy[5]|fy[6]|fy[7]) == 0 &&
+			fx[3] >= 0 && fx[4] >= 0 && fy[3] >= 0 && fy[4] >= 0 &&
+			pixel.FilterBilinear2D(src[srcOffset:], srcStride, dst, dstStride, w, h,
+				uint8(fx[3]), uint8(fx[4]), uint8(fy[3]), uint8(fy[4])) {
+			return
+		}
+	}
 	temp, tempBuf := convolve8TempForScratch(scratch)
 	intermediateHeight := (((h-1)*yStepQ4 + y0Q4) >> tables.SubpelBits) + tables.SubpelTaps
 	horizSrcOffset := srcOffset - srcStride*(tables.SubpelTaps/2-1)

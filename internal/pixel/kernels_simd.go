@@ -414,6 +414,56 @@ func VP8Quant(coeff, round, quant, dequant []int16, qcoeff, dqcoeff []int16) {
 		Store4(dqcoeff[i:], q.Mul(Load4(dequant[i:])))
 	}
 }
+func AddConstant8x8InPlace(dst []byte, stride, delta int) {
+	if !Enabled {
+		AddConstantScalar(dst, stride, dst, stride, 8, 8, delta)
+		return
+	}
+	if delta == 0 {
+		return
+	}
+	_ = dst[7*stride+7]
+	d0, d1, d2, d3 := dst[0:], dst[2*stride:], dst[4*stride:], dst[6*stride:]
+	if delta > 0 {
+		d := uint8(255)
+		if delta < 255 {
+			d = uint8(delta)
+		}
+		dv := archsimd.BroadcastUint8x16(d)
+		v0 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(d0), binary.LittleEndian.Uint64(d0[stride:])}).ReshapeToUint8s().AddSaturated(dv).ReshapeToUint64s()
+		v1 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(d1), binary.LittleEndian.Uint64(d1[stride:])}).ReshapeToUint8s().AddSaturated(dv).ReshapeToUint64s()
+		v2 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(d2), binary.LittleEndian.Uint64(d2[stride:])}).ReshapeToUint8s().AddSaturated(dv).ReshapeToUint64s()
+		v3 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(d3), binary.LittleEndian.Uint64(d3[stride:])}).ReshapeToUint8s().AddSaturated(dv).ReshapeToUint64s()
+		binary.LittleEndian.PutUint64(d0, v0.GetElem(0))
+		binary.LittleEndian.PutUint64(d0[stride:], v0.GetElem(1))
+		binary.LittleEndian.PutUint64(d1, v1.GetElem(0))
+		binary.LittleEndian.PutUint64(d1[stride:], v1.GetElem(1))
+		binary.LittleEndian.PutUint64(d2, v2.GetElem(0))
+		binary.LittleEndian.PutUint64(d2[stride:], v2.GetElem(1))
+		binary.LittleEndian.PutUint64(d3, v3.GetElem(0))
+		binary.LittleEndian.PutUint64(d3[stride:], v3.GetElem(1))
+		return
+	}
+	mag := -delta
+	d := uint8(255)
+	if mag < 255 {
+		d = uint8(mag)
+	}
+	dv := archsimd.BroadcastUint8x16(d)
+	v0 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(d0), binary.LittleEndian.Uint64(d0[stride:])}).ReshapeToUint8s().SubSaturated(dv).ReshapeToUint64s()
+	v1 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(d1), binary.LittleEndian.Uint64(d1[stride:])}).ReshapeToUint8s().SubSaturated(dv).ReshapeToUint64s()
+	v2 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(d2), binary.LittleEndian.Uint64(d2[stride:])}).ReshapeToUint8s().SubSaturated(dv).ReshapeToUint64s()
+	v3 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(d3), binary.LittleEndian.Uint64(d3[stride:])}).ReshapeToUint8s().SubSaturated(dv).ReshapeToUint64s()
+	binary.LittleEndian.PutUint64(d0, v0.GetElem(0))
+	binary.LittleEndian.PutUint64(d0[stride:], v0.GetElem(1))
+	binary.LittleEndian.PutUint64(d1, v1.GetElem(0))
+	binary.LittleEndian.PutUint64(d1[stride:], v1.GetElem(1))
+	binary.LittleEndian.PutUint64(d2, v2.GetElem(0))
+	binary.LittleEndian.PutUint64(d2[stride:], v2.GetElem(1))
+	binary.LittleEndian.PutUint64(d3, v3.GetElem(0))
+	binary.LittleEndian.PutUint64(d3[stride:], v3.GetElem(1))
+}
+
 func AddConstant(pred []byte, ps int, dst []byte, ds, w, h, delta int) {
 	if !Enabled {
 		AddConstantScalar(pred, ps, dst, ds, w, h, delta)
@@ -452,6 +502,23 @@ func AddConstant(pred []byte, ps int, dst []byte, ds, w, h, delta int) {
 			return
 		}
 		if canBatchRows && w == 8 {
+			if h == 8 {
+				p0, p1, p2, p3 := pred[0:], pred[2*ps:], pred[4*ps:], pred[6*ps:]
+				v0 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(p0), binary.LittleEndian.Uint64(p0[ps:])}).ReshapeToUint8s().AddSaturated(dv).ReshapeToUint64s()
+				v1 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(p1), binary.LittleEndian.Uint64(p1[ps:])}).ReshapeToUint8s().AddSaturated(dv).ReshapeToUint64s()
+				v2 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(p2), binary.LittleEndian.Uint64(p2[ps:])}).ReshapeToUint8s().AddSaturated(dv).ReshapeToUint64s()
+				v3 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(p3), binary.LittleEndian.Uint64(p3[ps:])}).ReshapeToUint8s().AddSaturated(dv).ReshapeToUint64s()
+				d0, d1, d2, d3 := dst[0:], dst[2*ds:], dst[4*ds:], dst[6*ds:]
+				binary.LittleEndian.PutUint64(d0, v0.GetElem(0))
+				binary.LittleEndian.PutUint64(d0[ds:], v0.GetElem(1))
+				binary.LittleEndian.PutUint64(d1, v1.GetElem(0))
+				binary.LittleEndian.PutUint64(d1[ds:], v1.GetElem(1))
+				binary.LittleEndian.PutUint64(d2, v2.GetElem(0))
+				binary.LittleEndian.PutUint64(d2[ds:], v2.GetElem(1))
+				binary.LittleEndian.PutUint64(d3, v3.GetElem(0))
+				binary.LittleEndian.PutUint64(d3[ds:], v3.GetElem(1))
+				return
+			}
 			po, do := 0, 0
 			y := 0
 			for ; y+1 < h; y += 2 {
@@ -504,6 +571,23 @@ func AddConstant(pred []byte, ps int, dst []byte, ds, w, h, delta int) {
 		return
 	}
 	if canBatchRows && w == 8 {
+		if h == 8 {
+			p0, p1, p2, p3 := pred[0:], pred[2*ps:], pred[4*ps:], pred[6*ps:]
+			v0 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(p0), binary.LittleEndian.Uint64(p0[ps:])}).ReshapeToUint8s().SubSaturated(dv).ReshapeToUint64s()
+			v1 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(p1), binary.LittleEndian.Uint64(p1[ps:])}).ReshapeToUint8s().SubSaturated(dv).ReshapeToUint64s()
+			v2 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(p2), binary.LittleEndian.Uint64(p2[ps:])}).ReshapeToUint8s().SubSaturated(dv).ReshapeToUint64s()
+			v3 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(p3), binary.LittleEndian.Uint64(p3[ps:])}).ReshapeToUint8s().SubSaturated(dv).ReshapeToUint64s()
+			d0, d1, d2, d3 := dst[0:], dst[2*ds:], dst[4*ds:], dst[6*ds:]
+			binary.LittleEndian.PutUint64(d0, v0.GetElem(0))
+			binary.LittleEndian.PutUint64(d0[ds:], v0.GetElem(1))
+			binary.LittleEndian.PutUint64(d1, v1.GetElem(0))
+			binary.LittleEndian.PutUint64(d1[ds:], v1.GetElem(1))
+			binary.LittleEndian.PutUint64(d2, v2.GetElem(0))
+			binary.LittleEndian.PutUint64(d2[ds:], v2.GetElem(1))
+			binary.LittleEndian.PutUint64(d3, v3.GetElem(0))
+			binary.LittleEndian.PutUint64(d3[ds:], v3.GetElem(1))
+			return
+		}
 		po, do := 0, 0
 		y := 0
 		for ; y+1 < h; y += 2 {
@@ -972,6 +1056,17 @@ func Horizontal(dst []byte, ds int, left []byte, w int) {
 func Mul16(a, b, out []int16, n int) {
 	if !Enabled {
 		Mul16Scalar(a, b, out, n)
+		return
+	}
+	if n == 16 && len(a) >= 16 && len(b) >= 16 && len(out) >= 16 {
+		// Load both halves before storing so partial aliasing between inputs
+		// and out is always safe without an overlap check.
+		a0 := archsimd.LoadInt16x8Array((*[8]int16)(a[0:8]))
+		b0 := archsimd.LoadInt16x8Array((*[8]int16)(b[0:8]))
+		a1 := archsimd.LoadInt16x8Array((*[8]int16)(a[8:16]))
+		b1 := archsimd.LoadInt16x8Array((*[8]int16)(b[8:16]))
+		a0.Mul(b0).StoreArray((*[8]int16)(out[0:8]))
+		a1.Mul(b1).StoreArray((*[8]int16)(out[8:16]))
 		return
 	}
 	i := 0
