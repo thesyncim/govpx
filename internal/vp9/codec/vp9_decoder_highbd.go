@@ -576,6 +576,14 @@ func (d *VP9Decoder) readVP9ResidueBlockHighBD(r *bitstream.Reader,
 					aboveCtx[i] = hasResidue
 					leftCtx[i] = hasResidue
 				}
+				if hasResidue != 0 {
+					if cc+step > num4x4W {
+						clear(aboveCtx[num4x4W-cc:])
+					}
+					if rr+step > num4x4H {
+						clear(leftCtx[num4x4H-rr:])
+					}
+				}
 				blockIdx += blockStep
 			}
 			blockIdx += extraStep

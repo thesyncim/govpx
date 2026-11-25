@@ -1606,6 +1606,14 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 					leftCtx[6] = hasResidue
 					leftCtx[7] = hasResidue
 				}
+				if hasResidue != 0 {
+					if cc+step > num4x4W {
+						clear(aboveCtx[num4x4W-cc:])
+					}
+					if rr+step > num4x4H {
+						clear(leftCtx[num4x4H-rr:])
+					}
+				}
 				blockIdx += blockStep
 			}
 			blockIdx += extraStep
@@ -1754,10 +1762,16 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 				}
 				aCtx[cc] = hasResidue
 				aCtx[cc+1] = hasResidue
+				if hasResidue != 0 && cc+2 > num4x4W {
+					clear(aCtx[num4x4W : cc+2])
+				}
 				lv = hasResidue
 			}
 			lCtx[rr] = lv
 			lCtx[rr+1] = lv
+			if lv != 0 && rr+2 > num4x4H {
+				clear(lCtx[num4x4H : rr+2])
+			}
 		}
 	case common.Tx16x16:
 		for rr := 0; rr < num4x4H; rr += 4 {
@@ -1802,12 +1816,18 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 				aCtx[cc+1] = hasResidue
 				aCtx[cc+2] = hasResidue
 				aCtx[cc+3] = hasResidue
+				if hasResidue != 0 && cc+4 > num4x4W {
+					clear(aCtx[num4x4W : cc+4])
+				}
 				lv = hasResidue
 			}
 			lCtx[rr] = lv
 			lCtx[rr+1] = lv
 			lCtx[rr+2] = lv
 			lCtx[rr+3] = lv
+			if lv != 0 && rr+4 > num4x4H {
+				clear(lCtx[num4x4H : rr+4])
+			}
 		}
 	default:
 		for rr := 0; rr < num4x4H; rr += step {
@@ -1852,10 +1872,16 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 				for i := range 8 {
 					aCtx[cc+i] = hasResidue
 				}
+				if hasResidue != 0 && cc+8 > num4x4W {
+					clear(aCtx[num4x4W : cc+8])
+				}
 				lv = hasResidue
 			}
 			for i := range 8 {
 				lCtx[rr+i] = lv
+			}
+			if lv != 0 && rr+8 > num4x4H {
+				clear(lCtx[num4x4H : rr+8])
 			}
 		}
 	}

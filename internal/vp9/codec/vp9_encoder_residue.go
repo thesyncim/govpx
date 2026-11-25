@@ -1196,6 +1196,14 @@ func (e *VP9Encoder) scoreVP9InterTxCandidate(inter *vp9InterEncodeState,
 					aboveCtx[plane][cc+i] = hasCtx
 					leftCtx[plane][rr+i] = hasCtx
 				}
+				if hasCtx != 0 {
+					if cc+step > max4x4W {
+						clear(aboveCtx[plane][max4x4W : cc+step])
+					}
+					if rr+step > max4x4H {
+						clear(leftCtx[plane][max4x4H : rr+step])
+					}
+				}
 			}
 		}
 	}
@@ -1268,12 +1276,20 @@ func (e *VP9Encoder) stampVP9InterLeafTxContext(inter *vp9InterEncodeState,
 				}
 				for i := 0; i < step && cc+i < aboveLen; i++ {
 					if ao >= 0 && ao+cc+i < len(pd.AboveContext) {
-						pd.AboveContext[ao+cc+i] = hasCtx
+						v := hasCtx
+						if cc+i >= max4x4W {
+							v = 0
+						}
+						pd.AboveContext[ao+cc+i] = v
 					}
 				}
 				for i := 0; i < step && rr+i < leftLen; i++ {
 					if lo >= 0 && lo+rr+i < len(pd.LeftContext) {
-						pd.LeftContext[lo+rr+i] = hasCtx
+						v := hasCtx
+						if rr+i >= max4x4H {
+							v = 0
+						}
+						pd.LeftContext[lo+rr+i] = v
 					}
 				}
 			}
