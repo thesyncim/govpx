@@ -209,7 +209,8 @@ func TestVP9EncoderSetRowMTRuntimeGating(t *testing.T) {
 		if err := e.SetRowMT(false); err != nil {
 			t.Fatalf("SetRowMT(false): %v", err)
 		}
-		for i, s := range e.vp9TilePool.rowMTSyncs {
+		for i := range e.vp9TilePool.rowMTSyncs {
+			s := &e.vp9TilePool.rowMTSyncs[i]
 			if s.rows != 0 {
 				t.Fatalf("rowMTSyncs[%d].rows = %d after SetRowMT(false), want 0",
 					i, s.rows)
@@ -467,7 +468,8 @@ func TestVP9RowMTBytewiseIdenticalToSerial(t *testing.T) {
 	if serial.vp9TilePool != nil && len(serial.vp9TilePool.rowMTSyncs) != 0 {
 		t.Fatalf("serial encoder allocated %d rowMTSyncs", len(serial.vp9TilePool.rowMTSyncs))
 	}
-	for i, s := range rowMT.vp9TilePool.rowMTSyncs {
+	for i := range rowMT.vp9TilePool.rowMTSyncs {
+		s := &rowMT.vp9TilePool.rowMTSyncs[i]
 		if s.rows == 0 {
 			t.Fatalf("rowMTSyncs[%d] not initialized", i)
 		}
@@ -685,7 +687,8 @@ func TestVP9RowMTSteadyStateAllocations(t *testing.T) {
 		rows      int
 	}
 	before := make([]snapshot, len(e.vp9TilePool.rowMTSyncs))
-	for i, s := range e.vp9TilePool.rowMTSyncs {
+	for i := range e.vp9TilePool.rowMTSyncs {
+		s := &e.vp9TilePool.rowMTSyncs[i]
 		before[i] = snapshot{cap(s.curCol), s.rows}
 	}
 	// Steady-state encodes must not grow any per-tile sync capacity.
@@ -694,7 +697,8 @@ func TestVP9RowMTSteadyStateAllocations(t *testing.T) {
 		if _, err := e.EncodeInto(src, dst); err != nil {
 			t.Fatalf("steady-state EncodeInto[%d]: %v", frame, err)
 		}
-		for i, s := range e.vp9TilePool.rowMTSyncs {
+		for i := range e.vp9TilePool.rowMTSyncs {
+			s := &e.vp9TilePool.rowMTSyncs[i]
 			if cap(s.curCol) != before[i].curColCap ||
 				s.rows != before[i].rows {
 				t.Fatalf("frame %d rowMTSyncs[%d] capacity drifted: "+

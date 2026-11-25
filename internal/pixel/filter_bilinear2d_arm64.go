@@ -17,7 +17,7 @@ func FilterBilinear2D(src []byte, ss int, dst []byte, ds, w, h int, hx0, hx1, hy
 	if int(hx0)+int(hx1) > 128 || int(hy0)+int(hy1) > 128 {
 		return false
 	}
-	if len(src) <= h*ss+w || len(dst) <= (h-1)*ds+w-1 {
+	if len(src) <= w || ss > (len(src)-1-w)/h || len(dst) < w || (h > 1 && ds > (len(dst)-w)/(h-1)) {
 		return false
 	}
 	// Disjointness guard: fused rolling rows require dst not to overwrite

@@ -18,7 +18,18 @@ func ExtendPlaneBorder(full []byte, origin, stride, width, height, borderX, bord
 	if len(full) == 0 || stride <= 0 || width <= 0 || height <= 0 || borderX <= 0 || borderY <= 0 {
 		return false
 	}
-	if origin < borderY*stride+borderX || origin+(height-1+borderY)*stride+width+borderX > len(full) {
+	if borderX > stride/2 || width > stride-2*borderX {
+		return false
+	}
+	if origin < borderX || borderY > (origin-borderX)/stride {
+		return false
+	}
+	tail := len(full) - origin
+	if width+borderX > tail {
+		return false
+	}
+	maxRows := (tail - width - borderX) / stride
+	if height-1 > maxRows || borderY > maxRows-(height-1) {
 		return false
 	}
 	rowStart := origin
@@ -94,14 +105,6 @@ func quantizeFPBlockSIMD(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [
 // QuantizeVP8Batch leaves unsupported builds to per-block quantization.
 func QuantizeVP8Batch(coeff []int16, round, quant, dequant *[16]int16, qcoeff, dqcoeff []int16, iscan *[16]int16, eobs []uint8, count int) bool {
 	return false
-}
-
-// VP9DenoisePlane falls back to the scalar VP9 denoiser on non-SIMD builds.
-func VP9DenoisePlane(
-	_ []byte, _ int, _ []byte, _ int, _ []byte, _ int,
-	_, _, _, _, _, _, _, _, _ int,
-) (bool, bool) {
-	return false, false
 }
 
 // QuantizeVP8BatchOnly leaves unsupported builds to per-block quantization.

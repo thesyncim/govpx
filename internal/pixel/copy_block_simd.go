@@ -103,7 +103,18 @@ func ExtendPlaneBorder(full []byte, origin, stride, width, height, borderX, bord
 	if len(full) == 0 || stride <= 0 || width <= 0 || height <= 0 || borderX <= 0 || borderY <= 0 {
 		return false
 	}
-	if origin < borderY*stride+borderX || origin+(height-1+borderY)*stride+width+borderX > len(full) {
+	if borderX > stride/2 || width > stride-2*borderX {
+		return false
+	}
+	if origin < borderX || borderY > (origin-borderX)/stride {
+		return false
+	}
+	tail := len(full) - origin
+	if width+borderX > tail {
+		return false
+	}
+	maxRows := (tail - width - borderX) / stride
+	if height-1 > maxRows || borderY > maxRows-(height-1) {
 		return false
 	}
 	switch borderX {

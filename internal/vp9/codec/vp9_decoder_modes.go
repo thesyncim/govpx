@@ -1251,7 +1251,9 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlaneAt(
 			extY0 < 0 || extY0 > srcHeight-1 || y1 < 0 || y1 > srcHeight-1 {
 			if len(p.srcFull) > 0 &&
 				extX0 >= -p.srcBorderX && x1 < srcWidth+p.srcBorderX &&
-				extY0 >= -p.srcBorderY && y1 < srcHeight+p.srcBorderY {
+				extY0 >= -p.srcBorderY && y1 < srcHeight+p.srcBorderY &&
+				p.srcOrigin+extY0*srcStride+extX0 >= 0 &&
+				p.srcOrigin+y1*srcStride+x1 < len(p.srcFull) {
 				src = p.srcFull
 				srcOffset = p.srcOrigin + srcY*srcStride + srcX
 				srcRows = srcHeight + p.srcBorderY

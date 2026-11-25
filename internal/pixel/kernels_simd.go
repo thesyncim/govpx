@@ -415,7 +415,7 @@ func VP8Quant(coeff, round, quant, dequant []int16, qcoeff, dqcoeff []int16) {
 	}
 }
 func AddConstant8x8InPlace(dst []byte, stride, delta int) {
-	if !Enabled {
+	if !Enabled || stride < 8 || len(dst) < 8 || stride > (len(dst)-8)/7 {
 		AddConstantScalar(dst, stride, dst, stride, 8, 8, delta)
 		return
 	}

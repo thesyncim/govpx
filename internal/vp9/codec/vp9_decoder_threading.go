@@ -596,6 +596,7 @@ type vp9DecoderTileJob struct {
 	leftEntropy         [vp9dec.MaxMbPlane][16]uint8
 	leftEntropyLen      [vp9dec.MaxMbPlane]uint8
 	interPredictScratch []byte
+	highbdState         vp9DecoderHighBDState
 
 	// rowMTSync, when non-nil, is the per-tile-column wavefront sync the
 	// decoder body should call read / write against. Populated by the tile
@@ -1107,6 +1108,14 @@ func (p *vp9DecoderTileWorkerPool) prepareTileJob(worker int,
 	job := &p.jobs[worker]
 	job.descs = nil
 	job.worker = *parent
+	if parent.highbd != nil {
+		dq := job.highbdState.dqcoeff32
+		sc := job.highbdState.interPredictScratch16
+		job.highbdState = *parent.highbd
+		job.highbdState.dqcoeff32 = dq
+		job.highbdState.interPredictScratch16 = sc
+		job.worker.highbd = &job.highbdState
+	}
 	job.data = desc.data
 	job.hdr = &p.header
 	job.comp = comp
@@ -1153,6 +1162,14 @@ func (j *vp9DecoderTileJob) prepareRowMTJob(
 ) {
 	j.descs = nil
 	j.worker = *parent
+	if parent.highbd != nil {
+		dq := j.highbdState.dqcoeff32
+		sc := j.highbdState.interPredictScratch16
+		j.highbdState = *parent.highbd
+		j.highbdState.dqcoeff32 = dq
+		j.highbdState.interPredictScratch16 = sc
+		j.worker.highbd = &j.highbdState
+	}
 	j.rowMTParent = parent
 	j.data = nil
 	j.hdr = hdr
@@ -1199,12 +1216,6 @@ func (j *vp9DecoderTileJob) run() {
 	}
 	j.resetLeftContexts(worker)
 	worker.interPredictScratch = j.interPredictScratch
-	if worker.highbd != nil {
-		hb := *worker.highbd
-		hb.dqcoeff32 = nil
-		hb.interPredictScratch16 = nil
-		worker.highbd = &hb
-	}
 	j.err = worker.runVP9DecoderTileDesc(j.kind, vp9DecoderTileDesc{
 		data: j.data,
 		tile: j.tile,
@@ -1291,12 +1302,6 @@ workLoop:
 
 func (j *vp9DecoderTileJob) runDescs(worker *VP9Decoder, descs []vp9DecoderTileDesc) {
 	worker.interPredictScratch = j.interPredictScratch
-	if worker.highbd != nil {
-		hb := *worker.highbd
-		hb.dqcoeff32 = nil
-		hb.interPredictScratch16 = nil
-		worker.highbd = &hb
-	}
 	for _, desc := range descs {
 		j.resetLeftContexts(worker)
 		if err := worker.runVP9DecoderTileDesc(j.kind, desc, j.hdr, j.comp,
