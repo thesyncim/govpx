@@ -800,45 +800,89 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 			mv := mi.Mv[0]
 			mvRow := int(mv.Row)
 			mvCol := int(mv.Col)
-			// Fast 4:2:0 integer-MV 3-plane copy: one geometry check covers Y, U, V.
-			if (mvRow&15) == 0 && (mvCol&15) == 0 &&
+			// Fast 4:2:0 integer-luma-MV 3-plane path: handles both even-integer
+			// (3x CopyBlock) and odd-integer bilinear half-pel chroma directly,
+			// bypassing vp9InterPredictPlaneParams and InterPredictorWithScratch.
+			if (mvRow&7) == 0 && (mvCol&7) == 0 &&
 				d.planes[0].SubsamplingX == 0 && d.planes[0].SubsamplingY == 0 &&
 				d.planes[1].SubsamplingX == 1 && d.planes[1].SubsamplingY == 1 &&
 				d.planes[2].SubsamplingX == 1 && d.planes[2].SubsamplingY == 1 {
-				x0 := miCol * common.MiSize
-				y0 := miRow * common.MiSize
-				bw := int(common.Num4x4BlocksWideLookup[bsize]) * 4
-				bh := int(common.Num4x4BlocksHighLookup[bsize]) * 4
-				sx := x0 + (mvCol >> 3)
-				sy := y0 + (mvRow >> 3)
-				yDstStride := d.lastFrame.YStride
-				uDstStride := d.lastFrame.UStride
-				vDstStride := d.lastFrame.VStride
-				ySrcStride := ref.img.YStride
-				uSrcStride := ref.img.UStride
-				vSrcStride := ref.img.VStride
-				uvW := (ref.img.Width + 1) >> 1
-				uvH := (ref.img.Height + 1) >> 1
-				ux0, uy0 := x0>>1, y0>>1
-				ubw, ubh := bw>>1, bh>>1
-				usx, usy := sx>>1, sy>>1
-				if sx >= 0 && sy >= 0 && sx+bw <= ref.img.Width && sy+bh <= ref.img.Height &&
-					usx >= 0 && usy >= 0 && usx+ubw <= uvW && usy+ubh <= uvH &&
-					yDstStride > 0 && uDstStride > 0 && vDstStride > 0 &&
-					ySrcStride > 0 && uSrcStride > 0 && vSrcStride > 0 &&
-					x0+bw <= yDstStride && (y0+bh)*yDstStride <= len(d.frameY) &&
-					ux0+ubw <= uDstStride && (uy0+ubh)*uDstStride <= len(d.frameU) &&
-					ux0+ubw <= vDstStride && (uy0+ubh)*vDstStride <= len(d.frameV) &&
-					(sy+bh)*ySrcStride <= len(ref.img.Y) &&
-					(usy+ubh)*uSrcStride <= len(ref.img.U) &&
-					(usy+ubh)*vSrcStride <= len(ref.img.V) {
-					pixel.CopyBlock(ref.img.Y[sy*ySrcStride+sx:], ySrcStride,
-						d.frameY[y0*yDstStride+x0:], yDstStride, bw, bh)
-					pixel.CopyBlock(ref.img.U[usy*uSrcStride+usx:], uSrcStride,
-						d.frameU[uy0*uDstStride+ux0:], uDstStride, ubw, ubh)
-					pixel.CopyBlock(ref.img.V[usy*vSrcStride+usx:], vSrcStride,
-						d.frameV[uy0*vDstStride+ux0:], vDstStride, ubw, ubh)
-					return true
+				subY := (mvRow & 15) != 0
+				subX := (mvCol & 15) != 0
+				if (!subX && !subY) || mi.InterpFilter == uint8(vp9dec.InterpBilinear) {
+					x0 := miCol * common.MiSize
+					y0 := miRow * common.MiSize
+					bw := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+					bh := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+					sx := x0 + (mvCol >> 3)
+					sy := y0 + (mvRow >> 3)
+					yDstStride := d.lastFrame.YStride
+					uDstStride := d.lastFrame.UStride
+					vDstStride := d.lastFrame.VStride
+					ySrcStride := ref.img.YStride
+					uSrcStride := ref.img.UStride
+					vSrcStride := ref.img.VStride
+					uvW := (ref.img.Width + 1) >> 1
+					uvH := (ref.img.Height + 1) >> 1
+					ux0, uy0 := x0>>1, y0>>1
+					ubw, ubh := bw>>1, bh>>1
+					usx := ux0 + (mvCol >> 4)
+					usy := uy0 + (mvRow >> 4)
+					extraX, extraY := 0, 0
+					if subX {
+						extraX = 1
+					}
+					if subY {
+						extraY = 1
+					}
+					if sx >= 0 && sy >= 0 && sx+bw <= ref.img.Width && sy+bh <= ref.img.Height &&
+						usx >= 0 && usy >= 0 && usx+ubw+extraX <= uvW && usy+ubh+extraY <= uvH &&
+						yDstStride > 0 && uDstStride > 0 && vDstStride > 0 &&
+						ySrcStride > 0 && uSrcStride > 0 && vSrcStride > 0 &&
+						x0+bw <= yDstStride && (y0+bh)*yDstStride <= len(d.frameY) &&
+						ux0+ubw <= uDstStride && (uy0+ubh)*uDstStride <= len(d.frameU) &&
+						ux0+ubw <= vDstStride && (uy0+ubh)*vDstStride <= len(d.frameV) &&
+						(sy+bh)*ySrcStride <= len(ref.img.Y) &&
+						(usy+ubh+extraY)*uSrcStride <= len(ref.img.U) &&
+						(usy+ubh+extraY)*vSrcStride <= len(ref.img.V) {
+						pixel.CopyBlock(ref.img.Y[sy*ySrcStride+sx:], ySrcStride,
+							d.frameY[y0*yDstStride+x0:], yDstStride, bw, bh)
+						uSrc := ref.img.U[usy*uSrcStride+usx:]
+						vSrc := ref.img.V[usy*vSrcStride+usx:]
+						uDst := d.frameU[uy0*uDstStride+ux0:]
+						vDst := d.frameV[uy0*vDstStride+ux0:]
+						if !subX && !subY {
+							pixel.CopyBlock(uSrc, uSrcStride, uDst, uDstStride, ubw, ubh)
+							pixel.CopyBlock(vSrc, vSrcStride, vDst, vDstStride, ubw, ubh)
+							return true
+						}
+						if !subX && subY {
+							if ubw == 8 && ubh == 8 &&
+								pixel.FilterBilinear2DPair8x8(uSrc, uSrcStride, vSrc, vSrcStride, uDst, uDstStride, vDst, vDstStride, 128, 0, 64, 64) {
+								return true
+							}
+							pixel.FilterBilinear(uSrc, uSrcStride, uDst, uDstStride, ubw, ubh, uSrcStride, 64, 64)
+							pixel.FilterBilinear(vSrc, vSrcStride, vDst, vDstStride, ubw, ubh, vSrcStride, 64, 64)
+							return true
+						} else if subX && !subY {
+							if ubw == 8 && ubh == 8 &&
+								pixel.FilterBilinear2DPair8x8(uSrc, uSrcStride, vSrc, vSrcStride, uDst, uDstStride, vDst, vDstStride, 64, 64, 128, 0) {
+								return true
+							}
+							pixel.FilterBilinear(uSrc, uSrcStride, uDst, uDstStride, ubw, ubh, 1, 64, 64)
+							pixel.FilterBilinear(vSrc, vSrcStride, vDst, vDstStride, ubw, ubh, 1, 64, 64)
+							return true
+						} else {
+							if ubw == 8 && ubh == 8 &&
+								pixel.FilterBilinear2DPair8x8(uSrc, uSrcStride, vSrc, vSrcStride, uDst, uDstStride, vDst, vDstStride, 64, 64, 64, 64) {
+								return true
+							}
+							if pixel.FilterBilinear2D(uSrc, uSrcStride, uDst, uDstStride, ubw, ubh, 64, 64, 64, 64) &&
+								pixel.FilterBilinear2D(vSrc, vSrcStride, vDst, vDstStride, ubw, ubh, 64, 64, 64, 64) {
+								return true
+							}
+						}
+					}
 				}
 			}
 			for plane := range vp9dec.MaxMbPlane {

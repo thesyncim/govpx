@@ -37,14 +37,24 @@ func FilterBilinear2D(src []byte, ss int, dst []byte, ds, w, h int, hx0, hx1, hy
 		if w == 16 {
 			r0 := src[0:17]
 			prev := archsimd.LoadUint8x16Array((*[16]byte)(r0[0:16])).Average(archsimd.LoadUint8x16Array((*[16]byte)(r0[1:17])))
+			ss2, ds2 := 2*ss, 2*ds
 			so, do := ss, 0
-			for range h {
+			y := 0
+			for ; y+1 < h; y += 2 {
+				row1 := src[so : so+17]
+				row2 := src[so+ss : so+ss+17]
+				cur1 := archsimd.LoadUint8x16Array((*[16]byte)(row1[0:16])).Average(archsimd.LoadUint8x16Array((*[16]byte)(row1[1:17])))
+				cur2 := archsimd.LoadUint8x16Array((*[16]byte)(row2[0:16])).Average(archsimd.LoadUint8x16Array((*[16]byte)(row2[1:17])))
+				prev.Average(cur1).StoreArray((*[16]byte)(dst[do : do+16]))
+				cur1.Average(cur2).StoreArray((*[16]byte)(dst[do+ds : do+ds+16]))
+				prev = cur2
+				so += ss2
+				do += ds2
+			}
+			if y < h {
 				row := src[so : so+17]
 				cur := archsimd.LoadUint8x16Array((*[16]byte)(row[0:16])).Average(archsimd.LoadUint8x16Array((*[16]byte)(row[1:17])))
 				prev.Average(cur).StoreArray((*[16]byte)(dst[do : do+16]))
-				prev = cur
-				so += ss
-				do += ds
 			}
 			return true
 		}

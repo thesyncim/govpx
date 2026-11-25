@@ -211,20 +211,57 @@ func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0
 		}
 		if w == 16 {
 			a := archsimd.LoadUint8x16Array((*[16]byte)(src[0:16]))
+			ss2, ds2 := 2*ss, 2*ds
+			ss3, ds3 := 3*ss, 3*ds
+			ss4, ds4 := 4*ss, 4*ds
+			so, do := ss, 0
+			y := 0
+			for ; y+3 < h; y += 4 {
+				b := archsimd.LoadUint8x16Array((*[16]byte)(src[so : so+16]))
+				c := archsimd.LoadUint8x16Array((*[16]byte)(src[so+ss : so+ss+16]))
+				d := archsimd.LoadUint8x16Array((*[16]byte)(src[so+ss2 : so+ss2+16]))
+				e := archsimd.LoadUint8x16Array((*[16]byte)(src[so+ss3 : so+ss3+16]))
+				a.Average(b).StoreArray((*[16]byte)(dst[do : do+16]))
+				b.Average(c).StoreArray((*[16]byte)(dst[do+ds : do+ds+16]))
+				c.Average(d).StoreArray((*[16]byte)(dst[do+ds2 : do+ds2+16]))
+				d.Average(e).StoreArray((*[16]byte)(dst[do+ds3 : do+ds3+16]))
+				a = e
+				so += ss4
+				do += ds4
+			}
+			for ; y < h; y++ {
+				b := archsimd.LoadUint8x16Array((*[16]byte)(src[so : so+16]))
+				a.Average(b).StoreArray((*[16]byte)(dst[do : do+16]))
+				a = b
+				so += ss
+				do += ds
+			}
+			return true
+		}
+		if w == 32 {
+			a0 := archsimd.LoadUint8x16Array((*[16]byte)(src[0:16]))
+			a1 := archsimd.LoadUint8x16Array((*[16]byte)(src[16:32]))
+			ss2, ds2 := 2*ss, 2*ds
 			so, do := ss, 0
 			y := 0
 			for ; y+1 < h; y += 2 {
-				b := archsimd.LoadUint8x16Array((*[16]byte)(src[so : so+16]))
-				c := archsimd.LoadUint8x16Array((*[16]byte)(src[so+ss : so+ss+16]))
-				a.Average(b).StoreArray((*[16]byte)(dst[do : do+16]))
-				b.Average(c).StoreArray((*[16]byte)(dst[do+ds : do+ds+16]))
-				a = c
-				so += 2 * ss
-				do += 2 * ds
+				b0 := archsimd.LoadUint8x16Array((*[16]byte)(src[so : so+16]))
+				b1 := archsimd.LoadUint8x16Array((*[16]byte)(src[so+16 : so+32]))
+				c0 := archsimd.LoadUint8x16Array((*[16]byte)(src[so+ss : so+ss+16]))
+				c1 := archsimd.LoadUint8x16Array((*[16]byte)(src[so+ss+16 : so+ss+32]))
+				a0.Average(b0).StoreArray((*[16]byte)(dst[do : do+16]))
+				a1.Average(b1).StoreArray((*[16]byte)(dst[do+16 : do+32]))
+				b0.Average(c0).StoreArray((*[16]byte)(dst[do+ds : do+ds+16]))
+				b1.Average(c1).StoreArray((*[16]byte)(dst[do+ds+16 : do+ds+32]))
+				a0, a1 = c0, c1
+				so += ss2
+				do += ds2
 			}
 			if y < h {
-				b := archsimd.LoadUint8x16Array((*[16]byte)(src[so : so+16]))
-				a.Average(b).StoreArray((*[16]byte)(dst[do : do+16]))
+				b0 := archsimd.LoadUint8x16Array((*[16]byte)(src[so : so+16]))
+				b1 := archsimd.LoadUint8x16Array((*[16]byte)(src[so+16 : so+32]))
+				a0.Average(b0).StoreArray((*[16]byte)(dst[do : do+16]))
+				a1.Average(b1).StoreArray((*[16]byte)(dst[do+16 : do+32]))
 			}
 			return true
 		}

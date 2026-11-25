@@ -41,11 +41,30 @@ func UpdatePartitionContext(aboveSegCtx, leftSegCtx []int8, miRow, miCol int, su
 	a := aboveSegCtx[miCol : miCol+bw]
 	lOff := miRow & common.MiMask
 	l := leftSegCtx[lOff : lOff+bw]
-	for i := range a {
-		a[i] = av
-	}
-	for i := range l {
-		l[i] = lv
+	switch bw {
+	case 1:
+		a[0] = av
+		l[0] = lv
+	case 2:
+		a[0], a[1] = av, av
+		l[0], l[1] = lv, lv
+	case 4:
+		_ = a[3]
+		_ = l[3]
+		a[0], a[1], a[2], a[3] = av, av, av, av
+		l[0], l[1], l[2], l[3] = lv, lv, lv, lv
+	case 8:
+		_ = a[7]
+		_ = l[7]
+		a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7] = av, av, av, av, av, av, av, av
+		l[0], l[1], l[2], l[3], l[4], l[5], l[6], l[7] = lv, lv, lv, lv, lv, lv, lv, lv
+	default:
+		for i := range a {
+			a[i] = av
+		}
+		for i := range l {
+			l[i] = lv
+		}
 	}
 }
 
