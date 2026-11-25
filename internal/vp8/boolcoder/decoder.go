@@ -568,14 +568,89 @@ func vp8ReadBoolNoFill(prob uint8, value uint64, rng uint32, count int) (uint8, 
 }
 
 func vp8ReadSignedCoeffNoFill(coeff int, value uint64, rng uint32, count int) (int16, uint64, uint32, int) {
-	r64 := uint64(rng)
-	split := (r64 + 1) >> 1
-	mask := ^uint64(int64((value>>56)-split) >> 63)
-	value -= (split << 56) & mask
-	nextRange := split ^ ((split ^ (r64 - split)) & mask)
-	m16 := int16(mask)
+	split := (rng + 1) >> 1
+	bigsplit := uint64(split) << 56
+	ge := value >= bigsplit
+	nr := split
+	if ge {
+		nr = rng - split
+	}
+	nv := value
+	if ge {
+		nv = value - bigsplit
+	}
 	v := int16(coeff)
-	return (v ^ m16) - m16, value << 1, uint32(nextRange << 1), count - 1
+	if ge {
+		v = -v
+	}
+	return v, nv << 1, nr << 1, count - 1
+}
+
+func vp8ReadBoolFast(prob uint8, value uint64, rng uint32, count int) (bool, uint64, uint32, int) {
+	s := 1 + (((rng - 1) * uint32(prob)) >> 8)
+	bigsplit := uint64(s) << 56
+	ge := value >= bigsplit
+	nr := s
+	if ge {
+		nr = rng - s
+	}
+	nv := value
+	if ge {
+		nv = value - bigsplit
+	}
+	sh := uint32(bits.LeadingZeros8(uint8(nr)))
+	return ge, nv << sh, nr << sh, count - int(sh)
+}
+
+//go:noinline
+func decodeVP8Cat3to6Fast(
+	buf []byte, pos int, value uint64, rng uint32, count int,
+	p *[tables.EntropyNodes]uint8,
+) (int, uint64, uint32, int, int) {
+	var b1, b0, bit uint8
+	b1, value, rng, count = vp8ReadBoolNoFill(p[8], value, rng, count)
+	b0, value, rng, count = vp8ReadBoolNoFill(p[9+b1], value, rng, count)
+	cat := 2*int(b1) + int(b0)
+	v := 0
+	switch cat {
+	case 0:
+		for _, prob := range tables.Cat3Prob {
+			if count < 0 {
+				value, count, pos = fillBoolFast(buf, pos, value, count)
+			}
+			bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
+			v += v + int(bit)
+		}
+	case 1:
+		for _, prob := range tables.Cat4Prob {
+			if count < 0 {
+				value, count, pos = fillBoolFast(buf, pos, value, count)
+			}
+			bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
+			v += v + int(bit)
+		}
+	case 2:
+		for _, prob := range tables.Cat5Prob {
+			if count < 0 {
+				value, count, pos = fillBoolFast(buf, pos, value, count)
+			}
+			bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
+			v += v + int(bit)
+		}
+	default:
+		for _, prob := range tables.Cat6Prob {
+			if count < 0 {
+				value, count, pos = fillBoolFast(buf, pos, value, count)
+			}
+			bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
+			v += v + int(bit)
+		}
+	}
+	v += 3 + (8 << cat)
+	if count < 0 {
+		value, count, pos = fillBoolFast(buf, pos, value, count)
+	}
+	return v, value, rng, count, pos
 }
 
 func decodeVP8NonZeroBlockFast(
@@ -589,10 +664,11 @@ func decodeVP8NonZeroBlockFast(
 		value, count, pos = fillBoolFast(buf, pos, value, count)
 	}
 	var bit uint8
+	var b bool
 	for {
 		nn++
-		bit, value, rng, count = vp8ReadBoolNoFill(p[1], value, rng, count)
-		if bit == 0 {
+		b, value, rng, count = vp8ReadBoolFast(p[1], value, rng, count)
+		if !b {
 			if nn == 16 {
 				return 16, value, rng, count, pos
 			}
@@ -604,18 +680,18 @@ func decodeVP8NonZeroBlockFast(
 		}
 		v := 0
 		tokenClass := uint8(2)
-		bit, value, rng, count = vp8ReadBoolNoFill(p[2], value, rng, count)
-		if bit == 0 {
+		b, value, rng, count = vp8ReadBoolFast(p[2], value, rng, count)
+		if !b {
 			tokenClass = 1
 			v = 1
 		} else {
 			if count < 32 {
 				value, count, pos = fillBoolFast(buf, pos, value, count)
 			}
-			bit, value, rng, count = vp8ReadBoolNoFill(p[3], value, rng, count)
-			if bit == 0 {
-				bit, value, rng, count = vp8ReadBoolNoFill(p[4], value, rng, count)
-				if bit == 0 {
+			b, value, rng, count = vp8ReadBoolFast(p[3], value, rng, count)
+			if !b {
+				b, value, rng, count = vp8ReadBoolFast(p[4], value, rng, count)
+				if !b {
 					v = 2
 				} else {
 					bit, value, rng, count = vp8ReadBoolNoFill(p[5], value, rng, count)
@@ -625,10 +701,10 @@ func decodeVP8NonZeroBlockFast(
 				if count < 32 {
 					value, count, pos = fillBoolFast(buf, pos, value, count)
 				}
-				bit, value, rng, count = vp8ReadBoolNoFill(p[6], value, rng, count)
-				if bit == 0 {
-					bit, value, rng, count = vp8ReadBoolNoFill(p[7], value, rng, count)
-					if bit == 0 {
+				b, value, rng, count = vp8ReadBoolFast(p[6], value, rng, count)
+				if !b {
+					b, value, rng, count = vp8ReadBoolFast(p[7], value, rng, count)
+					if !b {
 						bit, value, rng, count = vp8ReadBoolNoFill(159, value, rng, count)
 						v = 5 + int(bit)
 					} else {
@@ -638,48 +714,7 @@ func decodeVP8NonZeroBlockFast(
 						v += int(bit)
 					}
 				} else {
-					var b1, b0 uint8
-					b1, value, rng, count = vp8ReadBoolNoFill(p[8], value, rng, count)
-					b0, value, rng, count = vp8ReadBoolNoFill(p[9+b1], value, rng, count)
-					cat := 2*int(b1) + int(b0)
-					switch cat {
-					case 0:
-						for _, prob := range tables.Cat3Prob {
-							if count < 0 {
-								value, count, pos = fillBoolFast(buf, pos, value, count)
-							}
-							bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
-							v += v + int(bit)
-						}
-					case 1:
-						for _, prob := range tables.Cat4Prob {
-							if count < 0 {
-								value, count, pos = fillBoolFast(buf, pos, value, count)
-							}
-							bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
-							v += v + int(bit)
-						}
-					case 2:
-						for _, prob := range tables.Cat5Prob {
-							if count < 0 {
-								value, count, pos = fillBoolFast(buf, pos, value, count)
-							}
-							bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
-							v += v + int(bit)
-						}
-					default:
-						for _, prob := range tables.Cat6Prob {
-							if count < 0 {
-								value, count, pos = fillBoolFast(buf, pos, value, count)
-							}
-							bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
-							v += v + int(bit)
-						}
-					}
-					v += 3 + (8 << cat)
-					if count < 0 {
-						value, count, pos = fillBoolFast(buf, pos, value, count)
-					}
+					v, value, rng, count, pos = decodeVP8Cat3to6Fast(buf, pos, value, rng, count, p)
 				}
 			}
 		}
@@ -693,8 +728,8 @@ func decodeVP8NonZeroBlockFast(
 		if count < 24 {
 			value, count, pos = fillBoolFast(buf, pos, value, count)
 		}
-		bit, value, rng, count = vp8ReadBoolNoFill(p[0], value, rng, count)
-		if bit == 0 {
+		b, value, rng, count = vp8ReadBoolFast(p[0], value, rng, count)
+		if !b {
 			return nn, value, rng, count, pos
 		}
 	}

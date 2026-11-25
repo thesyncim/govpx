@@ -800,6 +800,47 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 			mv := mi.Mv[0]
 			mvRow := int(mv.Row)
 			mvCol := int(mv.Col)
+			// Fast 4:2:0 integer-MV 3-plane copy: one geometry check covers Y, U, V.
+			if (mvRow&15) == 0 && (mvCol&15) == 0 &&
+				d.planes[0].SubsamplingX == 0 && d.planes[0].SubsamplingY == 0 &&
+				d.planes[1].SubsamplingX == 1 && d.planes[1].SubsamplingY == 1 &&
+				d.planes[2].SubsamplingX == 1 && d.planes[2].SubsamplingY == 1 {
+				x0 := miCol * common.MiSize
+				y0 := miRow * common.MiSize
+				bw := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+				bh := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+				sx := x0 + (mvCol >> 3)
+				sy := y0 + (mvRow >> 3)
+				yDstStride := d.lastFrame.YStride
+				uDstStride := d.lastFrame.UStride
+				vDstStride := d.lastFrame.VStride
+				ySrcStride := ref.img.YStride
+				uSrcStride := ref.img.UStride
+				vSrcStride := ref.img.VStride
+				uvW := (ref.img.Width + 1) >> 1
+				uvH := (ref.img.Height + 1) >> 1
+				ux0, uy0 := x0>>1, y0>>1
+				ubw, ubh := bw>>1, bh>>1
+				usx, usy := sx>>1, sy>>1
+				if sx >= 0 && sy >= 0 && sx+bw <= ref.img.Width && sy+bh <= ref.img.Height &&
+					usx >= 0 && usy >= 0 && usx+ubw <= uvW && usy+ubh <= uvH &&
+					yDstStride > 0 && uDstStride > 0 && vDstStride > 0 &&
+					ySrcStride > 0 && uSrcStride > 0 && vSrcStride > 0 &&
+					x0+bw <= yDstStride && (y0+bh)*yDstStride <= len(d.frameY) &&
+					ux0+ubw <= uDstStride && (uy0+ubh)*uDstStride <= len(d.frameU) &&
+					ux0+ubw <= vDstStride && (uy0+ubh)*vDstStride <= len(d.frameV) &&
+					(sy+bh)*ySrcStride <= len(ref.img.Y) &&
+					(usy+ubh)*uSrcStride <= len(ref.img.U) &&
+					(usy+ubh)*vSrcStride <= len(ref.img.V) {
+					pixel.CopyBlock(ref.img.Y[sy*ySrcStride+sx:], ySrcStride,
+						d.frameY[y0*yDstStride+x0:], yDstStride, bw, bh)
+					pixel.CopyBlock(ref.img.U[usy*uSrcStride+usx:], uSrcStride,
+						d.frameU[uy0*uDstStride+ux0:], uDstStride, ubw, ubh)
+					pixel.CopyBlock(ref.img.V[usy*vSrcStride+usx:], vSrcStride,
+						d.frameV[uy0*vDstStride+ux0:], vDstStride, ubw, ubh)
+					return true
+				}
+			}
 			for plane := range vp9dec.MaxMbPlane {
 				pd := &d.planes[plane]
 				planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
@@ -1904,18 +1945,23 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 					var eob int
 					if count >= 0 {
 						prob := uint32(dcProbs[initCtx][0])
-						s := 1 + (((rng - 1) * prob) >> 8)
-						m := ^uint32(int32(uint32(value>>56)-s) >> 31)
-						nr := s ^ (((rng - s) ^ s) & m)
-						sh := uint32(bits.LeadingZeros8(uint8(nr)))
-						value = (value - uint64(s&m)<<56) << sh
-						rng = nr << sh
-						count -= int32(sh)
-						if m == 0 {
+						split := (rng*prob + (256 - prob)) >> 8
+						bigsplit := uint64(split) << 56
+						if value < bigsplit {
+							sh := uint32(bits.LeadingZeros8(uint8(split)))
+							rng = split << sh
+							value <<= sh
+							count -= int32(sh)
 							aCtx[cc] = 0
 							lv = 0
 							continue
 						}
+						nr := rng - split
+						nv := value - bigsplit
+						sh := uint32(bits.LeadingZeros8(uint8(nr)))
+						value = nv << sh
+						rng = nr << sh
+						count -= int32(sh)
 						if !ctxInit {
 							planeCtx = vp9dec.FastCoefPlaneCtx{
 								R:                rs,
@@ -2061,19 +2107,24 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 					var eob int
 					if count >= 0 {
 						prob := uint32(dcProbs[initCtx][0])
-						s := 1 + (((rng - 1) * prob) >> 8)
-						m := ^uint32(int32(uint32(value>>56)-s) >> 31)
-						nr := s ^ (((rng - s) ^ s) & m)
-						sh := uint32(bits.LeadingZeros8(uint8(nr)))
-						value = (value - uint64(s&m)<<56) << sh
-						rng = nr << sh
-						count -= int32(sh)
-						if m == 0 {
+						split := (rng*prob + (256 - prob)) >> 8
+						bigsplit := uint64(split) << 56
+						if value < bigsplit {
+							sh := uint32(bits.LeadingZeros8(uint8(split)))
+							rng = split << sh
+							value <<= sh
+							count -= int32(sh)
 							aCtx[cc] = 0
 							aCtx[cc+1] = 0
 							lv = 0
 							continue
 						}
+						nr := rng - split
+						nv := value - bigsplit
+						sh := uint32(bits.LeadingZeros8(uint8(nr)))
+						value = nv << sh
+						rng = nr << sh
+						count -= int32(sh)
 						if !ctxInit {
 							planeCtx = vp9dec.FastCoefPlaneCtx{
 								R:                rs,
@@ -2222,14 +2273,13 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 					var eob int
 					if count >= 0 {
 						prob := uint32(dcProbs[initCtx][0])
-						s := 1 + (((rng - 1) * prob) >> 8)
-						m := ^uint32(int32(uint32(value>>56)-s) >> 31)
-						nr := s ^ (((rng - s) ^ s) & m)
-						sh := uint32(bits.LeadingZeros8(uint8(nr)))
-						value = (value - uint64(s&m)<<56) << sh
-						rng = nr << sh
-						count -= int32(sh)
-						if m == 0 {
+						split := (rng*prob + (256 - prob)) >> 8
+						bigsplit := uint64(split) << 56
+						if value < bigsplit {
+							sh := uint32(bits.LeadingZeros8(uint8(split)))
+							rng = split << sh
+							value <<= sh
+							count -= int32(sh)
 							aCtx[cc] = 0
 							aCtx[cc+1] = 0
 							aCtx[cc+2] = 0
@@ -2237,6 +2287,12 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 							lv = 0
 							continue
 						}
+						nr := rng - split
+						nv := value - bigsplit
+						sh := uint32(bits.LeadingZeros8(uint8(nr)))
+						value = nv << sh
+						rng = nr << sh
+						count -= int32(sh)
 						if !ctxInit {
 							planeCtx = vp9dec.FastCoefPlaneCtx{
 								R:                rs,

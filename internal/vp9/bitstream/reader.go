@@ -95,7 +95,7 @@ func (r *Reader) LocalState() ReaderState {
 // byte-identical to libvpx.
 func (r *Reader) Read(prob uint32) uint32 {
 	baseRange := r.rng
-	split := (baseRange*prob + (256 - prob)) >> 8
+	split := 1 + (((baseRange - 1) * prob) >> 8)
 
 	if r.count < 0 {
 		r.fill()
@@ -103,15 +103,25 @@ func (r *Reader) Read(prob uint32) uint32 {
 
 	value := r.value
 	count := r.count
-	s64 := uint64(split)
-	mask := ^uint64(int64((value>>56)-s64) >> 63)
-	value -= (s64 << 56) & mask
-	nr := s64 ^ ((s64 ^ (uint64(baseRange) - s64)) & mask)
-	shift := uint64(bits.LeadingZeros64(nr << 56))
-	r.rng = uint32(nr << shift)
-	r.value = value << shift
+	bigsplit := uint64(split) << (valueBits - 8)
+	ge := value >= bigsplit
+	nr := split
+	if ge {
+		nr = baseRange - split
+	}
+	nv := value
+	if ge {
+		nv = value - bigsplit
+	}
+	var bit uint32
+	if ge {
+		bit = 1
+	}
+	shift := uint32(bits.LeadingZeros8(uint8(nr)))
+	r.rng = nr << shift
+	r.value = nv << shift
 	r.count = count - int32(shift)
-	return uint32(mask & 1)
+	return bit
 }
 
 // ReadBit decodes one equally-likely bit. Equivalent to Read(128).
@@ -145,7 +155,7 @@ func (r *Reader) ReadBit() uint32 {
 // Read decodes one bit against prob using local arithmetic-coder state.
 func (s *ReaderState) Read(prob uint32) uint32 {
 	baseRange := s.Range
-	split := (baseRange*prob + (256 - prob)) >> 8
+	split := 1 + (((baseRange - 1) * prob) >> 8)
 
 	if s.Count < 0 {
 		s.fill()
@@ -153,15 +163,25 @@ func (s *ReaderState) Read(prob uint32) uint32 {
 
 	value := s.Value
 	count := s.Count
-	s64 := uint64(split)
-	mask := ^uint64(int64((value>>56)-s64) >> 63)
-	value -= (s64 << 56) & mask
-	nr := s64 ^ ((s64 ^ (uint64(baseRange) - s64)) & mask)
-	shift := uint64(bits.LeadingZeros64(nr << 56))
-	s.Range = uint32(nr << shift)
-	s.Value = value << shift
+	bigsplit := uint64(split) << (valueBits - 8)
+	ge := value >= bigsplit
+	nr := split
+	if ge {
+		nr = baseRange - split
+	}
+	nv := value
+	if ge {
+		nv = value - bigsplit
+	}
+	var bit uint32
+	if ge {
+		bit = 1
+	}
+	shift := uint32(bits.LeadingZeros8(uint8(nr)))
+	s.Range = nr << shift
+	s.Value = nv << shift
 	s.Count = count - int32(shift)
-	return uint32(mask & 1)
+	return bit
 }
 
 // ReadBit decodes one equally-likely bit using local arithmetic-coder state.
@@ -244,15 +264,26 @@ func (r *Reader) ReadTree(tree []int8, probs []uint8) int {
 			if count < 0 {
 				value, count, pos = FillFast(buf, pos, value, count)
 			}
-			split := 1 + (((uint64(rng) - 1) * uint64(prob)) >> 8)
-			mask := ^uint64(int64((value>>56)-split) >> 63)
-			value -= (split << 56) & mask
-			nr := split ^ ((split ^ (uint64(rng) - split)) & mask)
-			shift := uint64(bits.LeadingZeros64(nr << 56))
-			value <<= shift
-			rng = uint32(nr << shift)
+			split := 1 + (((rng - 1) * prob) >> 8)
+			bigsplit := uint64(split) << 56
+			ge := value >= bigsplit
+			nr := split
+			if ge {
+				nr = rng - split
+			}
+			nv := value
+			if ge {
+				nv = value - bigsplit
+			}
+			bit := 0
+			if ge {
+				bit = 1
+			}
+			shift := uint32(bits.LeadingZeros8(uint8(nr)))
+			value = nv << shift
+			rng = nr << shift
 			count -= int32(shift)
-			next := tree[int(i)+int(mask&1)]
+			next := tree[int(i)+bit]
 			if next <= 0 {
 				r.value = value
 				r.rng = rng

@@ -553,6 +553,59 @@ func AddLumaDC16x16InPlace(dst []byte, stride int, dcs *[16]int16) {
 	apply4(12*stride, pv3, nv3)
 }
 
+// DequantWalshAddLumaDC16x16InPlace fuses Y2 dequantization, 4x4 inverse
+// Walsh-Hadamard transform, and 16x16 luma DC-only residual addition into one
+// register-resident SIMD pass with zero intermediate stack arrays.
+func DequantWalshAddLumaDC16x16InPlace(dst []byte, stride int, y2q *[16]int16, y2dq *[16]int16) bool {
+	if !Enabled || stride < 16 || len(dst) < 16 || (stride <= 1<<20 && len(dst) < 15*stride+16) || (stride > 1<<20 && stride > (len(dst)-16)/15) {
+		return false
+	}
+	_ = dst[15*stride+15]
+	p0 := archsimd.LoadInt16x8Array((*[8]int16)(y2q[0:8])).Mul(archsimd.LoadInt16x8Array((*[8]int16)(y2dq[0:8])))
+	p1 := archsimd.LoadInt16x8Array((*[8]int16)(y2q[8:16])).Mul(archsimd.LoadInt16x8Array((*[8]int16)(y2dq[8:16])))
+	in0 := p0.ExtendLo4ToInt32()
+	in1 := high4(p0)
+	in2 := p1.ExtendLo4ToInt32()
+	in3 := high4(p1)
+	a, b, c, d := in0.Add(in3), in1.Add(in2), in1.Sub(in2), in0.Sub(in3)
+	out0 := a.Add(b).ShiftAllLeft(16).ShiftAllRight(16)
+	out1 := c.Add(d).ShiftAllLeft(16).ShiftAllRight(16)
+	out2 := a.Sub(b).ShiftAllLeft(16).ShiftAllRight(16)
+	out3 := d.Sub(c).ShiftAllLeft(16).ShiftAllRight(16)
+	in0, in1, in2, in3 = Transpose4(out0, out1, out2, out3)
+	a, b, c, d = in0.Add(in3), in1.Add(in2), in1.Sub(in2), in0.Sub(in3)
+	bias3 := archsimd.BroadcastInt32x4(3)
+	bias4 := archsimd.BroadcastInt32x4(4)
+	// Final Walsh shift (+3)>>3, truncated to int16, then DC residual shift (+4)>>3.
+	r0 := a.Add(b).Add(bias3).ShiftAllRight(3).ShiftAllLeft(16).ShiftAllRight(16).Add(bias4).ShiftAllRight(3)
+	r1 := c.Add(d).Add(bias3).ShiftAllRight(3).ShiftAllLeft(16).ShiftAllRight(16).Add(bias4).ShiftAllRight(3)
+	r2 := a.Sub(b).Add(bias3).ShiftAllRight(3).ShiftAllLeft(16).ShiftAllRight(16).Add(bias4).ShiftAllRight(3)
+	r3 := d.Sub(c).Add(bias3).ShiftAllRight(3).ShiftAllLeft(16).ShiftAllRight(16).Add(bias4).ShiftAllRight(3)
+	r0, r1, r2, r3 = Transpose4(r0, r1, r2, r3)
+
+	zero := archsimd.Int32x4{}
+	max255 := archsimd.BroadcastInt32x4(255)
+	splat := archsimd.BroadcastUint32x4(0x01010101)
+	apply4 := func(off int, row archsimd.Int32x4) {
+		// Each int32 lane holds 0..255 in byte 0; splat each lane's byte 0 across its 4 bytes.
+		pv32 := row.Max(zero).Min(max255).ToBits().Mul(splat).ReshapeToUint8s()
+		nv32 := zero.Sub(row).Max(zero).Min(max255).ToBits().Mul(splat).ReshapeToUint8s()
+		q0 := (*[16]byte)(dst[off : off+16])
+		q1 := (*[16]byte)(dst[off+stride : off+stride+16])
+		q2 := (*[16]byte)(dst[off+2*stride : off+2*stride+16])
+		q3 := (*[16]byte)(dst[off+3*stride : off+3*stride+16])
+		archsimd.LoadUint8x16Array(q0).AddSaturated(pv32).SubSaturated(nv32).StoreArray(q0)
+		archsimd.LoadUint8x16Array(q1).AddSaturated(pv32).SubSaturated(nv32).StoreArray(q1)
+		archsimd.LoadUint8x16Array(q2).AddSaturated(pv32).SubSaturated(nv32).StoreArray(q2)
+		archsimd.LoadUint8x16Array(q3).AddSaturated(pv32).SubSaturated(nv32).StoreArray(q3)
+	}
+	apply4(0, r0)
+	apply4(4*stride, r1)
+	apply4(8*stride, r2)
+	apply4(12*stride, r3)
+	return true
+}
+
 func AddConstant(pred []byte, ps int, dst []byte, ds, w, h, delta int) {
 	if !Enabled {
 		AddConstantScalar(pred, ps, dst, ds, w, h, delta)

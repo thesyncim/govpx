@@ -98,6 +98,7 @@ func LoopFilterSimpleVertical16(_ []byte, _ int, _ byte) bool                   
 func LoopFilterSimpleVertical3Inner16(_ []byte, _ int, _ byte) bool                    { return false }
 func LoopFilterSimpleVertical4All16(_ []byte, _ int, _, _ byte) bool                   { return false }
 func LoopFilterUV8(_, _ []byte, _, _, _, _, _, _ int) bool                             { return false }
+func DequantWalshAddLumaDC16x16InPlace(_ []byte, _ int, _, _ *[16]int16) bool          { return false }
 
 func quantizeFPBlockSIMD(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [2]int16, classes []byte) int {
 	return quantizeFPBlockTail(coeff, iscan, qcoeff, dqcoeff, 0, n, r, q, d, classes)

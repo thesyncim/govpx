@@ -236,10 +236,12 @@ func dequantIDCTAddMacroblockRaw(qcoeff *[25][16]int16, eob *[25]uint8, lumaEOBF
 				return
 			}
 			if dequant.Y1DC[0] == 1 {
-				var y2, dcs [16]int16
-				dsp.DequantizeBlockDisjoint(&qcoeff[24], &dequant.Y2, &y2)
-				dsp.InverseWalsh4x4To16(&y2, &dcs)
-				pixel.AddLumaDC16x16InPlace(y, yStride, &dcs)
+				if !pixel.DequantWalshAddLumaDC16x16InPlace(y, yStride, &qcoeff[24], &dequant.Y2) {
+					var y2, dcs [16]int16
+					dsp.DequantizeBlockDisjoint(&qcoeff[24], &dequant.Y2, &y2)
+					dsp.InverseWalsh4x4To16(&y2, &dcs)
+					pixel.AddLumaDC16x16InPlace(y, yStride, &dcs)
+				}
 				dequantIDCTAddChromaBlocks(qcoeff, eob, &dequant.UV, u, uStride, v, vStride)
 				return
 			}

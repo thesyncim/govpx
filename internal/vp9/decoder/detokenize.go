@@ -172,18 +172,49 @@ func vpxReadNoFill(prob uint32,
 	return m & 1, (value - uint64(s&m)<<56) << sh, nr << sh, count - int32(sh)
 }
 
+// vpxReadBoolNoFill lowers to CMP + CSINC + CSEL on arm64 (0 branches, ~11
+// cycles vs ~21 for arithmetic masking) while staying under Go's 80-node
+// inliner budget by returning bool directly.
+func vpxReadBoolNoFill(prob uint32,
+	value uint64, rng uint32, count int32,
+) (bool, uint64, uint32, int32) {
+	s := 1 + (((rng - 1) * prob) >> 8)
+	bigsplit := uint64(s) << 56
+	ge := value >= bigsplit
+	nr := s
+	if ge {
+		nr = rng - s
+	}
+	nv := value
+	if ge {
+		nv = value - bigsplit
+	}
+	sh := uint32(bits.LeadingZeros8(uint8(nr)))
+	return ge, nv << sh, nr << sh, count - int32(sh)
+}
+
 // vpxReadBitNoFill is branchless vpxReadNoFill at prob=128 — one equally-likely
 // bit, mirroring vpx_read_bit. The caller performs the fill check.
 func vpxReadBitNoFill(
 	value uint64, rng uint32, count int32,
 ) (uint32, uint64, uint32, int32) {
-	r64 := uint64(rng)
-	split := (r64 + 1) >> 1
-	mask := ^uint64(int64((value>>56)-split) >> 63)
-	value -= (split << 56) & mask
-	nextRange := split ^ ((split ^ (r64 - split)) & mask)
-	shift := uint64(1) - (nextRange >> 7)
-	return uint32(mask & 1), value << shift, uint32(nextRange << shift), count - int32(shift)
+	split := (rng + 1) >> 1
+	bigsplit := uint64(split) << 56
+	ge := value >= bigsplit
+	nr := split
+	if ge {
+		nr = rng - split
+	}
+	nv := value
+	if ge {
+		nv = value - bigsplit
+	}
+	var bit uint32
+	if ge {
+		bit = 1
+	}
+	shift := uint32(1) - (nr >> 7)
+	return bit, nv << shift, nr << shift, count - int32(shift)
 }
 
 // getCoefContext mirrors get_coef_context from vp9_scan.h. Looks up
@@ -385,6 +416,64 @@ type FastCoefPlaneCtx struct {
 	TokenCache       *[1024]uint8
 }
 
+//go:noinline
+func decodeVP9Cat3to6Fast(
+	buf []byte, pos int, value uint64, rng uint32, count int32,
+	p *[8]uint8,
+) (int, int, uint64, uint32, int32) {
+	if count < 32 {
+		value, count, pos = bitstream.FillFast(buf, pos, value, count)
+	}
+	var bit uint32
+	var b bool
+	var val int
+	b, value, rng, count = vpxReadBoolNoFill(uint32(p[5]), value, rng, count)
+	if b {
+		b, value, rng, count = vpxReadBoolNoFill(uint32(p[7]), value, rng, count)
+		if b {
+			val = cat6MinVal
+			for i := range cat6Bits8 {
+				if count < 0 {
+					value, count, pos = bitstream.FillFast(buf, pos, value, count)
+				}
+				bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat6Prob[i]), value, rng, count)
+				val += val - cat6MinVal + int(bit)
+			}
+		} else {
+			val = cat5MinVal
+			for i := range 5 {
+				if count < 0 {
+					value, count, pos = bitstream.FillFast(buf, pos, value, count)
+				}
+				bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat5Prob[i]), value, rng, count)
+				val += val - cat5MinVal + int(bit)
+			}
+		}
+	} else {
+		b, value, rng, count = vpxReadBoolNoFill(uint32(p[6]), value, rng, count)
+		if b {
+			val = cat4MinVal
+			for i := range 4 {
+				if count < 0 {
+					value, count, pos = bitstream.FillFast(buf, pos, value, count)
+				}
+				bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat4Prob[i]), value, rng, count)
+				val += val - cat4MinVal + int(bit)
+			}
+		} else {
+			val = cat3MinVal
+			for i := range 3 {
+				if count < 0 {
+					value, count, pos = bitstream.FillFast(buf, pos, value, count)
+				}
+				bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat3Prob[i]), value, rng, count)
+				val += val - cat3MinVal + int(bit)
+			}
+		}
+	}
+	return val, pos, value, rng, count
+}
+
 // DecodeCoefsFastPlaneAfterEOB decodes a counts-less transform block whose
 // initial c==0 EOB bit was already consumed as 1, using pre-hoisted plane
 // context, power-of-2 packed uint32 probabilities, and scan-order tokenCache.
@@ -417,6 +506,7 @@ func DecodeCoefsFastPlaneAfterEOB(
 	slowResume := false
 	slowSkipEob := false
 	var p32, bit uint32
+	var b bool
 	if pos > fastLimit {
 		slowResume = true
 		slowSkipEob = true
@@ -429,8 +519,8 @@ func DecodeCoefsFastPlaneAfterEOB(
 
 fastLoop:
 	for {
-		bit, value, rng, count = vpxReadNoFill((p32>>8)&0xFF, value, rng, count)
-		if bit == 0 {
+		b, value, rng, count = vpxReadBoolNoFill((p32>>8)&0xFF, value, rng, count)
+		if !b {
 			dqv = dqvAC
 			dq1 = dq1AC
 			for {
@@ -450,76 +540,30 @@ fastLoop:
 					}
 					value, count, pos = bitstream.FillFast(buf, pos, value, count)
 				}
-				bit, value, rng, count = vpxReadNoFill((p32>>8)&0xFF, value, rng, count)
-				if bit != 0 {
+				b, value, rng, count = vpxReadBoolNoFill((p32>>8)&0xFF, value, rng, count)
+				if b {
 					break
 				}
 			}
 		}
 
-		bit, value, rng, count = vpxReadNoFill((p32>>16)&0xFF, value, rng, count)
-		if bit != 0 {
+		b, value, rng, count = vpxReadBoolNoFill((p32>>16)&0xFF, value, rng, count)
+		if b {
 			var val int
 			p := &tables.Pareto8Full[((p32>>16)&0xFF)-1]
 			if count < 32 {
 				value, count, pos = bitstream.FillFast(buf, pos, value, count)
 			}
-			bit, value, rng, count = vpxReadNoFill(uint32(p[0]), value, rng, count)
-			if bit != 0 {
-				bit, value, rng, count = vpxReadNoFill(uint32(p[3]), value, rng, count)
-				if bit != 0 {
+			b, value, rng, count = vpxReadBoolNoFill(uint32(p[0]), value, rng, count)
+			if b {
+				b, value, rng, count = vpxReadBoolNoFill(uint32(p[3]), value, rng, count)
+				if b {
 					scanCache[c&1023] = 5
-					if count < 32 {
-						value, count, pos = bitstream.FillFast(buf, pos, value, count)
-					}
-					bit, value, rng, count = vpxReadNoFill(uint32(p[5]), value, rng, count)
-					if bit != 0 {
-						bit, value, rng, count = vpxReadNoFill(uint32(p[7]), value, rng, count)
-						if bit != 0 {
-							val = cat6MinVal
-							for i := range cat6Bits8 {
-								if count < 0 {
-									value, count, pos = bitstream.FillFast(buf, pos, value, count)
-								}
-								bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat6Prob[i]), value, rng, count)
-								val += val - cat6MinVal + int(bit)
-							}
-						} else {
-							val = cat5MinVal
-							for i := range 5 {
-								if count < 0 {
-									value, count, pos = bitstream.FillFast(buf, pos, value, count)
-								}
-								bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat5Prob[i]), value, rng, count)
-								val += val - cat5MinVal + int(bit)
-							}
-						}
-					} else {
-						bit, value, rng, count = vpxReadNoFill(uint32(p[6]), value, rng, count)
-						if bit != 0 {
-							val = cat4MinVal
-							for i := range 4 {
-								if count < 0 {
-									value, count, pos = bitstream.FillFast(buf, pos, value, count)
-								}
-								bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat4Prob[i]), value, rng, count)
-								val += val - cat4MinVal + int(bit)
-							}
-						} else {
-							val = cat3MinVal
-							for i := range 3 {
-								if count < 0 {
-									value, count, pos = bitstream.FillFast(buf, pos, value, count)
-								}
-								bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat3Prob[i]), value, rng, count)
-								val += val - cat3MinVal + int(bit)
-							}
-						}
-					}
+					val, pos, value, rng, count = decodeVP9Cat3to6Fast(buf, pos, value, rng, count, p)
 				} else {
 					scanCache[c&1023] = 4
-					bit, value, rng, count = vpxReadNoFill(uint32(p[4]), value, rng, count)
-					if bit != 0 {
+					b, value, rng, count = vpxReadBoolNoFill(uint32(p[4]), value, rng, count)
+					if b {
 						val = cat2MinVal
 						for i := range 2 {
 							if count < 0 {
@@ -545,8 +589,8 @@ fastLoop:
 				dqcoeff[int(scanArr[c&1023])&1023] = int16((v ^ sign) - sign)
 			} else {
 				idx := int(scanArr[c&1023]) & 1023
-				bit, value, rng, count = vpxReadNoFill(uint32(p[1]), value, rng, count)
-				if bit != 0 {
+				b, value, rng, count = vpxReadBoolNoFill(uint32(p[1]), value, rng, count)
+				if b {
 					scanCache[c&1023] = 3
 					bit, value, rng, count = vpxReadNoFill(uint32(p[2]), value, rng, count)
 					v := ((3 + int(bit)) * int(dqv)) >> dqShift
@@ -584,8 +628,8 @@ fastLoop:
 		if count < 24 {
 			value, count, pos = bitstream.FillFast(buf, pos, value, count)
 		}
-		bit, value, rng, count = vpxReadNoFill(p32&0xFF, value, rng, count)
-		if bit == 0 {
+		b, value, rng, count = vpxReadBoolNoFill(p32&0xFF, value, rng, count)
+		if !b {
 			break
 		}
 	}
