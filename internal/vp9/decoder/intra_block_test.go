@@ -1,11 +1,11 @@
 package decoder
 
 import (
-	"testing"
-
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
+	"github.com/thesyncim/govpx/internal/vp9/dsp"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
+	"testing"
 )
 
 // TestGetYMode covers both branches: sub-8x8 reads bmi, ≥8x8 reads
@@ -230,5 +230,363 @@ func emitIntraMode(t *testing.T, w *bitstream.Writer, probs []uint8, leaf int) {
 	}
 	for k := range bits {
 		w.Write(bits[k], uint32(probs[idx[k]]))
+	}
+}
+
+// TestBuildIntraPredictorsDc128 picks the DC128 variant when both
+// neighbors are absent; output must be all 128.
+func TestBuildIntraPredictorsDc128(t *testing.T) {
+	dst := make([]uint8, 4*4)
+	BuildIntraPredictors(BuildIntraPredictorsArgs{
+		Dst:         dst,
+		DstStride:   4,
+		Mode:        common.DcPred,
+		TxSize:      common.Tx4x4,
+		FrameWidth:  16,
+		FrameHeight: 16,
+	})
+	for i, v := range dst {
+		if v != 128 {
+			t.Errorf("dst[%d]=%d want 128", i, v)
+		}
+	}
+}
+
+// TestBuildIntraPredictorsVMatchesDsp drives the V predictor against
+// a hand-built above-row and checks against a direct DSP-kernel call.
+// The DSP kernel expects a corner-prefixed slice (above[0]=corner,
+// above[1..bs]=row pixels); BuildIntraPredictors hands the kernel
+// exactly that shape, so the direct comparison passes a matching
+// 5-byte slice.
+func TestBuildIntraPredictorsVMatchesDsp(t *testing.T) {
+	row := []uint8{10, 20, 30, 40}
+	corner := uint8(99)
+
+	dst1 := make([]uint8, 4*4)
+	BuildIntraPredictors(BuildIntraPredictorsArgs{
+		Dst:           dst1,
+		DstStride:     4,
+		Mode:          common.VPred,
+		TxSize:        common.Tx4x4,
+		Edges:         IntraEdgeRefs{Above: row, AboveLeft: corner},
+		UpAvailable:   true,
+		LeftAvailable: true,
+		FrameWidth:    16,
+		FrameHeight:   16,
+	})
+
+	dst2 := make([]uint8, 4*4)
+	dsp.VpxVPredictor4x4(dst2, 4, append([]uint8{corner}, row...), nil)
+	for i := range dst1 {
+		if dst1[i] != dst2[i] {
+			t.Errorf("dst1[%d]=%d dst2[%d]=%d", i, dst1[i], i, dst2[i])
+		}
+	}
+}
+
+// TestBuildIntraPredictorsHMatchesDsp drives the H predictor through
+// a corner-prefixed dummy above slice.
+func TestBuildIntraPredictorsHMatchesDsp(t *testing.T) {
+	left := []uint8{5, 6, 7, 8}
+	dst1 := make([]uint8, 4*4)
+	BuildIntraPredictors(BuildIntraPredictorsArgs{
+		Dst:           dst1,
+		DstStride:     4,
+		Mode:          common.HPred,
+		TxSize:        common.Tx4x4,
+		Edges:         IntraEdgeRefs{Left: left},
+		LeftAvailable: true,
+		FrameWidth:    16,
+		FrameHeight:   16,
+	})
+	dst2 := make([]uint8, 4*4)
+	dsp.VpxHPredictor4x4(dst2, 4, []uint8{0}, left)
+	for i := range dst1 {
+		if dst1[i] != dst2[i] {
+			t.Errorf("dst1[%d]=%d dst2[%d]=%d", i, dst1[i], i, dst2[i])
+		}
+	}
+}
+
+// TestBuildIntraPredictorsLeftMissingFills129 confirms the absent-
+// left-column path stamps 129 across the left buffer.
+func TestBuildIntraPredictorsLeftMissingFills129(t *testing.T) {
+	dst1 := make([]uint8, 4*4)
+	BuildIntraPredictors(BuildIntraPredictorsArgs{
+		Dst:           dst1,
+		DstStride:     4,
+		Mode:          common.HPred,
+		TxSize:        common.Tx4x4,
+		LeftAvailable: false,
+		FrameWidth:    16,
+		FrameHeight:   16,
+	})
+	want := make([]uint8, 4*4)
+	dsp.VpxHPredictor4x4(want, 4, []uint8{0}, []uint8{129, 129, 129, 129})
+	for i := range dst1 {
+		if dst1[i] != want[i] {
+			t.Errorf("dst1[%d]=%d want %d", i, dst1[i], want[i])
+		}
+	}
+}
+
+// TestBuildIntraPredictorsDcLeftOnly: only left neighbor present →
+// DC kernel reads from left column alone.
+func TestBuildIntraPredictorsDcLeftOnly(t *testing.T) {
+	left := []uint8{100, 100, 100, 100}
+	dst1 := make([]uint8, 4*4)
+	BuildIntraPredictors(BuildIntraPredictorsArgs{
+		Dst:           dst1,
+		DstStride:     4,
+		Mode:          common.DcPred,
+		TxSize:        common.Tx4x4,
+		Edges:         IntraEdgeRefs{Left: left},
+		LeftAvailable: true,
+		FrameWidth:    16,
+		FrameHeight:   16,
+	})
+	want := make([]uint8, 4*4)
+	dsp.VpxDcLeftPredictor4x4(want, 4, []uint8{0}, left)
+	for i := range dst1 {
+		if dst1[i] != want[i] {
+			t.Errorf("dst1[%d]=%d want %d", i, dst1[i], want[i])
+		}
+	}
+}
+
+// TestBuildIntraPredictorsBottomEdgeExtend: with Y0+bs > FrameHeight
+// the left column gets edge-replicated from the last in-frame row.
+func TestBuildIntraPredictorsBottomEdgeExtend(t *testing.T) {
+	// Y0 = 2, bs = 4, FrameHeight = 4 → extend_bottom = 2; rows 2 and
+	// 3 of leftCol replicate left[1].
+	left := []uint8{42, 99, 0, 0}
+	dst1 := make([]uint8, 4*4)
+	BuildIntraPredictors(BuildIntraPredictorsArgs{
+		Dst:            dst1,
+		DstStride:      4,
+		Mode:           common.HPred,
+		TxSize:         common.Tx4x4,
+		Edges:          IntraEdgeRefs{Left: left},
+		LeftAvailable:  true,
+		FrameWidth:     16,
+		FrameHeight:    4,
+		Y0:             2,
+		MbToBottomEdge: -1,
+	})
+	want := make([]uint8, 4*4)
+	dsp.VpxHPredictor4x4(want, 4, []uint8{0}, []uint8{42, 99, 99, 99})
+	for i := range dst1 {
+		if dst1[i] != want[i] {
+			t.Errorf("dst1[%d]=%d want %d", i, dst1[i], want[i])
+		}
+	}
+}
+
+// TestIntraNeedHelpers covers the three boolean predicates.
+func TestIntraNeedHelpers(t *testing.T) {
+	cases := []struct {
+		mode     common.PredictionMode
+		l, a, ar bool
+	}{
+		{common.DcPred, true, true, false},
+		{common.VPred, false, true, false},
+		{common.HPred, true, false, false},
+		{common.D45Pred, false, false, true},
+		{common.D63Pred, false, false, true},
+		{common.D207Pred, true, false, false},
+		{common.TmPred, true, true, false},
+	}
+	for _, c := range cases {
+		if got := IntraNeedsLeft(c.mode); got != c.l {
+			t.Errorf("mode %d Left: got %v want %v", c.mode, got, c.l)
+		}
+		if got := IntraNeedsAbove(c.mode); got != c.a {
+			t.Errorf("mode %d Above: got %v want %v", c.mode, got, c.a)
+		}
+		if got := IntraNeedsAboveRight(c.mode); got != c.ar {
+			t.Errorf("mode %d AboveRight: got %v want %v", c.mode, got, c.ar)
+		}
+	}
+}
+
+// seedDefaultModeProbs mirrors libvpx's seeding of y_mode_prob /
+// uv_mode_prob from default_if_y_probs / default_if_uv_probs at
+// frame_context init time.
+func seedDefaultModeProbs(fc *FrameContext) {
+	for g := range tables.DefaultIfYProbs {
+		for i := range tables.DefaultIfYProbs[g] {
+			fc.YModeProb[g][i] = tables.DefaultIfYProbs[g][i]
+		}
+	}
+	for m := range tables.DefaultIfUvProbs {
+		for i := range tables.DefaultIfUvProbs[m] {
+			fc.UvModeProb[m][i] = tables.DefaultIfUvProbs[m][i]
+		}
+	}
+}
+
+// TestReadIntraModeYInter walks every size_group and confirms the
+// returned mode comes from the matching fc.YModeProb row.
+func TestReadIntraModeYInter(t *testing.T) {
+	var fc FrameContext
+	seedDefaultModeProbs(&fc)
+	for sg := range 4 {
+		want := common.D135Pred
+		row := fc.YModeProb[sg]
+		buf := make([]byte, 32)
+		var w bitstream.Writer
+		w.Start(buf)
+		emitIntraMode(t, &w, row[:], int(want))
+		size, _ := w.Stop()
+		var r bitstream.Reader
+		if err := r.Init(buf[:size]); err != nil {
+			t.Fatalf("Init: %v", err)
+		}
+		if got := ReadIntraModeYInter(&r, &fc, sg); got != want {
+			t.Errorf("size_group=%d: got %d want %d", sg, got, want)
+		}
+	}
+}
+
+// TestReadIntraModeUvInter exercises the UV mode lookup keyed by Y
+// mode.
+func TestReadIntraModeUvInter(t *testing.T) {
+	var fc FrameContext
+	seedDefaultModeProbs(&fc)
+	want := common.D207Pred
+	yMode := common.HPred
+	row := fc.UvModeProb[yMode]
+	buf := make([]byte, 32)
+	var w bitstream.Writer
+	w.Start(buf)
+	emitIntraMode(t, &w, row[:], int(want))
+	size, _ := w.Stop()
+	var r bitstream.Reader
+	r.Init(buf[:size])
+	if got := ReadIntraModeUvInter(&r, &fc, yMode); got != want {
+		t.Errorf("got %d want %d", got, want)
+	}
+}
+
+// TestReadIntraBlockModeInfoInterLargePartition: ≥8x8 reads one
+// size-group-keyed Y mode and one Y-mode-keyed UV mode, then sets
+// interp_filter to the sentinel.
+func TestReadIntraBlockModeInfoInterLargePartition(t *testing.T) {
+	var fc FrameContext
+	seedDefaultModeProbs(&fc)
+	mi := &NeighborMi{SbType: common.Block16x16}
+	wantY := common.HPred
+	wantUv := common.D135Pred
+
+	sg := int(common.SizeGroupLookup[common.Block16x16])
+	probsY := fc.YModeProb[sg]
+	probsUv := fc.UvModeProb[wantY]
+
+	buf := make([]byte, 64)
+	var w bitstream.Writer
+	w.Start(buf)
+	emitIntraMode(t, &w, probsY[:], int(wantY))
+	emitIntraMode(t, &w, probsUv[:], int(wantUv))
+	size, _ := w.Stop()
+	var r bitstream.Reader
+	r.Init(buf[:size])
+	uv := ReadIntraBlockModeInfoInter(&r, &fc, mi)
+	if mi.Mode != wantY || uv != wantUv {
+		t.Errorf("got (%d, uv=%d), want (%d, %d)", mi.Mode, uv, wantY, wantUv)
+	}
+	if mi.InterpFilter != uint8(SwitchableFilters) {
+		t.Errorf("interp_filter = %d, want %d (SwitchableFilters sentinel)",
+			mi.InterpFilter, SwitchableFilters)
+	}
+}
+
+// TestReadIntraBlockModeInfoInterSub8x8: BLOCK_4X4 emits four sub-
+// modes all keyed to size_group 0.
+func TestReadIntraBlockModeInfoInterSub8x8(t *testing.T) {
+	var fc FrameContext
+	seedDefaultModeProbs(&fc)
+	mi := &NeighborMi{SbType: common.Block4x4}
+	subs := [4]common.PredictionMode{common.HPred, common.VPred, common.TmPred, common.D45Pred}
+	wantUv := common.D63Pred
+
+	row := fc.YModeProb[0]
+	buf := make([]byte, 96)
+	var w bitstream.Writer
+	w.Start(buf)
+	for _, s := range subs {
+		emitIntraMode(t, &w, row[:], int(s))
+	}
+	uvRow := fc.UvModeProb[subs[3]]
+	emitIntraMode(t, &w, uvRow[:], int(wantUv))
+	size, _ := w.Stop()
+	var r bitstream.Reader
+	r.Init(buf[:size])
+	uv := ReadIntraBlockModeInfoInter(&r, &fc, mi)
+	for i, want := range subs {
+		if mi.Bmi[i].AsMode != want {
+			t.Errorf("bmi[%d]=%d want %d", i, mi.Bmi[i].AsMode, want)
+		}
+	}
+	if mi.Mode != subs[3] {
+		t.Errorf("Mode=%d want bmi[3]=%d", mi.Mode, subs[3])
+	}
+	if uv != wantUv {
+		t.Errorf("UV=%d want %d", uv, wantUv)
+	}
+}
+
+// TestReadIntraFrameModeInfoDisabledSeg: segmentation off, skip=0,
+// fixed tx mode → only Y and UV reads happen.
+func TestReadIntraFrameModeInfoDisabledSeg(t *testing.T) {
+	var fc FrameContext
+	fc.SkipProbs[0] = 128
+	var seg SegmentationParams
+	maps := IntraSegmentMaps{
+		CurrentFrameSegMap: make([]uint8, 16),
+		MiCols:             4,
+	}
+
+	mi := &NeighborMi{SbType: common.Block16x16}
+	wantY := common.VPred
+	wantUv := common.HPred
+
+	probsY := tables.KfYModeProb[common.DcPred][common.DcPred]
+	probsUv := tables.KfUvModeProb[wantY]
+
+	buf := make([]byte, 128)
+	var w bitstream.Writer
+	w.Start(buf)
+	w.Write(0, 128) // skip=0
+	// TxMode = Only4x4 → no tx-cascade bits.
+	emitIntraMode(t, &w, probsY[:], int(wantY))
+	emitIntraMode(t, &w, probsUv[:], int(wantUv))
+	size, _ := w.Stop()
+	var r bitstream.Reader
+	r.Init(buf[:size])
+
+	out := ReadIntraFrameModeInfo(IntraFrameDriverArgs{
+		Reader:   &r,
+		Fc:       &fc,
+		Seg:      &seg,
+		Maps:     &maps,
+		TxMode:   common.Only4x4,
+		MiOffset: 0,
+		XMis:     2, YMis: 2,
+	}, mi)
+
+	if mi.RefFrame[0] != IntraFrame || mi.RefFrame[1] != NoRefFrame {
+		t.Errorf("ref_frame = %v, want (IntraFrame, NoRefFrame)", mi.RefFrame)
+	}
+	if mi.Skip != 0 {
+		t.Errorf("skip = %d, want 0", mi.Skip)
+	}
+	if mi.TxSize != common.Tx4x4 {
+		t.Errorf("tx_size = %d, want Tx4x4", mi.TxSize)
+	}
+	if mi.Mode != wantY {
+		t.Errorf("Y = %d, want %d", mi.Mode, wantY)
+	}
+	if out.UvMode != wantUv {
+		t.Errorf("UV = %d, want %d", out.UvMode, wantUv)
 	}
 }

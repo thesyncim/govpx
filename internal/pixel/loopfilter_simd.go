@@ -7,6 +7,61 @@ import (
 	"simd/archsimd"
 )
 
+// LoopFilterInternal16 filters the three four-pixel-spaced internal edges
+// of a 16x16 tile. step crosses the edges; outer walks along them. Edges
+// retain their original order because each can read the preceding result.
+func LoopFilterInternal16(p []byte, step, outer, blimit, limit, thresh int) bool {
+	if !Enabled || step <= 0 || outer <= 0 || blimit < 0 || blimit >= 255 || limit < 0 || limit > 255 || thresh < 0 || thresh > 255 {
+		return false
+	}
+	if !((outer == 1 && step >= 16) || (step == 1 && outer >= 8)) {
+		return false
+	}
+	// Three complete eight-row/column windows occupy the exact 16x16 tile.
+	// Divide before multiplying so oversized strides cannot wrap the tile.
+	if len(p) == 0 {
+		return false
+	}
+	span := (len(p) - 1) / 15
+	if step > span || outer > span-step {
+		return false
+	}
+	if internalFused {
+		if outer == 1 {
+			loopFilterInternalFusedHorizontal(p, step, blimit, limit, thresh)
+		} else {
+			loopFilterInternalFusedVertical(p, outer, blimit, limit, thresh)
+		}
+		return true
+	}
+	if internalVerticalGeneric && step == 1 {
+		loopFilterBytes(p, 4, 1, outer, 16, blimit, limit, thresh, 4)
+		loopFilterBytes(p, 8, 1, outer, 16, blimit, limit, thresh, 4)
+		loopFilterBytes(p, 12, 1, outer, 16, blimit, limit, thresh, 4)
+		return true
+	}
+	loopFilterInternalEdge(p, 4*step, step, outer, blimit, limit, thresh)
+	loopFilterInternalEdge(p, 8*step, step, outer, blimit, limit, thresh)
+	loopFilterInternalEdge(p, 12*step, step, outer, blimit, limit, thresh)
+	return true
+}
+
+// loopFilterNonFlat uses the byte-domain narrow filter only when no lane
+// requires flat filtering. It never writes a rejected packet.
+func loopFilterNonFlat(p []byte, off, step, outer, blimit, limit, thresh int) bool {
+	if blimit < 0 || blimit >= 255 || limit < 0 || limit > 255 || thresh < 0 || thresh > 255 || !((outer == 1 && step >= 8) || (step == 1 && outer >= 8)) {
+		return false
+	}
+	if off < 0 || off >= len(p) || step > off/4 {
+		return false
+	}
+	room := len(p) - 1 - off
+	if step > room/3 || outer > (room-3*step)/7 {
+		return false
+	}
+	return loopFilterNonFlatBytes(p, off, step, outer, blimit, limit, thresh)
+}
+
 // LoopFilter is the shared 8-bit libvpx deblocker. kind is 2 (VP8 simple),
 // 4 (VP8/VP9 narrow), 6 (VP8 macroblock), 8 or 16 (VP9 flat filters).
 // Lanes span eight independent edge positions; step crosses the edge and
@@ -246,4 +301,55 @@ func flatFilter(a, b *[16]archsimd.Int16x8, start, end, radius int, mask archsim
 		b[i] = v.IfElse(mask, b[i])
 		sum = sum.Sub(a[max(i-radius, start)]).Add(a[min(i+radius+1, end-1)])
 	}
+}
+
+// LoopFilterUV8 joins two disjoint eight-position chroma edges into one
+// sixteen-lane packet. Aliased planes retain sequential scalar/native calls.
+func LoopFilterUV8(u, v []byte, step, outer, blimit, limit, thresh, kind int) bool {
+	if !Enabled || (kind != 4 && kind != 6) || blimit < 0 || blimit >= 255 || limit < 0 || limit > 255 || thresh < 0 || thresh > 255 {
+		return false
+	}
+	if !((outer == 1 && step >= 8) || (step == 1 && outer >= 8)) {
+		return false
+	}
+	// An eight-by-eight tile ends at 7*pitch+7.
+	pitch := max(step, outer)
+	if uint(pitch) >= 1<<28 || 7*pitch+8 > min(len(u), len(v)) {
+		return false
+	}
+	if slicesOverlap(u, v, len(u), len(v)) {
+		return false
+	}
+	loopFilterUVBytes(u, v, 4*step, step, outer, blimit, limit, thresh, kind)
+	return true
+}
+func loadLFUVByte(u, v []byte, off int) archsimd.Uint8x16 {
+	return joinLFBytes(loadLFByte(u, off, 8), loadLFByte(v, off, 8))
+}
+func loadLFUVColumns(u, v []byte, off, pitch int) (archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16) {
+	a0, a1, a2, a3, a4, a5, a6, a7 := loadLFColumnTile[[8]byte](u, off, pitch)
+	b0, b1, b2, b3, b4, b5, b6, b7 := loadLFColumnTile[[8]byte](v, off, pitch)
+	return joinLFBytes(a0, b0), joinLFBytes(a1, b1), joinLFBytes(a2, b2), joinLFBytes(a3, b3), joinLFBytes(a4, b4), joinLFBytes(a5, b5), joinLFBytes(a6, b6), joinLFBytes(a7, b7)
+}
+func storeLFUV(u, v []byte, off, step, outer, count int, a, b, c, d, e, f archsimd.Uint8x16) {
+	if outer == 1 {
+		store := func(at int, x archsimd.Uint8x16) {
+			words := x.ReshapeToUint64s()
+			binary.LittleEndian.PutUint64(u[at:], words.GetElem(0))
+			binary.LittleEndian.PutUint64(v[at:], words.GetElem(1))
+		}
+		store(off, a)
+		store(off+step, b)
+		if count >= 4 {
+			store(off+2*step, c)
+			store(off+3*step, d)
+		}
+		if count == 6 {
+			store(off+4*step, e)
+			store(off+5*step, f)
+		}
+		return
+	}
+	storeLFByteTile(u, off, outer, count, a, b, c, d, e, f)
+	storeLFByteTile(v, off, outer, count, highBytes(a), highBytes(b), highBytes(c), highBytes(d), highBytes(e), highBytes(f))
 }

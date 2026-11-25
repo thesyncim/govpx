@@ -49,3 +49,66 @@ func loadLFColumns16(p []byte, off, pitch int) (archsimd.Uint8x16, archsimd.Uint
 	q3 = b5.InterleaveOdd(b7)
 	return p3, p2, p1, p0, q0, q1, q2, q3
 }
+
+const NativeLFByAxis = true
+
+// CanLoopFilterMacroHorizontal16 proves the complete sequential fused window.
+func CanLoopFilterMacroHorizontal16(p []byte, pitch int, mblimit, blimit byte) bool {
+	return Enabled && uint(pitch-16)>>30 == 0 && 19*pitch+16 <= len(p) && mblimit != 255 && blimit != 255
+}
+
+// LoopFilterMacroHorizontal16Unchecked requires a successful corresponding
+// CanLoopFilterMacroHorizontal16 call on this unchanged slice, pitch and limits.
+func LoopFilterMacroHorizontal16Unchecked(p []byte, pitch int, mblimit, blimit, limit, thresh byte) {
+	loopFilterMacroInternalFusedHorizontal(p, pitch, int(mblimit), int(blimit), int(limit), int(thresh))
+}
+
+// CanLoopFilterMacroVertical16 proves the complete sequential fused window.
+func CanLoopFilterMacroVertical16(p []byte, pitch int, mblimit, blimit byte) bool {
+	return Enabled && uint(pitch-20)>>30 == 0 && 15*pitch+20 <= len(p) && mblimit != 255 && blimit != 255
+}
+
+// LoopFilterMacroVertical16Unchecked requires a successful corresponding
+// CanLoopFilterMacroVertical16 call on this unchanged slice, pitch and limits.
+func LoopFilterMacroVertical16Unchecked(p []byte, pitch int, mblimit, blimit, limit, thresh byte) {
+	loopFilterMacroInternalFusedVertical(p, pitch, int(mblimit), int(blimit), int(limit), int(thresh))
+}
+
+// LoopFilterMacroInternal16 applies the VP8 macroblock edge and three internal
+// edges, in that order, to sixteen lanes. p starts four pixels before the
+// macroblock; step crosses edges and outer walks along them. It returns false
+// without writing when the complete, nonoverlapping 20x16 window is unavailable.
+func LoopFilterMacroInternal16(p []byte, step, outer, mblimit, blimit, limit, thresh int) bool {
+	if !Enabled || step <= 0 || outer <= 0 || mblimit < 0 || mblimit >= 255 || blimit < 0 || blimit >= 255 || limit < 0 || limit > 255 || thresh < 0 || thresh > 255 {
+		return false
+	}
+	if !((outer == 1 && step >= 16) || (step == 1 && outer >= 20)) || len(p) == 0 {
+		return false
+	}
+	// Prove 19*step+15*outer < len(p) before either multiplication. Incoming
+	// four-byte rows and six-byte stores stay within this exact window, even
+	// with unaligned addresses and the smallest accepted pitch.
+	avail := len(p) - 1
+	if step > avail/19 {
+		return false
+	}
+	avail -= 19 * step
+	if outer > avail/15 {
+		return false
+	}
+	if outer == 1 {
+		loopFilterMacroInternalFusedHorizontal(p, step, mblimit, blimit, limit, thresh)
+	} else {
+		loopFilterMacroInternalFusedVertical(p, outer, mblimit, blimit, limit, thresh)
+	}
+	return true
+}
+
+// Only identity corrections can skip stores. Unsigned ABS preserves -128.
+func uvRoundedZero(f archsimd.Int8x16, kind int) bool {
+	bound := uint8(4)
+	if kind == 6 {
+		bound = 3
+	}
+	return f.Abs().ToBits().ReduceMax() < bound
+}

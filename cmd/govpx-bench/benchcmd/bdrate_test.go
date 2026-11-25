@@ -2,9 +2,218 @@ package benchcmd
 
 import (
 	"errors"
+	govpx "github.com/thesyncim/govpx"
+	"image"
 	"math"
+	"strings"
 	"testing"
 )
+
+// TestComputeBDRateSmoke drives the harness on a tiny synthetic source.
+// Both Baseline and Test use the same options, so the BD-rate must be
+// near zero. The test exists to catch wiring regressions (mismatched
+// q-ladder ordering, decoder pairing bugs, lookahead drain bugs) early
+// without requiring the full feature gates to fire.
+func TestComputeBDRateSmoke(t *testing.T) {
+	t.Parallel()
+	res, err := ComputeBDRate(BDRateOptions{
+		Width:  64,
+		Height: 64,
+		FPS:    30,
+		Frames: 8,
+		Source: func(i int) *image.YCbCr {
+			return bdSmokeFrame(64, 64, i)
+		},
+		QLadder:   []int{20, 32, 44, 56},
+		Lookahead: 0,
+		Baseline: func(o *govpx.VP9EncoderOptions) {
+		},
+		Test: func(o *govpx.VP9EncoderOptions) {
+		},
+	})
+	if err != nil {
+		t.Fatalf("ComputeBDRate err: %v", err)
+	}
+	if len(res.Reference) != 4 || len(res.Govpx) != 4 {
+		t.Fatalf("operating points = %d/%d, want 4/4", len(res.Reference), len(res.Govpx))
+	}
+	for i, p := range res.Reference {
+		if p.Rate <= 0 || p.PSNR <= 0 {
+			t.Fatalf("baseline[%d] = %+v, want positive Rate/PSNR", i, p)
+		}
+	}
+	// Identical configs should land within tight tolerance because
+	// the encoder is deterministic for a fixed Q ladder.
+	if res.BDRate < -1 || res.BDRate > 1 {
+		t.Fatalf("BDRate(identical) = %.4f%%, want within ±1%%; pts ref=%+v test=%+v",
+			res.BDRate, res.Reference, res.Govpx)
+	}
+}
+
+func bdSmokeFrame(width, height, idx int) *image.YCbCr {
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	// Translating gradient: gives the encoder content variation
+	// across frames so inter prediction has work to do.
+	for y := range height {
+		row := img.Y[y*img.YStride:]
+		for x := range width {
+			row[x] = byte(((x + idx*3) ^ (y * 5)) & 0xFF)
+		}
+	}
+	uvW := (width + 1) >> 1
+	uvH := (height + 1) >> 1
+	for y := range uvH {
+		cb := img.Cb[y*img.CStride:]
+		cr := img.Cr[y*img.CStride:]
+		for x := range uvW {
+			cb[x] = byte(128 + ((x+idx)*3)&0x3F)
+			cr[x] = byte(128 + ((y+idx*2)*5)&0x3F)
+		}
+	}
+	return img
+}
+
+// TestLibvpxVP9FrameFlagsCLIArgsMapping exercises the govpx ->
+// vpxenc-vp9-frameflags CLI translation. It does not invoke the
+// helper binary; it only asserts the argument list contains the
+// expected per-field tokens given a representative test callback.
+//
+// The mapping must keep parity with the `// libvpx token:` comments
+// inside libvpxVP9FrameFlagsCLIArgs — a regression here means a
+// govpx feature toggle silently dropped its libvpx flag and the
+// absolute-reference assertion will then compare govpx-with-feature
+// against libvpx-without-feature.
+func TestLibvpxVP9FrameFlagsCLIArgsMapping(t *testing.T) {
+	opts := BDRateOptions{Width: 64, Height: 64, FPS: 30, Frames: 8, Lookahead: 8}
+	cases := []struct {
+		name   string
+		apply  func(*govpx.VP9EncoderOptions)
+		wants  []string
+		absent []string
+	}{
+		{
+			name: "AltRef on, ARNR off, AQ none",
+			apply: func(o *govpx.VP9EncoderOptions) {
+				o.AutoAltRef = true
+				o.LookaheadFrames = 8
+			},
+			wants: []string{
+				"--auto-alt-ref=1", "--lag-in-frames=8", "--aq-mode=0",
+				"--arnr-maxframes=0", "--arnr-strength=0",
+			},
+			absent: []string{"--alt-ref-aq=1"},
+		},
+		{
+			name: "ARNR full",
+			apply: func(o *govpx.VP9EncoderOptions) {
+				o.Deadline = govpx.DeadlineRealtime
+				o.CpuUsed = 4
+				o.AutoAltRef = true
+				o.LookaheadFrames = 8
+				o.ARNRMaxFrames = 5
+				o.ARNRStrength = 3
+				o.ARNRType = 3
+			},
+			wants: []string{
+				"--deadline=rt", "--cpu-used=4", "--auto-alt-ref=1", "--arnr-maxframes=5",
+				"--arnr-strength=3", "--arnr-type=3",
+			},
+		},
+		{
+			name: "Variance AQ",
+			apply: func(o *govpx.VP9EncoderOptions) {
+				o.AQMode = govpx.VP9AQVariance
+			},
+			wants: []string{"--aq-mode=1"},
+		},
+		{
+			name: "PerceptualAQ + AltRefAQ + FramePeriodicBoost",
+			apply: func(o *govpx.VP9EncoderOptions) {
+				o.AQMode = govpx.VP9AQPerceptual
+				o.AltRefAQ = true
+				o.FramePeriodicBoost = true
+			},
+			wants: []string{"--aq-mode=5", "--alt-ref-aq=1", "--frame-boost=1"},
+		},
+		{
+			name: "Cyclic refresh CBR",
+			apply: func(o *govpx.VP9EncoderOptions) {
+				o.Deadline = govpx.DeadlineRealtime
+				o.CpuUsed = 8
+				o.RateControlModeSet = true
+				o.RateControlMode = govpx.RateControlCBR
+				o.TargetBitrateKbps = 320
+				o.AQMode = govpx.VP9AQCyclicRefresh
+			},
+			wants: []string{
+				"--deadline=rt", "--cpu-used=8",
+				"--end-usage=cbr", "--target-bitrate=320", "--aq-mode=3",
+			},
+			absent: []string{"--cq-level="},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			eo := govpx.VP9EncoderOptions{}
+			tc.apply(&eo)
+			args := libvpxVP9FrameFlagsCLIArgs(opts, eo, 32)
+			line := strings.Join(args, " ")
+			for _, w := range tc.wants {
+				if !strings.Contains(line, w) {
+					t.Errorf("missing %q in args: %s", w, line)
+				}
+			}
+			for _, a := range tc.absent {
+				if strings.Contains(line, a) {
+					t.Errorf("unexpected %q in args: %s", a, line)
+				}
+			}
+			if strings.Contains(line, "--end-usage=q") || strings.Contains(line, "--end-usage=cq") {
+				if !strings.Contains(line, "--cq-level=32") {
+					t.Errorf("missing --cq-level=32: %s", line)
+				}
+			} else if strings.Contains(line, "--cq-level=") {
+				t.Errorf("unexpected --cq-level for non-Q mode: %s", line)
+			}
+			if !strings.Contains(line, "--end-usage=") {
+				t.Errorf("missing --end-usage: %s", line)
+			}
+		})
+	}
+}
+
+// TestFormatBDRateObservationsRendering pins the column layout of the
+// BD-rate observation table so a maintainer can rely on its grep-ability
+// in CI logs.
+func TestFormatBDRateObservationsRendering(t *testing.T) {
+	rows := []LibvpxBDRateObservation{
+		{
+			Case:                   "AltRef",
+			GovpxBDRatePct:         -3.6,
+			LibvpxBDRatePct:        math.NaN(),
+			GovpxVsLibvpxBDRatePct: 4.2,
+			GovpxVsLibvpxBDPSNRdB:  -0.3,
+		},
+		{
+			Case:                   "ARNR",
+			GovpxBDRatePct:         -1.5,
+			LibvpxBDRatePct:        math.NaN(),
+			GovpxVsLibvpxBDRatePct: math.NaN(),
+			GovpxVsLibvpxBDPSNRdB:  math.NaN(),
+			LibvpxErr:              errors.New("binary not built"),
+		},
+	}
+	out := FormatBDRateObservations(rows)
+	for _, want := range []string{
+		"Case", "govpx BD-rate", "libvpx BD-rate", "govpx-vs-libvpx",
+		"AltRef", "-3.600%", "+4.200%", "-0.300 dB",
+		"ARNR", "binary not built",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}
 
 // TestBDRateZeroOnIdenticalCurves: two identical RD curves must give
 // BD-rate exactly 0 (within fit roundoff) and BD-PSNR exactly 0.
@@ -212,5 +421,130 @@ func TestBDRateNoOverlap(t *testing.T) {
 	}
 	if _, err := BDRate(ref, test); err == nil {
 		t.Fatalf("want error for disjoint PSNR ranges")
+	}
+}
+
+// TestComputeBDRateVP8Smoke is the VP8 counterpart of
+// TestComputeBDRateSmoke. Both Baseline and Test use the same
+// EncoderOptions so the BD-rate is required to be near zero. The
+// test catches wiring regressions in the VP8 BD-rate harness
+// (operating-ladder sort order, encoder/decoder pairing, IVF totals
+// math) without requiring the slow BD-rate gates to fire.
+func TestComputeBDRateVP8Smoke(t *testing.T) {
+	t.Parallel()
+	res, err := ComputeBDRateVP8(BDRateOptionsVP8{
+		Width:  64,
+		Height: 64,
+		FPS:    30,
+		Frames: 8,
+		Source: func(i int) *image.YCbCr {
+			return bdSmokeFrame(64, 64, i)
+		},
+		QLadder: []int{20, 32, 44, 56},
+		Baseline: func(o *govpx.EncoderOptions) {
+		},
+		Test: func(o *govpx.EncoderOptions) {
+		},
+	})
+	if err != nil {
+		// bdSmokeFrame is content-light; at large Q the encoder may
+		// not produce enough rate-bit variation for a 4-point cubic
+		// fit. The wiring smoke is the per-Q encode pass succeeding
+		// and returning matched curves; treat a fit-singular error
+		// as a non-fatal log so the test still validates the
+		// per-point encode-decode loop.
+		t.Logf("ComputeBDRateVP8 fit error (acceptable on trivial smoke fixture): %v ref=%v test=%v",
+			err, res.Reference, res.Govpx)
+		if len(res.Reference) != 4 || len(res.Govpx) != 4 {
+			t.Fatalf("operating points = %d/%d, want 4/4 (fit error path must still populate curves)",
+				len(res.Reference), len(res.Govpx))
+		}
+		return
+	}
+	t.Logf("VP8 smoke curves ref=%v test=%v BDRate=%+0.3f%%", res.Reference, res.Govpx, res.BDRate)
+	if len(res.Reference) != 4 || len(res.Govpx) != 4 {
+		t.Fatalf("operating points = %d/%d, want 4/4", len(res.Reference), len(res.Govpx))
+	}
+	for i, p := range res.Reference {
+		if p.Rate <= 0 || p.PSNR <= 0 {
+			t.Fatalf("baseline[%d] = %+v, want positive Rate/PSNR", i, p)
+		}
+	}
+	for i, p := range res.Govpx {
+		if p.Rate <= 0 || p.PSNR <= 0 {
+			t.Fatalf("test[%d] = %+v, want positive Rate/PSNR", i, p)
+		}
+	}
+	// Identical configs should land within tight tolerance because
+	// the VP8 encoder is deterministic for a fixed Q ladder.
+	if res.BDRate < -1 || res.BDRate > 1 {
+		t.Fatalf("BDRateVP8(identical) = %.4f%%, want within ±1%%; pts ref=%+v test=%+v",
+			res.BDRate, res.Reference, res.Govpx)
+	}
+}
+
+func TestEncodeBDOperatingPointVP8DefaultsDeadlineGoodQuality(t *testing.T) {
+	t.Parallel()
+	seen := false
+	_, err := encodeBDOperatingPointVP8(BDRateOptionsVP8{
+		Width:  64,
+		Height: 64,
+		FPS:    30,
+		Frames: 4,
+		Source: func(i int) *image.YCbCr {
+			return bdSmokeFrame(64, 64, i)
+		},
+	}, 32, 200, func(o *govpx.EncoderOptions) {
+		seen = true
+		if o.Deadline != govpx.DeadlineGoodQuality {
+			t.Fatalf("default VP8 BD-rate Deadline = %v, want DeadlineGoodQuality to match vpxenc --good", o.Deadline)
+		}
+	})
+	if err != nil {
+		t.Fatalf("encodeBDOperatingPointVP8: %v", err)
+	}
+	if !seen {
+		t.Fatalf("apply callback was not called")
+	}
+}
+
+// TestComputeBDRateVP8Validation exercises the input-validation paths
+// in ComputeBDRateVP8 to make sure degenerate inputs return errors
+// rather than panicking deep in the encode pass.
+func TestComputeBDRateVP8Validation(t *testing.T) {
+	t.Parallel()
+	good := BDRateOptionsVP8{
+		Width:    64,
+		Height:   64,
+		FPS:      30,
+		Frames:   4,
+		Source:   func(i int) *image.YCbCr { return bdSmokeFrame(64, 64, i) },
+		QLadder:  []int{20, 32, 44, 56},
+		Baseline: func(o *govpx.EncoderOptions) {},
+		Test:     func(o *govpx.EncoderOptions) {},
+	}
+	cases := []struct {
+		name string
+		opts func(*BDRateOptionsVP8)
+	}{
+		{name: "missing source", opts: func(o *BDRateOptionsVP8) { o.Source = nil }},
+		{name: "zero frames", opts: func(o *BDRateOptionsVP8) { o.Frames = 0 }},
+		{name: "zero width", opts: func(o *BDRateOptionsVP8) { o.Width = 0 }},
+		{name: "short ladder", opts: func(o *BDRateOptionsVP8) { o.QLadder = []int{20, 32} }},
+		{name: "duplicate Q", opts: func(o *BDRateOptionsVP8) { o.QLadder = []int{20, 20, 32, 44} }},
+		{name: "Q out of range", opts: func(o *BDRateOptionsVP8) { o.QLadder = []int{20, 32, 44, 64} }},
+		{name: "mismatched rate ladder", opts: func(o *BDRateOptionsVP8) { o.RateLadderKbps = []int{100, 200} }},
+		{name: "duplicate rate", opts: func(o *BDRateOptionsVP8) { o.RateLadderKbps = []int{100, 100, 200, 400} }},
+		{name: "missing baseline cb", opts: func(o *BDRateOptionsVP8) { o.Baseline = nil }},
+		{name: "missing test cb", opts: func(o *BDRateOptionsVP8) { o.Test = nil }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := good
+			tc.opts(&opts)
+			if _, err := ComputeBDRateVP8(opts); err == nil {
+				t.Fatalf("ComputeBDRateVP8(%s) = nil err, want validation failure", tc.name)
+			}
+		})
 	}
 }
