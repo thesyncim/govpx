@@ -223,6 +223,7 @@ type VP9Decoder struct {
 	frameYFull          []byte
 	frameUFull          []byte
 	frameVFull          []byte
+	highbd              *vp9DecoderHighBDState
 	frameExternal       *vp9ExternalFrameLease
 	lastFrameExternal   *vp9ExternalFrameLease
 	frameInternal       *vp9InternalFrameLease
@@ -291,16 +292,43 @@ type VP9Decoder struct {
 	fc              vp9dec.FrameContext
 }
 
+type vp9DecoderHighBDState struct {
+	frameY16              []uint16
+	frameU16              []uint16
+	frameV16              []uint16
+	frameY16Full          []uint16
+	frameU16Full          []uint16
+	frameV16Full          []uint16
+	dqcoeff32             []int32
+	interPredictScratch16 []uint16
+}
+
+type vp9RefHighBDPlanes struct {
+	y16 []uint16
+	u16 []uint16
+	v16 []uint16
+}
+
+type vp9LeaseHighBDPlanes struct {
+	y16Full        []uint16
+	u16Full        []uint16
+	v16Full        []uint16
+	primedY16Len   int
+	primedUV16Len  int
+	primedBitDepth uint8
+}
+
 type vp9ReferenceFrame struct {
 	img          Image
-	renderWidth  int
-	renderHeight int
-	bitDepth     int
 	y            []byte
 	u            []byte
 	v            []byte
+	highbd       *vp9RefHighBDPlanes
 	external     *vp9ExternalFrameLease
 	internal     *vp9InternalFrameLease
+	renderWidth  int
+	renderHeight int
+	bitDepth     int
 	generation   uint64
 	valid        bool
 }
@@ -312,10 +340,11 @@ type vp9ExternalFrameLease struct {
 }
 
 type vp9InternalFrameLease struct {
-	yFull []byte
-	uFull []byte
-	vFull []byte
-	refs  int
+	yFull  []byte
+	uFull  []byte
+	vFull  []byte
+	highbd *vp9LeaseHighBDPlanes
+	refs   int
 	// primedYLen and primedUVLen track the Y/UV-plane lengths this lease
 	// was last primed (128-filled) for. Reconstruction plus border
 	// extension rewrite every byte of an in-layout frame, so pool buffers
@@ -336,22 +365,48 @@ func (f *vp9ReferenceFrame) storeWithRender(src Image, renderWidth, renderHeight
 func (f *vp9ReferenceFrame) storeWithRenderAndBitDepth(src Image,
 	renderWidth, renderHeight, bitDepth int,
 ) {
-	f.y = buffers.EnsureCapacity(f.y, len(src.Y))
-	f.u = buffers.EnsureCapacity(f.u, len(src.U))
-	f.v = buffers.EnsureCapacity(f.v, len(src.V))
-	copy(f.y, src.Y)
-	copy(f.u, src.U)
-	copy(f.v, src.V)
-	f.img = Image{
-		Width:       src.Width,
-		Height:      src.Height,
-		Y:           f.y,
-		U:           f.u,
-		V:           f.v,
-		YStride:     src.YStride,
-		UStride:     src.UStride,
-		VStride:     src.VStride,
-		Subsampling: src.Subsampling,
+	if src.BitDepth > 8 {
+		if f.highbd == nil {
+			f.highbd = &vp9RefHighBDPlanes{}
+		}
+		hb := f.highbd
+		hb.y16 = buffers.EnsureLen(hb.y16, len(src.Y16))
+		hb.u16 = buffers.EnsureLen(hb.u16, len(src.U16))
+		hb.v16 = buffers.EnsureLen(hb.v16, len(src.V16))
+		copy(hb.y16, src.Y16)
+		copy(hb.u16, src.U16)
+		copy(hb.v16, src.V16)
+		f.img = Image{
+			Width:       src.Width,
+			Height:      src.Height,
+			Y16:         hb.y16,
+			U16:         hb.u16,
+			V16:         hb.v16,
+			YStride:     src.YStride,
+			UStride:     src.UStride,
+			VStride:     src.VStride,
+			Subsampling: src.Subsampling,
+			BitDepth:    src.BitDepth,
+		}
+	} else {
+		f.y = buffers.EnsureCapacity(f.y, len(src.Y))
+		f.u = buffers.EnsureCapacity(f.u, len(src.U))
+		f.v = buffers.EnsureCapacity(f.v, len(src.V))
+		copy(f.y, src.Y)
+		copy(f.u, src.U)
+		copy(f.v, src.V)
+		f.img = Image{
+			Width:       src.Width,
+			Height:      src.Height,
+			Y:           f.y,
+			U:           f.u,
+			V:           f.v,
+			YStride:     src.YStride,
+			UStride:     src.UStride,
+			VStride:     src.VStride,
+			Subsampling: src.Subsampling,
+			BitDepth:    src.BitDepth,
+		}
 	}
 	f.renderWidth = renderWidth
 	f.renderHeight = renderHeight
@@ -371,10 +426,14 @@ func (f *vp9ReferenceFrame) storeExternalWithRenderAndBitDepth(src Image,
 		Y:           src.Y,
 		U:           src.U,
 		V:           src.V,
+		Y16:         src.Y16,
+		U16:         src.U16,
+		V16:         src.V16,
 		YStride:     src.YStride,
 		UStride:     src.UStride,
 		VStride:     src.VStride,
 		Subsampling: src.Subsampling,
+		BitDepth:    src.BitDepth,
 	}
 	f.renderWidth = renderWidth
 	f.renderHeight = renderHeight
@@ -394,10 +453,14 @@ func (f *vp9ReferenceFrame) storeInternalWithRenderAndBitDepth(src Image,
 		Y:           src.Y,
 		U:           src.U,
 		V:           src.V,
+		Y16:         src.Y16,
+		U16:         src.U16,
+		V16:         src.V16,
 		YStride:     src.YStride,
 		UStride:     src.UStride,
 		VStride:     src.VStride,
 		Subsampling: src.Subsampling,
+		BitDepth:    src.BitDepth,
 	}
 	f.renderWidth = renderWidth
 	f.renderHeight = renderHeight
@@ -918,8 +981,9 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 	if hdr.FrameType == common.KeyFrame || hdr.IntraOnly {
 		d.unsupportedReconstruct = !vp9dec.SupportedOutputFormat(&hdr)
 		if !d.unsupportedReconstruct {
-			if err := d.prepareVP9OutputFrameSubsampled(int(hdr.Width), int(hdr.Height),
-				hdr.BitDepthColor.SubsamplingX, hdr.BitDepthColor.SubsamplingY); err != nil {
+			if err := d.prepareVP9OutputFrameFormat(int(hdr.Width), int(hdr.Height),
+				hdr.BitDepthColor.SubsamplingX, hdr.BitDepthColor.SubsamplingY,
+				hdr.BitDepthColor.BitDepth); err != nil {
 				return err
 			}
 		}
@@ -929,8 +993,9 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 	} else {
 		d.unsupportedReconstruct = !vp9dec.SupportedOutputFormat(&hdr)
 		if !d.unsupportedReconstruct {
-			if err := d.prepareVP9OutputFrameSubsampled(int(hdr.Width), int(hdr.Height),
-				hdr.BitDepthColor.SubsamplingX, hdr.BitDepthColor.SubsamplingY); err != nil {
+			if err := d.prepareVP9OutputFrameFormat(int(hdr.Width), int(hdr.Height),
+				hdr.BitDepthColor.SubsamplingX, hdr.BitDepthColor.SubsamplingY,
+				hdr.BitDepthColor.BitDepth); err != nil {
 				return err
 			}
 		}
@@ -1015,7 +1080,9 @@ func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (V
 			}
 			info := d.lastInfo
 			if info.ShowFrame {
-				if dst.Subsampling != info.Subsampling || !dst.ValidForEncode(info.Width, info.Height) {
+				if dst.Subsampling != info.Subsampling ||
+					int(dst.EffectiveBitDepth()) != info.BitDepth ||
+					!dst.ValidForEncode(info.Width, info.Height) {
 					return VP9FrameInfo{}, ErrInvalidConfig
 				}
 				copyVP9ImageToPublic(dst, d.lastFrame)
@@ -1037,7 +1104,9 @@ func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (V
 		}
 		d.frameReady = false
 		if info.ShowFrame {
-			if dst.Subsampling != info.Subsampling || !dst.ValidForEncode(info.Width, info.Height) {
+			if dst.Subsampling != info.Subsampling ||
+				int(dst.EffectiveBitDepth()) != info.BitDepth ||
+				!dst.ValidForEncode(info.Width, info.Height) {
 				return VP9FrameInfo{}, ErrInvalidConfig
 			}
 			copyVP9ImageToPublic(dst, d.lastFrame)
@@ -1052,7 +1121,9 @@ func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (V
 	if err != nil {
 		return VP9FrameInfo{}, err
 	}
-	if dst.Subsampling != info.Subsampling || !dst.ValidForEncode(info.Width, info.Height) {
+	if dst.Subsampling != info.Subsampling ||
+		int(dst.EffectiveBitDepth()) != info.BitDepth ||
+		!dst.ValidForEncode(info.Width, info.Height) {
 		return VP9FrameInfo{}, ErrInvalidConfig
 	}
 	if err := d.decodeVP9PacketWithPTS(packet, pts); err != nil {
@@ -1316,7 +1387,8 @@ func (d *VP9Decoder) refreshVP9ReferenceFrames(hdr *vp9dec.UncompressedHeader) {
 					d.retainVP9ExternalFrame(d.frameExternal), renderWidth,
 					renderHeight, int(hdr.BitDepthColor.BitDepth))
 			} else if d.frameInternal != nil &&
-				vp9ImageAliasesPlane(d.lastFrame, d.frameY) {
+				(vp9ImageAliasesPlane(d.lastFrame, d.frameY) ||
+					(d.lastFrame.BitDepth > 8 && d.highbd != nil && vp9ImageAliasesPlane16(d.lastFrame, d.highbd.frameY16))) {
 				d.refFrames[slot].storeInternalWithRenderAndBitDepth(d.lastFrame,
 					d.retainVP9InternalFrame(d.frameInternal), renderWidth,
 					renderHeight, int(hdr.BitDepthColor.BitDepth))
@@ -1362,9 +1434,29 @@ func (d *VP9Decoder) finishVP9CurrentFrameMvs(hdr *vp9dec.UncompressedHeader) {
 	d.usePrevFrameMvs = false
 }
 
+func copyPlane16(dst []uint16, dstStride int, src []uint16, srcStride, width, height int) {
+	for y := range height {
+		copy(dst[y*dstStride:y*dstStride+width], src[y*srcStride:y*srcStride+width])
+	}
+}
+
+func fill16(dst []uint16, val uint16) {
+	for i := range dst {
+		dst[i] = val
+	}
+}
+
 func copyVP9ImageToPublic(dst *Image, src Image) {
-	buffers.CopyPlane(dst.Y, dst.YStride, src.Y, src.YStride, src.Width, src.Height)
 	uvWidth, uvHeight := src.Subsampling.ChromaDimensions(src.Width, src.Height)
+	if src.BitDepth > 8 {
+		copyPlane16(dst.Y16, dst.YStride, src.Y16, src.YStride, src.Width, src.Height)
+		copyPlane16(dst.U16, dst.UStride, src.U16, src.UStride, uvWidth, uvHeight)
+		copyPlane16(dst.V16, dst.VStride, src.V16, src.VStride, uvWidth, uvHeight)
+		dst.BitDepth = src.BitDepth
+		dst.Subsampling = src.Subsampling
+		return
+	}
+	buffers.CopyPlane(dst.Y, dst.YStride, src.Y, src.YStride, src.Width, src.Height)
 	buffers.CopyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
 	buffers.CopyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
 	dst.Subsampling = src.Subsampling
@@ -1377,15 +1469,104 @@ func vp9ImageAliasesPlane(img Image, plane []byte) bool {
 	return &img.Y[0] == &plane[0]
 }
 
+func vp9ImageAliasesPlane16(img Image, plane []uint16) bool {
+	if len(img.Y16) == 0 || len(plane) == 0 {
+		return len(img.Y16) == 0 && len(plane) == 0
+	}
+	return &img.Y16[0] == &plane[0]
+}
+
 func (d *VP9Decoder) prepareVP9OutputFrame(width, height int) error {
 	return d.prepareVP9OutputFrameWithExternalSubsampled(width, height, 1, 1, true)
 }
 
-func (d *VP9Decoder) prepareVP9OutputFrameSubsampled(width, height int,
-	subsamplingX, subsamplingY uint8,
+func (d *VP9Decoder) prepareVP9OutputFrameFormat(width, height int,
+	subsamplingX, subsamplingY, bitDepth uint8,
 ) error {
+	if bitDepth > vp9dec.Bits8 {
+		return d.prepareVP9OutputFrameHighBD(width, height, subsamplingX, subsamplingY, bitDepth)
+	}
 	return d.prepareVP9OutputFrameWithExternalSubsampled(width, height,
 		subsamplingX, subsamplingY, true)
+}
+
+func (d *VP9Decoder) prepareVP9OutputFrameHighBD(width, height int,
+	subsamplingX, subsamplingY, bitDepth uint8,
+) error {
+	d.replaceVP9LastFrameExternal(nil)
+	d.replaceVP9LastFrameInternal(nil)
+	d.releaseVP9ActiveExternalFrame()
+	d.releaseVP9ActiveInternalFrame()
+
+	layout := common.NewDecoderFrameLayoutSubsampled(width, height,
+		0, subsamplingX, subsamplingY)
+	lease := d.acquireVP9InternalFrame()
+	if lease == nil {
+		return ErrInvalidConfig
+	}
+	if lease.highbd == nil {
+		lease.highbd = &vp9LeaseHighBDPlanes{}
+	}
+	lhb := lease.highbd
+	if cap(lhb.y16Full) < layout.YFullLen {
+		lhb.y16Full = make([]uint16, layout.YFullLen)
+	} else {
+		lhb.y16Full = lhb.y16Full[:layout.YFullLen]
+	}
+	if cap(lhb.u16Full) < layout.UVFullLen {
+		lhb.u16Full = make([]uint16, layout.UVFullLen)
+	} else {
+		lhb.u16Full = lhb.u16Full[:layout.UVFullLen]
+	}
+	if cap(lhb.v16Full) < layout.UVFullLen {
+		lhb.v16Full = make([]uint16, layout.UVFullLen)
+	} else {
+		lhb.v16Full = lhb.v16Full[:layout.UVFullLen]
+	}
+	if d.highbd == nil {
+		d.highbd = &vp9DecoderHighBDState{}
+	}
+	hb := d.highbd
+	d.frameInternal = lease
+	hb.frameY16Full = lhb.y16Full
+	hb.frameU16Full = lhb.u16Full
+	hb.frameV16Full = lhb.v16Full
+	d.frameYFull = nil
+	d.frameUFull = nil
+	d.frameVFull = nil
+	d.frameY = nil
+	d.frameU = nil
+	d.frameV = nil
+
+	if lhb.primedY16Len != layout.YFullLen || lhb.primedUV16Len != layout.UVFullLen ||
+		lhb.primedBitDepth != bitDepth {
+		neutral := uint16(128 << uint(bitDepth-8))
+		fill16(hb.frameY16Full, neutral)
+		fill16(hb.frameU16Full, neutral)
+		fill16(hb.frameV16Full, neutral)
+		lhb.primedY16Len = layout.YFullLen
+		lhb.primedUV16Len = layout.UVFullLen
+		lhb.primedBitDepth = bitDepth
+	}
+	d.frameYOrigin = layout.YOrigin
+	d.frameUOrigin = layout.UOrigin
+	d.frameVOrigin = layout.VOrigin
+	hb.frameY16 = hb.frameY16Full[layout.YOrigin:]
+	hb.frameU16 = hb.frameU16Full[layout.UOrigin:]
+	hb.frameV16 = hb.frameV16Full[layout.VOrigin:]
+	d.lastFrame = Image{
+		Width:       width,
+		Height:      height,
+		Y16:         hb.frameY16,
+		U16:         hb.frameU16,
+		V16:         hb.frameV16,
+		YStride:     layout.YStride,
+		UStride:     layout.UVStride,
+		VStride:     layout.UVStride,
+		Subsampling: codecapi.ChromaSubsamplingFromShifts(layout.SubsamplingX, layout.SubsamplingY),
+		BitDepth:    bitDepth,
+	}
+	return nil
 }
 
 func (d *VP9Decoder) prepareVP9InternalOutputFrame(width, height int) error {
@@ -1595,7 +1776,14 @@ func (d *VP9Decoder) releaseVP9ActiveExternalFrame() {
 }
 
 func (d *VP9Decoder) transferVP9ActiveFrameToLastIfAliased(output Image) bool {
-	if d == nil || d.frameInternal == nil || !vp9ImageAliasesPlane(output, d.frameY) {
+	if d == nil || d.frameInternal == nil {
+		return false
+	}
+	if output.BitDepth > 8 {
+		if d.highbd == nil || !vp9ImageAliasesPlane16(output, d.highbd.frameY16) {
+			return false
+		}
+	} else if !vp9ImageAliasesPlane(output, d.frameY) {
 		return false
 	}
 	d.replaceVP9LastFrameInternal(d.frameInternal)
@@ -1648,7 +1836,7 @@ func (d *VP9Decoder) outputVP9FrameImage(hdr *vp9dec.UncompressedHeader,
 	info VP9FrameInfo, src Image,
 ) (Image, error) {
 	flags := d.opts.effectivePostProcessFlags()
-	if flags == 0 || src.Subsampling != Subsampling420 {
+	if flags == 0 || src.Subsampling != Subsampling420 || src.BitDepth > 8 {
 		return src, nil
 	}
 	if err := d.prepareVP9PostProcess(src.Width, src.Height); err != nil {

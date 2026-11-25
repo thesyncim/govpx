@@ -764,6 +764,9 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 	if d.unsupportedReconstruct {
 		return true
 	}
+	if hdr.BitDepthColor.BitDepth > vp9dec.Bits8 {
+		return d.reconstructVP9InterPredictBlockHighBD(hdr, mi, miRow, miCol, bsize)
+	}
 	if !vp9dec.CanReconstructInterBlock(mi) {
 		d.markVP9Unsupported()
 		return true
@@ -1387,6 +1390,9 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 	uvMode common.PredictionMode, tile vp9dec.TileBounds,
 	miRow, miCol int, bsize common.BlockSize, segID int, isInter int,
 ) bool {
+	if hdr.BitDepthColor.BitDepth > vp9dec.Bits8 {
+		return d.readVP9ResidueBlockHighBD(r, hdr, mi, uvMode, tile, miRow, miCol, bsize, segID, isInter)
+	}
 	aboveOffsets, leftOffsets := d.vp9PlaneContextOffsets(miRow, miCol)
 	miRows := int((hdr.Height + 7) >> 3)
 	miCols := int((hdr.Width + 7) >> 3)
@@ -1889,6 +1895,10 @@ func (d *VP9Decoder) reconstructVP9IntraPredictBlock(
 	miRow, miCol int,
 	bsize common.BlockSize,
 ) {
+	if hdr.BitDepthColor.BitDepth > vp9dec.Bits8 {
+		d.reconstructVP9IntraPredictBlockHighBD(hdr, mi, uvMode, tile, miRow, miCol, bsize)
+		return
+	}
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &d.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)

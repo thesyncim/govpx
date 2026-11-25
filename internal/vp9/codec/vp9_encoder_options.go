@@ -90,10 +90,24 @@ func (e *VP9Encoder) vp9CoefUpdateModeForFrame() encoder.CoefUpdateMode {
 }
 
 func (opts VP9EncoderOptions) vp9Profile() common.BitstreamProfile {
-	if opts.Profile == 1 {
+	switch opts.Profile {
+	case 1:
 		return common.Profile1
+	case 2:
+		return common.Profile2
+	default:
+		return common.Profile0
 	}
-	return common.Profile0
+}
+
+func (opts VP9EncoderOptions) vp9BitDepth() uint8 {
+	if opts.Profile == 2 {
+		if opts.BitDepth == 12 {
+			return 12
+		}
+		return 10
+	}
+	return 8
 }
 
 func (opts VP9EncoderOptions) vp9SubsamplingShifts() (uint8, uint8) {
@@ -222,11 +236,15 @@ type VP9EncoderOptions struct {
 	Width  int
 	Height int
 
-	// Profile selects the VP9 bitstream profile: 0 (default, 8-bit 4:2:0) or
-	// 1 (8-bit 4:2:2, 4:4:0, 4:4:4, or sRGB). Values > 1 return ErrInvalidConfig.
+	// Profile selects the VP9 bitstream profile: 0 (default, 8-bit 4:2:0),
+	// 1 (8-bit 4:2:2, 4:4:0, 4:4:4, or sRGB), or 2 (10-bit or 12-bit 4:2:0).
+	// Values > 2 return ErrInvalidConfig.
 	Profile uint8
+	// BitDepth selects the sample bit depth: 0 or 8 for Profile 0/1; 0 (defaults
+	// to 10), 10, or 12 for Profile 2.
+	BitDepth uint8
 	// Subsampling selects the chroma subsampling layout. Zero (Subsampling420)
-	// is required for Profile 0. Profile 1 requires Subsampling422,
+	// is required for Profile 0 and Profile 2. Profile 1 requires Subsampling422,
 	// Subsampling440, or Subsampling444 (and Subsampling444 for VP9ColorSpaceSRGB).
 	Subsampling ChromaSubsampling
 

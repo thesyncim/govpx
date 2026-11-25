@@ -85,6 +85,7 @@ func (s *vp9DecoderRowMTFrameStorage) residueParsedAt(miCols, miRow, miCol int) 
 
 func (d *VP9Decoder) vp9DecoderRowMTOneTileStorage() *vp9DecoderRowMTFrameStorage {
 	if d == nil || d.vp9TilePool == nil || !d.opts.DecoderRowMT ||
+		d.lastFrame.BitDepth > 8 ||
 		len(d.vp9TilePool.rowMTSyncs) != 1 {
 		return nil
 	}

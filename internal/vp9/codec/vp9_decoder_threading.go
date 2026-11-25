@@ -832,7 +832,7 @@ func (d *VP9Decoder) runVP9DecoderTileJobs(descs []vp9DecoderTileDesc,
 		p.rowMTSyncs = p.rowMTSyncs[:0]
 		p.rowMTFrame.release()
 	}
-	if !d.opts.DecoderRowMT {
+	if !d.opts.DecoderRowMT || d.lastFrame.BitDepth > 8 {
 		return d.runVP9DecoderScheduledTileJobs(descs, kind, comp,
 			intraMaps, interMaps, miRows, miCols, partitionProbs)
 	}
@@ -1100,6 +1100,12 @@ func (j *vp9DecoderTileJob) run() {
 	}
 	j.resetLeftContexts(worker)
 	worker.interPredictScratch = j.interPredictScratch
+	if worker.highbd != nil {
+		hb := *worker.highbd
+		hb.dqcoeff32 = nil
+		hb.interPredictScratch16 = nil
+		worker.highbd = &hb
+	}
 	j.err = worker.runVP9DecoderTileDesc(j.kind, vp9DecoderTileDesc{
 		data: j.data,
 		tile: j.tile,
@@ -1193,6 +1199,12 @@ func (j *vp9DecoderTileJob) runRowMT() {
 
 func (j *vp9DecoderTileJob) runDescs(worker *VP9Decoder, descs []vp9DecoderTileDesc) {
 	worker.interPredictScratch = j.interPredictScratch
+	if worker.highbd != nil {
+		hb := *worker.highbd
+		hb.dqcoeff32 = nil
+		hb.interPredictScratch16 = nil
+		worker.highbd = &hb
+	}
 	for _, desc := range descs {
 		j.resetLeftContexts(worker)
 		if err := worker.runVP9DecoderTileDesc(j.kind, desc, j.hdr, j.comp,
