@@ -295,11 +295,13 @@ func (e *VP8Encoder) estimateFastInterModeScoreHot(src vp8enc.SourceImage, ref *
 			adj = 150
 			pickmodeMVBias = 100
 		}
-		if e.macroblockIsSkin(mbRow, mbCol, mbCols) {
+		if len(e.skinMap) > 0 && e.macroblockIsSkin(mbRow, mbCol, mbCols) {
 			adj = 100
 			pickmodeMVBias = 100
 		}
-		score = (score * adj * pickmodeMVBias) / 10000
+		if adj != 100 || pickmodeMVBias != 100 {
+			score = (score * adj * pickmodeMVBias) / 10000
+		}
 	}
 	breakoutSkip := vp8enc.StaticInterFastEncodeBreakout(src, ref, mbRow, mbCol, mode, quant, e.interStaticThresholdForSegment(segmentID), sse)
 	return score, variance, sse, modeRate, breakoutSkip, true

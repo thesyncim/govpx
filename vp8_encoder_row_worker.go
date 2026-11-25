@@ -30,71 +30,22 @@ import (
 // main goroutine resets the worker-private adaptive shadows from the
 // encoder's frame-baseline state.
 type rowEncoderState struct {
-	// rowIndex is the absolute MB row this worker is responsible for
-	// during the current frame. Re-assigned each frame as work is
-	// distributed.
 	rowIndex int
 
-	// enc is a shallow, worker-private encoder view. Slices and frame
-	// buffers still point at the frame-level storage, but adaptive picker
-	// scalars, threshold tables, error bins, and scratch are private to
-	// the worker. This mirrors libvpx setup_mbby_copy: workers share the
-	// immutable frame inputs and write disjoint MB slots, but do not contend
-	// on picker state.
-	enc VP8Encoder
+	// Pointer-containing fields are placed before enc, and enc's pure-value
+	// tail sits at the end so Go's GC stops scanning at enc's PtrBytes.
+	dotArtifactChecked    []bool
+	interCoefTokenRecords vp8enc.InterCoefficientTokenRecords
+	enc                   VP8Encoder
 
-	// leftTok is the persistent left token-context scratch for the
-	// row's MB column traversal. libvpx zeroes this at the start of
-	// every row and updates it as each MB commits its tokens (see
-	// vp8/encoder/encodeframe.c encode_mb_row).
-	leftTok vp8enc.TokenContextPlanes
-
-	// pickerActZbinAdj is the libvpx-stale activity-driven zbin
-	// adjustment threaded into the per-MB RD picker. With segmentation
-	// disabled (the path mirrored here), libvpx's b->zbin_extra is
-	// only refreshed by vp8_update_zbin_extra inside
-	// vp8cx_encode_intra_macroblock (vp8/encoder/encodeframe.c line
-	// 1126), which runs AFTER vp8_rd_pick_intra_mode. So each MB's
-	// picker quantize step reads zbin_extra computed from the PREVIOUS
-	// MB's post-pick act_zbin_adj
-	// (ZBIN_EXTRA_Y at vp8_quantize.c lines 276-279).
-	//
-	// In the threaded path the carry survives both within a row AND
-	// across the rows a single worker handles (workerIndex,
-	// workerIndex+workerCount, workerIndex+2*workerCount, ...): libvpx
-	// neither the helper thread loop (ethreading.c:76-310) nor the main
-	// thread's encode_mb_row (encodeframe.c:316-575) touches
-	// b->zbin_extra or x->act_zbin_adj between rows.
-	//
-	// runThreadedKeyFrameWorker / runThreadedInterFrameWorker seed
-	// pickerActZbinAdj ONCE per worker dispatch:
-	//   - workerIndex == 0 ⇒ activityProbeStaleActZbinAdj (mirrors main
-	//     thread, whose b->zbin_extra was set by
-	//     vp8cx_frame_init_quantizer using the prev-attempt's last-MB
-	//     act_zbin_adj).
-	//   - workerIndex > 0  ⇒ 0 (mirrors helper threads' MB_ROW_COMP[i].mb
-	//     block[i].zbin_extra zero-init from
-	//     vp8cx_create_encoder_threads:521-523 memset plus setup_mbby_copy
-	//     copying the master's freshly zeroed act_zbin_adj).
-	// See vp8_encoder_reconstruct.go for the single-thread anchor.
-	pickerActZbinAdj int
-
-	// scratch is the row-private intra reconstruction scratch reused
-	// across the row's MB columns. Mirrors libvpx MACROBLOCK *x's
-	// per-thread workspace from setup_mbby_copy.
-	scratch vp8dec.IntraReconstructionScratch
-
-	// dotArtifactChecked is a worker-private shadow of the per-MB
-	// dot-artifact reset map. It is OR-merged into the encoder after all
-	// rows finish so the hot picker does not share a write-heavy bool slice.
-	dotArtifactChecked []bool
-
+	// Pure-value tail (beyond Go GC PtrBytes: 0 scan cost).
+	leftTok                 vp8enc.TokenContextPlanes
+	pickerActZbinAdj        int
+	scratch                 vp8dec.IntraReconstructionScratch
 	keyFrameCoefTokenCounts vp8enc.InterCoefficientTokenCounts
 	interCoefTokenCounts    vp8enc.InterCoefficientTokenCounts
-	interCoefTokenRecords   vp8enc.InterCoefficientTokenRecords
-
-	totalRate            int
-	totalPredictionError int64
+	totalRate               int
+	totalPredictionError    int64
 }
 
 // reset re-initializes the per-row worker state for a fresh frame dispatch.
@@ -251,11 +202,9 @@ func encoderThreadSyncRange(mbCols int) int {
 //     pictures synchronize more often to keep wave-front depth available,
 //     wider pictures synchronize less often to reduce atomic traffic.
 type rowWorkerPool struct {
-	// workers is sized by the EncoderOptions.Threads value (clamped
-	// against runtime.NumCPU). Each worker has its own
-	// rowEncoderState; the dispatcher hands one row at a time to
-	// each free worker.
-	workers []rowEncoderState
+	// workers is sized by EncoderOptions.Threads; each worker is a separate
+	// heap object so Go's GC PtrBytes tail-skip applies to every worker.
+	workers []*rowEncoderState
 
 	// rowProgress[r] is the atomic wave-front counter for row r.
 	// Sized to geometry.MacroblockRows(height) at pool construction.
@@ -304,7 +253,7 @@ func newRowWorkerPool(threads int, mbRows int, mbCols int) *rowWorkerPool {
 		return nil
 	}
 	pool := &rowWorkerPool{
-		workers:      make([]rowEncoderState, threads),
+		workers:      make([]*rowEncoderState, threads),
 		rowProgress:  make([]paddedAtomicInt64, mbRows),
 		syncRange:    encoderThreadSyncRange(mbCols),
 		wakeSlots:    make([]workerWakeSlot, threads),
@@ -312,7 +261,9 @@ func newRowWorkerPool(threads int, mbRows int, mbCols int) *rowWorkerPool {
 		shutdown:     make(chan struct{}),
 	}
 	for i := range pool.workers {
-		pool.workers[i].dotArtifactChecked = make([]bool, mbRows*mbCols)
+		pool.workers[i] = &rowEncoderState{
+			dotArtifactChecked: make([]bool, mbRows*mbCols),
+		}
 	}
 	for i := 1; i < len(pool.workers); i++ {
 		pool.wakeSlots[i].init()
@@ -450,7 +401,7 @@ func (p *rowWorkerPool) runThreadedInterFrameWorker(workerIndex int) {
 	if workerCount <= 0 {
 		return
 	}
-	worker := &p.workers[workerIndex]
+	worker := p.workers[workerIndex]
 	worker.reset(p.encoder, p.required, workerIndex > 0)
 	worker.interCoefTokenRecords.Reset(p.args.rows, threadedWorkerMacroblockCount(workerIndex, workerCount, p.args.rows, p.args.cols))
 	worker.enc.threadedHelperRowsActive = workerIndex > 0
@@ -500,7 +451,7 @@ func (p *rowWorkerPool) runThreadedKeyFrameWorker(workerIndex int) {
 	if workerCount <= 0 {
 		return
 	}
-	worker := &p.workers[workerIndex]
+	worker := p.workers[workerIndex]
 	worker.reset(p.encoder, p.required, workerIndex > 0)
 	worker.enc.threadedHelperRowsActive = workerIndex > 0
 	// libvpx vp8/encoder/ethreading.c thread_encoding_proc:
@@ -567,7 +518,7 @@ func (p *rowWorkerPool) resetForEncoderReset() {
 	for i := range p.workers {
 		dot := p.workers[i].dotArtifactChecked
 		records := p.workers[i].interCoefTokenRecords
-		p.workers[i] = rowEncoderState{
+		*p.workers[i] = rowEncoderState{
 			dotArtifactChecked:    dot,
 			interCoefTokenRecords: records,
 		}

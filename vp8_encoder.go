@@ -1057,11 +1057,6 @@ type VP8Encoder struct {
 	loopFilterSegmentLF                  [vp8common.MaxMBSegments]int8
 	reconstructModes                     []vp8dec.MacroblockMode
 	reconstructTokens                    []vp8dec.MacroblockTokens
-	dequantTables                        vp8common.FrameDequantTables
-	dequants                             [vp8common.MaxMBSegments]vp8common.MacroblockDequant
-	reconstructScratch                   vp8dec.IntraReconstructionScratch
-	fastInterLoopCtx                     fastInterModeLoopContext
-	fastCoeffScratch                     vp8FastCoeffScratch
 	currentIsLastRef                     bool
 	previewPostProcessFlags              PostProcessFlag
 	previewPostProcessDeblockingLevel    int
@@ -1071,13 +1066,18 @@ type VP8Encoder struct {
 	previewPostprocScratch               []byte
 	previewPostprocState                 vp8dec.PostProcessState
 	// Pointer fields grouped above the pure-value tables below so Go's GC
-	// stops scanning VP8Encoder at PtrBytes (~15 KiB instead of ~90 KiB).
+	// stops scanning VP8Encoder at PtrBytes (~12 KiB instead of ~90 KiB).
 	rowWorkers                     *rowWorkerPool
 	rdPickerCoefProbsActive        *vp8tables.CoefficientProbs
 	rdPickerCoefTokenCostsActive   *vp8enc.CoefficientTokenCostTable
 	interRDCoeffCacheScratchTarget *interRDCoeffCacheState
 	interCoefTokenRecords          vp8enc.InterCoefficientTokenRecords
 	interCoefTokenRecordsValid     bool
+	fastInterLoopCtx               fastInterModeLoopContext
+	dequantTables                  vp8common.FrameDequantTables
+	dequants                       [vp8common.MaxMBSegments]vp8common.MacroblockDequant
+	reconstructScratch             vp8dec.IntraReconstructionScratch
+	fastCoeffScratch               vp8FastCoeffScratch
 	previewFrameValid              bool
 	previewFrameSuppressed         bool
 	previewPostprocessedValid      bool

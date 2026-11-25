@@ -132,7 +132,7 @@ type vp9TileWorkerPool struct {
 	// worker set that encodes the tiles also runs the frame loop filter as
 	// row-interleaved workers, mirroring libvpx dispatching
 	// vp9_loop_filter_frame_mt over cpi->workers with cpi->lf_row_sync.
-	lfJobs []vp9EncodeLfJob
+	lfJobs []*vp9EncodeLfJob
 	lfSync vp9LfSync
 
 	// rowMTSyncs holds one vp9RowMTSync per tile column. Allocated lazily by
@@ -503,7 +503,7 @@ func (p *vp9TileWorkerPool) runHelperWorkerJob(workerIndex int) {
 		runVP9CountTileJobNoWG(&p.countJobs[workerIndex])
 	case vp9TileWorkerJobLoopFilter:
 		if workerIndex < len(p.lfJobs) {
-			runVP9EncodeLfJob(&p.lfJobs[workerIndex])
+			runVP9EncodeLfJob(p.lfJobs[workerIndex])
 		}
 	default:
 		runVP9EncodeTilePrepJob(&p.encodeJobs[workerIndex])

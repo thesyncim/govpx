@@ -205,7 +205,7 @@ func TestGCInvisibilityAudit(t *testing.T) {
 	if _, err := vp8Enc4.EncodeInto(pkt, img, 1, 1, 0); err != nil {
 		t.Fatal(err)
 	}
-	logReport("VP8Encoder 720p 4T", vp8Enc4, 99.0)
+	logReport("VP8Encoder 720p 4T", vp8Enc4, 99.6)
 
 	// 2. VP8Decoder
 	vp8Dec, err := NewVP8Decoder(DecoderOptions{})
@@ -260,7 +260,7 @@ func TestGCInvisibilityAudit(t *testing.T) {
 	if _, err := vp9Enc4.EncodeIntoWithResult(ycbcr, pkt); err != nil {
 		t.Fatal(err)
 	}
-	logReport("VP9Encoder 720p 4T", vp9Enc4, 99.3)
+	logReport("VP9Encoder 720p 4T", vp9Enc4, 99.4)
 
 	// 4. VP9Decoder
 	vp9Dec, err := NewVP9Decoder(VP9DecoderOptions{})
