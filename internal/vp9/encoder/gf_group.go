@@ -235,6 +235,7 @@ type GFGroupInputs struct {
 // libvpx: vp9/encoder/vp9_firstpass.c:2761 define_gf_group
 func DefineGFGroup(in GFGroupInputs) GFGroup {
 	var gf GFGroup
+	gf.SourceAltRefActive = in.SourceAltRefActive
 
 	// libvpx: const int arf_active_or_kf =
 	//   is_key_frame || rc->source_alt_ref_active;

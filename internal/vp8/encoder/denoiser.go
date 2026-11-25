@@ -58,6 +58,8 @@ type DenoiseParams struct {
 // 2 selects YUV, 3 selects YUV-aggressive (matching libvpx exactly).
 func DenoiserSetParameters(mode int) (kind int, params DenoiseParams) {
 	switch mode {
+	case DenoiserOff:
+		return DenoiserOff, DenoiseParams{}
 	case 1:
 		kind = DenoiserOnYOnly
 	case 2:

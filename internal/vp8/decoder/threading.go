@@ -107,24 +107,33 @@ func ReconstructAndLoopFilterPipelined(
 	}
 
 	// LF state init (matches ApplyLoopFilter setup exactly).
-	var simple bool
-	if loopFilterEnabled {
-		common.InitLoopFilterInfo(lfi, int(header.SharpnessLevel))
-		common.InitLoopFilterFrame(lfi, int(header.Level), loopFilterFrameConfig(header, segmentation))
-		simple = header.Type == SimpleLoopFilter
-	}
-
 	if rows == 0 {
 		return nil
 	}
 
-	// reconAt is the lock-free progress counter published by the
-	// reconstruction goroutine. The LF goroutine reads it with
-	// atomic.Load and spins (Gosched fallback after a small budget) until
-	// the required row count is reached. errFlag is a one-shot abort
-	// signal so a producer error unblocks the LF consumer immediately.
+	// Fast path: when loop filtering is disabled or level 0, run reconstruction
+	// directly without spawning goroutines or initializing loop-filter tables.
+	if !loopFilterEnabled || header.Level == 0 {
+		for row := range rows {
+			var err error
+			if keyFrame {
+				err = reconstructKeyFrameIntraGridRow(img, row, cols, modes, tokens, dequants, scratch)
+			} else {
+				err = reconstructInterFrameGridRow(img, last, golden, alt, &lastState, &goldenState, &altState, row, cols, modes, tokens, dequants, scratch, cfg)
+			}
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	common.InitLoopFilterInfo(lfi, int(header.SharpnessLevel))
+	common.InitLoopFilterFrame(lfi, int(header.Level), loopFilterFrameConfig(header, segmentation))
+	simple := header.Type == SimpleLoopFilter
+
 	state := pipelineStatePool.Get().(*pipelineState)
-	state.reset(rows)
+	state.reset()
 	defer pipelineStatePool.Put(state)
 
 	var reconErr, lfErr error
@@ -143,22 +152,15 @@ func ReconstructAndLoopFilterPipelined(
 			}
 			if err != nil {
 				reconErr = err
-				atomic.StoreInt32(&state.errFlag, 1)
-				atomic.StoreInt32(&state.reconAt, int32(rows))
+				state.abort()
 				return
 			}
-			atomic.StoreInt32(&state.reconAt, int32(row+1))
+			state.advanceRecon(row + 1)
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
-		if !loopFilterEnabled {
-			// Drain the recon side without doing LF work. We spin on the
-			// progress counter so a producer error is visible.
-			waitReconAtLeast(state, rows)
-			return
-		}
 		for row := range rows {
 			// LF row R must wait for recon row R+1 to finish: recon row
 			// R+1's rightmost MB reads the extended right-border at row
@@ -172,9 +174,6 @@ func ReconstructAndLoopFilterPipelined(
 			if !waitReconAtLeast(state, needed) {
 				lfErr = ErrThreadingPipelineFailure
 				return
-			}
-			if header.Level == 0 {
-				continue
 			}
 			var err error
 			if simple {
@@ -200,44 +199,49 @@ func ReconstructAndLoopFilterPipelined(
 	return nil
 }
 
+// pipelineStateAborted is the single-word terminal abort state packed into
+// pipelineState.progress (< 0 = Aborted, >= 0 = completed recon rows).
+// Packing progress and abort into one atomic.Int32 reduces waitReconAtLeast
+// to a single atomic load per check with zero abort-ordering hazard.
+const pipelineStateAborted int32 = -1
+
 // pipelineState shares lock-free progress between the recon producer and
-// the LF consumer. reconAt monotonically advances and is only ever
-// read/written via atomic.{Load,Store}Int32. errFlag is a one-shot
-// poison: setting it lets a waiting consumer abort without first having
-// to observe rows == reconAt.
+// the LF consumer.
 type pipelineState struct {
-	reconAt int32
-	errFlag int32
+	progress atomic.Int32
 }
 
-func (s *pipelineState) reset(rows int) {
-	atomic.StoreInt32(&s.reconAt, 0)
-	atomic.StoreInt32(&s.errFlag, 0)
-	_ = rows
+func (s *pipelineState) reset() {
+	s.progress.Store(0)
+}
+
+func (s *pipelineState) advanceRecon(completedRows int) {
+	s.progress.Store(int32(completedRows))
+}
+
+func (s *pipelineState) abort() {
+	s.progress.Store(pipelineStateAborted)
 }
 
 // pipelineStatePool reuses pipelineState across frames so the per-frame
-// allocation cost (~16 bytes) does not show up in the steady-state decoder
-// path. The pool is package-level so multiple decoder instances share the
-// same set of free states.
+// allocation cost does not show up in the steady-state decoder path.
 var pipelineStatePool = sync.Pool{
 	New: func() any { return &pipelineState{} },
 }
 
-// waitReconAtLeast spins on the recon progress counter until it reaches
-// at least `want`, returning false if a producer error has been raised in
-// the meantime. The spin starts pure-CPU (handful of iterations) before
-// falling back to runtime.Gosched so a busy frame never blocks a
-// scheduler turn entirely. Empirically a 720p frame (45 rows) sees zero
-// Gosched calls — the producer is always ahead of the consumer because
-// recon-row work dominates LF-row work.
+// waitReconAtLeast spins on the packed progress word until it reaches at least
+// `want` (returning true) or transitions to pipelineStateAborted (returning
+// false). Because `want >= 1` and `pipelineStateAborted < 0`, a single atomic
+// load detects both completion and abort unambiguously.
 func waitReconAtLeast(s *pipelineState, want int) bool {
 	const spinBudget = 256
+	want32 := int32(want)
 	for i := 0; ; i++ {
-		if int(atomic.LoadInt32(&s.reconAt)) >= want {
+		cur := s.progress.Load()
+		if cur >= want32 {
 			return true
 		}
-		if atomic.LoadInt32(&s.errFlag) != 0 {
+		if cur < 0 {
 			return false
 		}
 		if i >= spinBudget {

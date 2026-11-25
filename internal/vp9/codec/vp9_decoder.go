@@ -194,13 +194,25 @@ type VP9FrameInfo struct {
 // (e.g., 10/12-bit Profiles 2 and 3).
 var ErrVP9NotImplemented = vpxerrors.ErrVP9NotImplemented
 
+// vp9DecoderState is the explicit lifecycle state of a VP9Decoder:
+//
+//	ColdStart (zero frames decoded / Reset) --frame--> Active <--> FrameReady
+//	Any                                     --Close()-> Closed (terminal)
+type vp9DecoderState uint8
+
+const (
+	vp9DecoderColdStart vp9DecoderState = iota
+	vp9DecoderActive
+	vp9DecoderFrameReady
+	vp9DecoderClosed
+)
+
 // VP9Decoder is the public entry point for VP9 stream decoding. The
 // internal/vp9 package carries the parser and DSP kernels; this type
 // holds the per-frame context (FrameContext, SegmentationParams,
 // LoopfilterParams, dequant tables) the parser needs across frames.
 type VP9Decoder struct {
-	opts   VP9DecoderOptions
-	closed bool
+	opts VP9DecoderOptions
 
 	// Pointer-containing fields are grouped at the top of VP9Decoder so Go's
 	// GC only scans up to PtrBytes (the end of this group) and skips the ~40 KiB
@@ -270,10 +282,8 @@ type VP9Decoder struct {
 	sfCacheNext            int
 	sfCache                [4]vp9ScaleFactorsEntry
 	lastInfo               VP9FrameInfo
-	lastInfoValid          bool
+	lifecycle              vp9DecoderState
 	lastHeaderValid        bool
-	initialized            bool
-	frameReady             bool
 	unsupportedReconstruct bool
 	predictLumaOnly        bool
 	predictChromaOnly      bool
@@ -488,9 +498,25 @@ func (f *vp9ReferenceFrame) bitDepthValue() int {
 // NewVP9Decoder creates a VP9 decoder with validated options. The
 // zero value of opts is valid: it produces a single-threaded decoder
 // with no dimension caps.
+func (d *VP9Decoder) isClosed() bool {
+	return d == nil || d.lifecycle == vp9DecoderClosed
+}
+
+func (d *VP9Decoder) isActive() bool {
+	return d != nil && (d.lifecycle == vp9DecoderActive || d.lifecycle == vp9DecoderFrameReady)
+}
+
 func NewVP9Decoder(opts VP9DecoderOptions) (*VP9Decoder, error) {
 	if err := validateVP9DecoderOptions(opts); err != nil {
 		return nil, err
+	}
+	if opts.DecodeTileRowSet && opts.DecodeTileRow < 0 {
+		opts.DecodeTileRowSet = false
+		opts.DecodeTileRow = 0
+	}
+	if opts.DecodeTileColSet && opts.DecodeTileCol < 0 {
+		opts.DecodeTileColSet = false
+		opts.DecodeTileCol = 0
 	}
 	d := &VP9Decoder{opts: opts}
 	d.resetVP9FrameContexts()
@@ -597,7 +623,7 @@ func (d *VP9Decoder) decryptVP9Packet(packet []byte) []byte {
 // filtering. Subsequent Decode calls decode only frames 0..layer from a VP9
 // superframe, matching VP9_DECODE_SVC_SPATIAL_LAYER.
 func (d *VP9Decoder) SetSVCSpatialLayer(layer uint8) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	if layer >= VP9RTPMaxSpatialLayers {
@@ -611,7 +637,7 @@ func (d *VP9Decoder) SetSVCSpatialLayer(layer uint8) error {
 // ClearSVCSpatialLayer disables VP9 spatial-SVC superframe filtering so
 // subsequent Decode calls decode every frame listed in a VP9 superframe.
 func (d *VP9Decoder) ClearSVCSpatialLayer() error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	d.opts.SVCSpatialLayerSet = false
@@ -624,7 +650,7 @@ func (d *VP9Decoder) ClearSVCSpatialLayer() error {
 // (combined with the DecodeTileCol filter). Values < 0 clear the filter so
 // the decoder reconstructs every tile row.
 func (d *VP9Decoder) SetDecodeTileRow(row int) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	if row > vp9DecoderMaxTileFilter {
@@ -645,7 +671,7 @@ func (d *VP9Decoder) SetDecodeTileRow(row int) error {
 // column (combined with the DecodeTileRow filter). Values < 0 clear the
 // filter so the decoder reconstructs every tile column.
 func (d *VP9Decoder) SetDecodeTileCol(col int) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	if col > vp9DecoderMaxTileFilter {
@@ -693,7 +719,7 @@ func (d *VP9Decoder) vp9TileFilterActive() bool {
 // workers can be slotted in. Requires the decoder to have been constructed
 // with Threads > 1; otherwise ErrInvalidConfig is returned.
 func (d *VP9Decoder) SetRowMT(enabled bool) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	if enabled && d.opts.Threads <= 1 {
@@ -726,7 +752,7 @@ func (d *VP9Decoder) SetRowMT(enabled bool) error {
 // the decoder to have been constructed with Threads > 1; otherwise
 // ErrInvalidConfig is returned.
 func (d *VP9Decoder) SetLoopFilterOpt(enabled bool) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	if enabled && d.opts.Threads <= 1 {
@@ -740,7 +766,7 @@ func (d *VP9Decoder) SetLoopFilterOpt(enabled bool) error {
 // subsequent frames skip the in-loop deblock pass even if their headers carry a
 // non-zero loop-filter level.
 func (d *VP9Decoder) SetSkipLoopFilter(enabled bool) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	d.opts.SkipLoopFilter = enabled
@@ -751,7 +777,7 @@ func (d *VP9Decoder) SetSkipLoopFilter(enabled bool) error {
 // enabled, subsequent multi-tile frames process each tile row from the rightmost
 // tile column to the leftmost tile column.
 func (d *VP9Decoder) SetInvertTileDecodeOrder(enabled bool) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	d.opts.InvertTileDecodeOrder = enabled
@@ -763,7 +789,7 @@ func (d *VP9Decoder) SetInvertTileDecodeOrder(enabled bool) error {
 // powers of two in [32, 1024] and apply to subsequently prepared output
 // frames.
 func (d *VP9Decoder) SetByteAlignment(alignment int) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	if err := validateVP9ByteAlignment(alignment); err != nil {
@@ -781,7 +807,7 @@ func (d *VP9Decoder) SetByteAlignment(alignment int) error {
 func (d *VP9Decoder) SetFrameBufferFunctions(get VP9GetFrameBufferFunc,
 	release VP9ReleaseFrameBufferFunc,
 ) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	if get == nil || release == nil {
@@ -799,9 +825,8 @@ func (d *VP9Decoder) vp9FrameBufferCallbacksLocked() bool {
 	if d == nil {
 		return true
 	}
-	return d.initialized || d.lastHeaderValid || d.lastInfoValid ||
-		d.width != 0 || d.height != 0 || d.visibleFrames != 0 ||
-		d.frameReady
+	return d.lifecycle != vp9DecoderColdStart || d.lastHeaderValid ||
+		d.width != 0 || d.height != 0 || d.visibleFrames != 0
 }
 
 // Decode is the VP9 entry point. It is equivalent to DecodeWithPTS
@@ -822,7 +847,7 @@ func (d *VP9Decoder) Decode(packet []byte) error {
 // dimensions, loopfilter state, segmentation state, mode-info buffers,
 // reference slots, and last-frame metadata are updated.
 func (d *VP9Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	packet = d.decryptVP9Packet(packet)
@@ -928,7 +953,7 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 				d.replaceVP9LastFrameInternal(nil)
 			}
 		}
-		d.finishVP9FrameInfo(info)
+		d.finishVP9FrameInfo(info, true)
 		return nil
 	}
 
@@ -939,12 +964,9 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 	if !vp9dec.SupportedOutputFormat(&hdr) {
 		d.lastHeader = hdr
 		d.lastHeaderValid = true
-		if !hdr.ShowExistingFrame {
-			d.width = int(hdr.Width)
-			d.height = int(hdr.Height)
-		}
-		d.frameReady = false
-		d.finishVP9FrameInfo(info)
+		d.width = int(hdr.Width)
+		d.height = int(hdr.Height)
+		d.finishVP9FrameInfo(info, false)
 		return ErrVP9NotImplemented
 	}
 
@@ -977,27 +999,25 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 	}, &d.dq)
 	vp9dec.LoopFilterFrameInit(&d.lfi, &hdr.Loopfilter, &hdr.Seg,
 		int(hdr.Loopfilter.FilterLevel))
+	if d.vp9TilePool != nil {
+		d.vp9TilePool.rowMTFrame.markIdle()
+	}
 
+	d.unsupportedReconstruct = false
 	if hdr.FrameType == common.KeyFrame || hdr.IntraOnly {
-		d.unsupportedReconstruct = !vp9dec.SupportedOutputFormat(&hdr)
-		if !d.unsupportedReconstruct {
-			if err := d.prepareVP9OutputFrameFormat(int(hdr.Width), int(hdr.Height),
-				hdr.BitDepthColor.SubsamplingX, hdr.BitDepthColor.SubsamplingY,
-				hdr.BitDepthColor.BitDepth); err != nil {
-				return err
-			}
+		if err := d.prepareVP9OutputFrameFormat(int(hdr.Width), int(hdr.Height),
+			hdr.BitDepthColor.SubsamplingX, hdr.BitDepthColor.SubsamplingY,
+			hdr.BitDepthColor.BitDepth); err != nil {
+			return err
 		}
 		if err := d.parseVP9IntraModeTiles(packet[compEnd:], &hdr, compHeader); err != nil {
 			return err
 		}
 	} else {
-		d.unsupportedReconstruct = !vp9dec.SupportedOutputFormat(&hdr)
-		if !d.unsupportedReconstruct {
-			if err := d.prepareVP9OutputFrameFormat(int(hdr.Width), int(hdr.Height),
-				hdr.BitDepthColor.SubsamplingX, hdr.BitDepthColor.SubsamplingY,
-				hdr.BitDepthColor.BitDepth); err != nil {
-				return err
-			}
+		if err := d.prepareVP9OutputFrameFormat(int(hdr.Width), int(hdr.Height),
+			hdr.BitDepthColor.SubsamplingX, hdr.BitDepthColor.SubsamplingY,
+			hdr.BitDepthColor.BitDepth); err != nil {
+			return err
 		}
 		d.prepareVP9CurrentFrameMvs(&hdr)
 		if err := d.parseVP9InterModeTiles(packet[compEnd:], &hdr, compHeader); err != nil {
@@ -1015,21 +1035,19 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 
 	d.lastHeader = hdr
 	d.lastHeaderValid = true
-	if !hdr.ShowExistingFrame {
-		d.width = int(hdr.Width)
-		d.height = int(hdr.Height)
-	}
+	d.width = int(hdr.Width)
+	d.height = int(hdr.Height)
 	d.finishVP9CurrentFrameMvs(&hdr)
-	d.frameReady = false
 	if d.vp9CanPublishReconstructedFrame(&hdr) {
 		d.refreshVP9ReferenceFrames(&hdr)
+		ready := false
 		if hdr.ShowFrame {
 			output, err := d.outputVP9FrameImage(&hdr, info, d.lastFrame)
 			if err != nil {
 				return err
 			}
 			d.lastFrame = output
-			d.frameReady = true
+			ready = true
 			if d.opts.effectivePostProcessFlags() == 0 && d.frameExternal != nil {
 				d.replaceVP9LastFrameExternal(d.frameExternal)
 				d.frameExternal = nil
@@ -1045,8 +1063,11 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 			d.releaseVP9ActiveExternalFrame()
 			d.releaseVP9ActiveInternalFrame()
 		}
-		d.finishVP9FrameInfo(info)
+		d.finishVP9FrameInfo(info, ready)
 		return nil
+	}
+	if d.lifecycle == vp9DecoderFrameReady {
+		d.lifecycle = vp9DecoderActive
 	}
 	return ErrVP9NotImplemented
 }
@@ -1061,7 +1082,7 @@ func (d *VP9Decoder) DecodeInto(packet []byte, dst *Image) (VP9FrameInfo, error)
 // DecodeIntoWithPTS is DecodeInto with an explicit presentation timestamp.
 // pts is echoed back in the returned VP9FrameInfo.
 func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (VP9FrameInfo, error) {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return VP9FrameInfo{}, ErrClosed
 	}
 	if dst == nil {
@@ -1099,10 +1120,10 @@ func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (V
 			}
 		}
 		info := d.lastInfo
-		if !d.lastInfoValid {
+		if !d.isActive() {
 			return VP9FrameInfo{}, ErrInvalidVP9Data
 		}
-		d.frameReady = false
+		d.lifecycle = vp9DecoderActive
 		if info.ShowFrame {
 			if dst.Subsampling != info.Subsampling ||
 				int(dst.EffectiveBitDepth()) != info.BitDepth ||
@@ -1129,10 +1150,10 @@ func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (V
 	if err := d.decodeVP9PacketWithPTS(packet, pts); err != nil {
 		return VP9FrameInfo{}, err
 	}
-	if d.lastInfoValid {
+	if d.isActive() {
 		info = d.lastInfo
+		d.lifecycle = vp9DecoderActive
 	}
-	d.frameReady = false
 	if info.ShowFrame {
 		copyVP9ImageToPublic(dst, d.lastFrame)
 	}
@@ -1165,7 +1186,7 @@ func (d *VP9Decoder) readVP9UncompressedHeader(packet []byte) (vp9dec.Uncompress
 	if d.opts.MaxHeight > 0 && int(hdr.Height) > d.opts.MaxHeight {
 		return vp9dec.UncompressedHeader{}, 0, ErrFrameRejected
 	}
-	if d.initialized && d.opts.RejectResolutionChange &&
+	if d.isActive() && d.opts.RejectResolutionChange &&
 		(int(hdr.Width) != d.width || int(hdr.Height) != d.height) {
 		return vp9dec.UncompressedHeader{}, 0, ErrFrameRejected
 	}
@@ -1205,10 +1226,13 @@ func (d *VP9Decoder) vp9FrameInfoFromHeader(hdr *vp9dec.UncompressedHeader, pts 
 	return info, nil
 }
 
-func (d *VP9Decoder) finishVP9FrameInfo(info VP9FrameInfo) {
+func (d *VP9Decoder) finishVP9FrameInfo(info VP9FrameInfo, frameReady bool) {
 	d.lastInfo = info
-	d.lastInfoValid = true
-	d.initialized = true
+	if frameReady {
+		d.lifecycle = vp9DecoderFrameReady
+	} else {
+		d.lifecycle = vp9DecoderActive
+	}
 	if info.ShowFrame {
 		d.visibleFrames++
 	}
@@ -1267,12 +1291,11 @@ func (d *VP9Decoder) decodeVP9ShowExistingFrame(hdr *vp9dec.UncompressedHeader) 
 	}
 	d.width = ref.img.Width
 	d.height = ref.img.Height
-	d.frameReady = true
 	return nil
 }
 
 func (d *VP9Decoder) canConcealVP9Frame() bool {
-	if !d.initialized || d.width <= 0 || d.height <= 0 {
+	if !d.isActive() || d.width <= 0 || d.height <= 0 {
 		return false
 	}
 	for i := range d.refFrames {
@@ -1317,8 +1340,7 @@ func (d *VP9Decoder) concealVP9Frame(hdr *vp9dec.UncompressedHeader,
 	}
 	d.width = ref.img.Width
 	d.height = ref.img.Height
-	d.frameReady = true
-	d.finishVP9FrameInfo(info)
+	d.finishVP9FrameInfo(info, true)
 	return nil
 }
 
@@ -2012,7 +2034,7 @@ func (d *VP9Decoder) refDims(slot uint8) (uint32, uint32) {
 // LastFrameSize returns the (width, height) of the last successfully
 // decoded VP9 frame. Returns (0, 0) before any successful header parse.
 func (d *VP9Decoder) LastFrameSize() (width, height int) {
-	if d == nil {
+	if d.isClosed() {
 		return 0, 0
 	}
 	return d.width, d.height
@@ -2022,7 +2044,7 @@ func (d *VP9Decoder) LastFrameSize() (width, height int) {
 // decoded frame, mirroring libvpx VP9D_GET_DISPLAY_SIZE. It returns (0, 0)
 // before any successful frame metadata is available.
 func (d *VP9Decoder) LastDisplaySize() (width, height int) {
-	if d == nil || !d.lastInfoValid {
+	if !d.isActive() {
 		return 0, 0
 	}
 	return d.lastInfo.RenderWidth, d.lastInfo.RenderHeight
@@ -2032,7 +2054,7 @@ func (d *VP9Decoder) LastDisplaySize() (width, height int) {
 // ok is false on a nil or closed decoder, and before the first successful
 // Decode/DecodeInto call.
 func (d *VP9Decoder) LastFrameInfo() (VP9FrameInfo, bool) {
-	if d == nil || d.closed || !d.lastInfoValid {
+	if !d.isActive() {
 		return VP9FrameInfo{}, false
 	}
 	return d.lastInfo, true
@@ -2044,7 +2066,7 @@ func (d *VP9Decoder) LastFrameInfo() (VP9FrameInfo, bool) {
 // on a nil or closed decoder, and before the first successful Decode or
 // DecodeInto call.
 func (d *VP9Decoder) LastFrameCorrupted() (corrupted bool, ok bool) {
-	if d == nil || d.closed || !d.lastInfoValid {
+	if !d.isActive() {
 		return false, false
 	}
 	return d.lastInfo.Corrupted, true
@@ -2055,7 +2077,7 @@ func (d *VP9Decoder) LastFrameCorrupted() (corrupted bool, ok bool) {
 // getter on the VP9 decoder control map. ok is false on a nil or closed
 // decoder, and before the first successful Decode or DecodeInto call.
 func (d *VP9Decoder) LastReferenceUpdates() (flags uint8, ok bool) {
-	if d == nil || d.closed || !d.lastInfoValid {
+	if !d.isActive() {
 		return 0, false
 	}
 	return d.lastInfo.RefreshFrameFlags, true
@@ -2065,7 +2087,7 @@ func (d *VP9Decoder) LastReferenceUpdates() (flags uint8, ok bool) {
 // mirroring libvpx VP9D_GET_BIT_DEPTH. ok is false on a nil or closed decoder,
 // and before the first successful Decode or DecodeInto call.
 func (d *VP9Decoder) LastBitDepth() (bitDepth int, ok bool) {
-	if d == nil || d.closed || !d.lastInfoValid {
+	if !d.isActive() {
 		return 0, false
 	}
 	return d.lastInfo.BitDepth, true
@@ -2078,10 +2100,10 @@ func (d *VP9Decoder) LastBitDepth() (bitDepth int, ok bool) {
 // The returned image aliases decoder-owned storage. That storage stays
 // valid until the next Decode or Close call.
 func (d *VP9Decoder) NextFrame() (Image, bool) {
-	if d == nil || d.closed || !d.frameReady {
+	if d == nil || d.lifecycle != vp9DecoderFrameReady {
 		return Image{}, false
 	}
-	d.frameReady = false
+	d.lifecycle = vp9DecoderActive
 	return d.lastFrame, true
 }
 
@@ -2099,11 +2121,9 @@ func (d *VP9Decoder) Reset() {
 	d.replaceVP9LastFrameExternal(nil)
 	d.releaseVP9ActiveInternalFrame()
 	d.replaceVP9LastFrameInternal(nil)
-	d.frameReady = false
+	d.lifecycle = vp9DecoderColdStart
 	d.lastFrame = Image{}
 	d.lastInfo = VP9FrameInfo{}
-	d.lastInfoValid = false
-	d.initialized = false
 	d.visibleFrames = 0
 	d.width = 0
 	d.height = 0
@@ -2154,7 +2174,7 @@ func (d *VP9Decoder) Reset() {
 // idempotent: calling it on an already-closed decoder returns
 // [ErrClosed] without re-tearing-down the worker pools.
 func (d *VP9Decoder) Close() error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	d.Reset()
@@ -2166,7 +2186,7 @@ func (d *VP9Decoder) Close() error {
 		d.vp9TilePool.shutdown()
 		d.vp9TilePool = nil
 	}
-	d.closed = true
+	d.lifecycle = vp9DecoderClosed
 	return nil
 }
 

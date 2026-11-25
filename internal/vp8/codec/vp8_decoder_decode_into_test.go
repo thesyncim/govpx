@@ -191,9 +191,9 @@ func TestDecoderHotPathAllocs(t *testing.T) {
 		}
 	}
 
-	d.closed = false
+	d.lifecycle = vp8DecoderNeedKey
 	allocs := testing.AllocsPerRun(1000, func() {
-		d.closed = false
+		d.lifecycle = vp8DecoderNeedKey
 		_ = d.Close()
 	})
 	if allocs != 0 {

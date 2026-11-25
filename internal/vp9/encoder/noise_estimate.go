@@ -202,7 +202,7 @@ func (ne *NoiseEstimateState) Update(args NoiseEstimateUpdateArgs) {
 	} else {
 		ne.Count++
 	}
-	if ne.Count == ne.NumFramesEstimate {
+	if ne.NumFramesEstimate > 0 && ne.Count >= ne.NumFramesEstimate {
 		ne.NumFramesEstimate = 30
 		ne.Count = 0
 		ne.Level = ne.ExtractLevel()

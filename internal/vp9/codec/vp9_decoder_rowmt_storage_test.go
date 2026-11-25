@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
@@ -262,5 +263,192 @@ func TestVP9DecoderRowMTReconMapSync(t *testing.T) {
 	}
 	if storage.reconMapWrite(0, 99) {
 		t.Fatal("out-of-range reconMapWrite returned true")
+	}
+}
+
+func TestVP9DecoderRowMTPhaseTransitions(t *testing.T) {
+	var storage vp9DecoderRowMTFrameStorage
+	storage.reset(4)
+	storage.ensureJobQueue(2, 2)
+
+	if got := storage.currentPhase(); got != vp9RowMTPhaseIdle {
+		t.Fatalf("initial phase = %d, want Idle", got)
+	}
+	if storage.loopFilterActive() || storage.loopFilterApplied() || storage.aborted() {
+		t.Fatal("idle storage reported active/applied/aborted")
+	}
+
+	// RunningNoLPF -> CompletedNoLPF on final tile completion.
+	storage.start(false)
+	if storage.currentPhase() != vp9RowMTPhaseRunningNoLPF || storage.loopFilterActive() {
+		t.Fatalf("start(false) phase = %d", storage.currentPhase())
+	}
+	storage.completeTileRecon()
+	if storage.currentPhase() != vp9RowMTPhaseRunningNoLPF {
+		t.Fatalf("after 1/2 tiles phase = %d, want RunningNoLPF", storage.currentPhase())
+	}
+	storage.completeTileRecon()
+	if storage.currentPhase() != vp9RowMTPhaseCompletedNoLPF || !storage.jobq.done() {
+		t.Fatalf("after 2/2 tiles phase = %d, done = %v", storage.currentPhase(), storage.jobq.done())
+	}
+	if storage.loopFilterApplied() {
+		t.Fatal("CompletedNoLPF reported loopFilterApplied")
+	}
+
+	// RunningWithLPF -> CompletedWithLPF on final LPF row.
+	storage.reset(4)
+	storage.ensureJobQueue(2, 2)
+	storage.start(true)
+	if !storage.loopFilterActive() || storage.loopFilterApplied() {
+		t.Fatalf("start(true) active=%v applied=%v", storage.loopFilterActive(), storage.loopFilterApplied())
+	}
+	storage.completeTileRecon()
+	storage.completeTileRecon()
+	if storage.currentPhase() != vp9RowMTPhaseRunningWithLPF {
+		t.Fatalf("completeTileRecon mutated RunningWithLPF to %d", storage.currentPhase())
+	}
+	storage.completeLastLPFRow()
+	if !storage.loopFilterApplied() || !storage.jobq.done() {
+		t.Fatalf("completeLastLPFRow phase=%d done=%v", storage.currentPhase(), storage.jobq.done())
+	}
+
+	// Aborted is terminal: completeLastLPFRow / completeTileRecon must not overwrite it.
+	storage.reset(4)
+	storage.ensureJobQueue(2, 2)
+	storage.start(true)
+	storage.abort()
+	if !storage.aborted() || !storage.jobq.done() {
+		t.Fatalf("abort phase=%d done=%v", storage.currentPhase(), storage.jobq.done())
+	}
+	storage.completeLastLPFRow()
+	storage.completeTileRecon()
+	if !storage.aborted() || storage.loopFilterApplied() {
+		t.Fatalf("terminal Aborted overwritten: phase=%d", storage.currentPhase())
+	}
+
+	// markIdle clears CompletedWithLPF for non-RowMT frames.
+	storage.start(true)
+	storage.completeLastLPFRow()
+	if !storage.loopFilterApplied() {
+		t.Fatal("expected loopFilterApplied before markIdle")
+	}
+	storage.markIdle()
+	if storage.loopFilterApplied() || storage.currentPhase() != vp9RowMTPhaseIdle {
+		t.Fatalf("markIdle left phase=%d", storage.currentPhase())
+	}
+}
+
+func TestVP9DecoderRowMTReconMapAbortNoDeadlock(t *testing.T) {
+	var storage vp9DecoderRowMTFrameStorage
+	storage.reset(4)
+	storage.ensureJobQueue(2, 2)
+	storage.start(true)
+
+	done := make(chan bool, 1)
+	go func() {
+		done <- storage.reconMapRead(3, 1)
+	}()
+	// Give the waiter a moment to enter Wait(), then abort.
+	time.Sleep(5 * time.Millisecond)
+	storage.abort()
+
+	select {
+	case ok := <-done:
+		if ok {
+			t.Fatal("reconMapRead returned true after abort, want false")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("reconMapRead deadlocked after storage.abort()")
+	}
+}
+
+func TestVP9DecoderRowMTLfSyncAbortNoDeadlock(t *testing.T) {
+	var lfSync vp9LfSync
+	lfSync.reset(4, 1280)
+
+	done := make(chan bool, 1)
+	go func() {
+		done <- lfSync.read(2, 0)
+	}()
+	time.Sleep(5 * time.Millisecond)
+	lfSync.abort()
+
+	select {
+	case ok := <-done:
+		if ok {
+			t.Fatal("lfSync.read returned true after abort, want false")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("lfSync.read deadlocked after lfSync.abort()")
+	}
+}
+
+func TestVP9DecoderRowMTLoopFilterNotSkippedOnSubsequentSerialFrame(t *testing.T) {
+	packet := vp9test.MultiTileModePacketWithFilter(t, 1024, 256, 2, 32,
+		[]common.PredictionMode{common.DcPred, common.VPred,
+			common.HPred, common.TmPred})
+	serial := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
+		VP9DecoderOptions{}, packet)
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4, DecoderRowMT: true})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	defer d.Close()
+
+	// Frame 1: runs Row-MT with LPF -> phase becomes CompletedWithLPF.
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode frame 1: %v", err)
+	}
+	frame1, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("frame 1 NextFrame returned !ok")
+	}
+	assertVP9ImagesEqual(t, serial, frame1)
+	if !d.vp9DecoderRowMTLoopFilterApplied() {
+		t.Fatal("frame 1 did not apply Row-MT loop filter")
+	}
+
+	// Frame 2: InvertTileDecodeOrder forces the serial tile path while
+	// DecoderRowMT stays enabled. Phase must reset to Idle so the frame
+	// loop filter is NOT skipped.
+	if err := d.SetInvertTileDecodeOrder(true); err != nil {
+		t.Fatalf("SetInvertTileDecodeOrder: %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode frame 2: %v", err)
+	}
+	frame2, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("frame 2 NextFrame returned !ok")
+	}
+	if d.vp9DecoderRowMTLoopFilterApplied() {
+		t.Fatal("frame 2 serial path left stale Row-MT loopFilterApplied=true")
+	}
+	assertVP9ImagesEqual(t, serial, frame2)
+}
+
+func BenchmarkVP9DecoderRowMTStateTransitions(b *testing.B) {
+	var storage vp9DecoderRowMTFrameStorage
+	storage.reset(64)
+	storage.ensureJobQueue(4, 4)
+	storage.lfSync.reset(4, 1280)
+	storage.lfSync.write(0, 15, 16)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		storage.markIdle()
+		storage.start(true)
+		if !storage.loopFilterActive() {
+			b.Fatal("expected loopFilterActive")
+		}
+		if !storage.lfSync.read(1, 0) {
+			b.Fatal("expected lfSync.read true")
+		}
+		storage.completeLastLPFRow()
+		if !storage.loopFilterApplied() {
+			b.Fatal("expected loopFilterApplied")
+		}
 	}
 }

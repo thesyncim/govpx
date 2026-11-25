@@ -172,7 +172,18 @@ type vp9RowMTSync struct {
 	curCol    []atomic.Int32
 	rows      int
 	syncRange int
+	aborted   atomic.Bool
 }
+
+// vp9EncodeBarrierPhase is the explicit state of the two-phase tile encode
+// prep/encode barrier in vp9TileWorkerPool.
+type vp9EncodeBarrierPhase uint32
+
+const (
+	vp9EncodeBarrierWaiting vp9EncodeBarrierPhase = iota
+	vp9EncodeBarrierGo
+	vp9EncodeBarrierAborted
+)
 
 // vp9RowMTSyncDefaultRange mirrors libvpx's row_mt_sync->sync_range = 1 init in
 // vp9_row_mt_sync_mem_alloc. A range of one means each completed SB column
@@ -196,6 +207,14 @@ func (s *vp9RowMTSync) reset(rows int) {
 	if s.syncRange == 0 {
 		s.syncRange = vp9RowMTSyncDefaultRange
 	}
+	s.aborted.Store(false)
+}
+
+func (s *vp9RowMTSync) abort() {
+	if s == nil {
+		return
+	}
+	s.aborted.Store(true)
 }
 
 func (s *vp9RowMTSync) release() {
@@ -219,6 +238,9 @@ func (s *vp9RowMTSync) read(r, c int) {
 	}
 	target := int32(c - nsync + 1)
 	for spins := 0; s.curCol[r-1].Load() < target; spins++ {
+		if s.aborted.Load() {
+			return
+		}
 		runtimeProcYield(30)
 		if spins >= rowWorkerIdleSchedulerBackoff &&
 			spins%rowWorkerIdleSchedulerBackoff == 0 {
@@ -513,12 +535,15 @@ func (p *vp9TileWorkerPool) runHelperWorkerJob(workerIndex int) {
 	default:
 		runVP9EncodeTilePrepJob(&p.encodeJobs[workerIndex])
 		p.encodePrepDone.Add(1)
-		for spins := 0; p.encodeStart.Load() == 0; spins++ {
+		for spins := 0; vp9EncodeBarrierPhase(p.encodeStart.Load()) == vp9EncodeBarrierWaiting; spins++ {
 			runtimeProcYield(30)
 			if spins >= rowWorkerIdleSchedulerBackoff &&
 				spins%rowWorkerIdleSchedulerBackoff == 0 {
 				runtime.Gosched()
 			}
+		}
+		if vp9EncodeBarrierPhase(p.encodeStart.Load()) == vp9EncodeBarrierAborted {
+			return
 		}
 		runVP9EncodeTileJob(&p.encodeJobs[workerIndex])
 	}
@@ -609,6 +634,7 @@ func (p *vp9TileWorkerPool) shutdownPool() {
 	select {
 	case <-p.shutdown:
 	default:
+		p.encodeStart.Store(uint32(vp9EncodeBarrierAborted))
 		close(p.shutdown)
 		for workerIndex := 1; workerIndex < len(p.wakeSlots); workerIndex++ {
 			p.wakeSlots[workerIndex].Close()

@@ -523,6 +523,9 @@ func (d PayloadDescriptor) validate() error {
 		if d.SpatialID == 0 && d.InterLayerDependency {
 			return vpxerrors.ErrInvalidConfig
 		}
+		if d.FlexibleMode && d.TL0PICIDX != 0 {
+			return vpxerrors.ErrInvalidConfig
+		}
 	} else if d.TemporalID != 0 || d.SwitchingUpPoint || d.SpatialID != 0 ||
 		d.InterLayerDependency || d.TL0PICIDX != 0 {
 		return vpxerrors.ErrInvalidConfig

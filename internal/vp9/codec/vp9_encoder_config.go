@@ -84,7 +84,8 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 			target.Width, target.Height); err != nil {
 			return err
 		}
-		if e.vp9LookaheadSize() != 0 {
+		if e.vp9LookaheadSize() != 0 || e.autoAltRefPendingSet ||
+			(e.frameParallel != nil && e.frameParallel.hasPendingResults()) {
 			return ErrFrameNotReady
 		}
 	}

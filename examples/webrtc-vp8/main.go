@@ -555,18 +555,27 @@ type renditionState struct {
 	bitrateKbps atomic.Int64
 	screenMode  atomic.Int32
 	denoise     atomic.Int32
-	temporalCap atomic.Int32 // 0,1,2 == drop above TL0/TL1/none
-	width       atomic.Int32 // 0 means leave alone; non-zero requests resize
-	height      atomic.Int32
+	temporalCap atomic.Int32  // 0,1,2 == drop above TL0/TL1/none
+	dims        atomic.Uint64 // packed (width<<32 | height); 0 means leave alone
 	paused      atomic.Bool
 	forceKey    atomic.Bool
 	withhold    atomic.Int32
+	frameCount  atomic.Int64
 
 	roiRadius atomic.Int32 // in 16x16 macroblock cells; 0 == use default
 
 	roiMu      sync.Mutex
 	roiPending *govpx.ROIMap // installed on next encoder tick when non-nil
 	roiActive  bool          // most recent install state for telemetry
+}
+
+func (rs *renditionState) setDims(w, h int) {
+	rs.dims.Store(uint64(uint32(w))<<32 | uint64(uint32(h)))
+}
+
+func (rs *renditionState) loadDims() (int, int) {
+	packed := rs.dims.Load()
+	return int(uint32(packed >> 32)), int(uint32(packed))
 }
 
 type controlMessage struct {
@@ -820,8 +829,7 @@ func applyControl(sess *session, m controlMessage) {
 			if !validDim(m.W) || !validDim(m.H) {
 				return
 			}
-			rs.width.Store(int32(m.W))
-			rs.height.Store(int32(m.H))
+			rs.setDims(m.W, m.H)
 		}
 	case "roi":
 		if rs := sess.rendition(m.ID); rs != nil {
@@ -865,7 +873,7 @@ func (rs *renditionState) installROI(u, v float64) {
 		rs.roiActive = false
 		return
 	}
-	w, h := int(rs.width.Load()), int(rs.height.Load())
+	w, h := rs.loadDims()
 	if w == 0 || h == 0 {
 		w, h = rs.cfg.Width, rs.cfg.Height
 	}
@@ -969,8 +977,7 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 	currentDenoise := 0
 	currentActiveMap := false
 	currentWidth, currentHeight := rs.cfg.Width, rs.cfg.Height
-	rs.width.Store(int32(currentWidth))
-	rs.height.Store(int32(currentHeight))
+	rs.setDims(currentWidth, currentHeight)
 	var pts uint64
 	rtpTimestamp := randomUint32()
 	rtpSequence := randomUint16()
@@ -990,7 +997,7 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 			lastTick = tick
 		}
 
-		if wantW, wantH := int(rs.width.Load()), int(rs.height.Load()); wantW > 0 && wantH > 0 &&
+		if wantW, wantH := rs.loadDims(); wantW > 0 && wantH > 0 &&
 			(wantW != currentWidth || wantH != currentHeight) {
 			if err := enc.SetRealtimeTarget(govpx.RealtimeTarget{
 				Width:  wantW,
@@ -1299,18 +1306,16 @@ type telemetryMessage struct {
 	LoopUS int `json:"loop_us"`
 }
 
-var frameCounter [renditionCount]int
-
 func frameTelemetry(idx int, rs *renditionState, target, screen, denoise, width, height int,
 	r govpx.EncodeResult, tracker *kbpsTracker, suppressed, forcedKey, withheld bool, withheldAUs, encodeUS, writeUS, rtpPackets, loopUS int,
 ) []byte {
-	frameCounter[idx]++
+	frameNum := int(rs.frameCount.Add(1))
 	rs.roiMu.Lock()
 	roi := rs.roiActive
 	rs.roiMu.Unlock()
 	msg := telemetryMessage{
 		ID:          idx,
-		Frame:       frameCounter[idx],
+		Frame:       frameNum,
 		Width:       width,
 		Height:      height,
 		Q:           r.Quantizer,
@@ -1340,13 +1345,13 @@ func frameTelemetry(idx int, rs *renditionState, target, screen, denoise, width,
 }
 
 func dropTelemetry(idx int, rs *renditionState, target, screen, denoise, width, height int, encodeUS, loopUS int) []byte {
-	frameCounter[idx]++
+	frameNum := int(rs.frameCount.Add(1))
 	rs.roiMu.Lock()
 	roi := rs.roiActive
 	rs.roiMu.Unlock()
 	msg := telemetryMessage{
 		ID:         idx,
-		Frame:      frameCounter[idx],
+		Frame:      frameNum,
 		Width:      width,
 		Height:     height,
 		TargetKbps: target,

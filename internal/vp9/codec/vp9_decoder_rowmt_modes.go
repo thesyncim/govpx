@@ -245,17 +245,17 @@ func (d *VP9Decoder) prepareVP9DecoderRowMTLoopFilter(
 	if d == nil || storage == nil || hdr == nil {
 		return false
 	}
-	storage.loopFilterActive = !d.unsupportedReconstruct &&
+	lpfActive := !d.unsupportedReconstruct &&
 		hdr.Loopfilter.FilterLevel != 0 && !d.opts.SkipLoopFilter
-	storage.loopFilterApplied = false
-	if !storage.loopFilterActive {
-		return true
+	if lpfActive {
+		if !d.prepareVP9LoopFilterMaskStorage(miRows, miCols) {
+			storage.markIdle()
+			return false
+		}
+		sbRows := (miRows + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
+		storage.lfSync.reset(sbRows, int(hdr.Width))
 	}
-	if !d.prepareVP9LoopFilterMaskStorage(miRows, miCols) {
-		return false
-	}
-	sbRows := (miRows + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
-	storage.lfSync.reset(sbRows, int(hdr.Width))
+	storage.start(lpfActive)
 	return true
 }
 
@@ -263,7 +263,7 @@ func (d *VP9Decoder) vp9DecoderRowMTLoopFilterApplied() bool {
 	if d == nil || d.vp9TilePool == nil || !d.opts.DecoderRowMT {
 		return false
 	}
-	return d.vp9TilePool.rowMTFrame.loopFilterApplied
+	return d.vp9TilePool.rowMTFrame.loopFilterApplied()
 }
 
 func (d *VP9Decoder) runVP9DecoderMultiTileRowMTJobs(
@@ -603,7 +603,7 @@ func (d *VP9Decoder) reconstructVP9InterModeTileRowMTRow(
 func (s *vp9DecoderRowMTFrameStorage) queueLoopFilterJobs(miRow,
 	miRowStart, miRowEnd int,
 ) bool {
-	if s == nil || !s.loopFilterActive {
+	if s == nil || !s.loopFilterActive() {
 		return true
 	}
 	sbRow := miRow >> common.MiBlockSizeLog2

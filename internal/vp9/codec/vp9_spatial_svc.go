@@ -1212,10 +1212,12 @@ func (e *VP9SpatialSVCEncoder) SetInterLayerPrediction(enabled bool) error {
 		}
 	}
 	for i := range count {
-		layer := e.layers[i]
-		if layer == nil {
+		if e.layers[i] == nil {
 			return ErrClosed
 		}
+	}
+	for i := range count {
+		layer := e.layers[i]
 		spatial := layer.opts.SpatialScalability
 		spatial.InterLayerDependency = enabled && i > 0
 		spatial.NotRefForUpperSpatialLayer = !enabled || i == count-1

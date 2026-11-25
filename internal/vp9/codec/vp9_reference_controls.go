@@ -57,7 +57,7 @@ func (e *VP9Encoder) CopyReferenceFrame(ref ReferenceFrame, dst *Image) error {
 // the stream dimensions established by a successfully decoded frame and provide
 // valid I420 strides.
 func (d *VP9Decoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	slot, ok := vp9PublicReferenceFrameSlot(ref)
@@ -74,7 +74,7 @@ func (d *VP9Decoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
 // [ReferenceLast], [ReferenceGolden], or [ReferenceAltRef]; dst must be
 // non-nil, match the active stream dimensions, and provide valid I420 strides.
 func (d *VP9Decoder) CopyReferenceFrame(ref ReferenceFrame, dst *Image) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	if dst == nil {
@@ -95,10 +95,10 @@ func (d *VP9Decoder) CopyReferenceFrame(ref ReferenceFrame, dst *Image) error {
 // VP9_GET_REFERENCE control, which exposes the current show-frame buffer rather
 // than one of the LAST/GOLDEN/ALTREF reference slots.
 func (d *VP9Decoder) CopyCurrentFrame(dst *Image) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
-	if dst == nil || !d.lastInfoValid || !d.lastInfo.ShowFrame ||
+	if dst == nil || !d.isActive() || !d.lastInfo.ShowFrame ||
 		!dst.ValidForEncode(d.lastFrame.Width, d.lastFrame.Height) {
 		return ErrInvalidConfig
 	}
@@ -107,7 +107,7 @@ func (d *VP9Decoder) CopyCurrentFrame(dst *Image) error {
 }
 
 func (d *VP9Decoder) vp9ReferenceFramesInitialized() bool {
-	return d.initialized && d.width > 0 && d.height > 0
+	return d.isActive() && d.width > 0 && d.height > 0
 }
 
 func vp9PublicReferenceFrameSlot(ref ReferenceFrame) (int, bool) {

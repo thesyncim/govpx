@@ -218,7 +218,7 @@ func TestVP9DecoderRowMTOneTileUsesRowMTScaffold(t *testing.T) {
 			}
 		}
 	}
-	if !d.vp9TilePool.rowMTFrame.loopFilterApplied {
+	if !d.vp9TilePool.rowMTFrame.loopFilterApplied() {
 		t.Fatal("rowMTFrame loop filter was not applied")
 	}
 	if got, want := len(d.vp9TilePool.rowMTFrame.uvMode), 32*16; got != want {
@@ -280,7 +280,7 @@ func TestVP9DecoderRowMTMultiTileUsesSharedQueue(t *testing.T) {
 	if got, want := cap(storage.jobq.jobs), 36; got != want {
 		t.Fatalf("row-mt queue cap = %d, want %d", got, want)
 	}
-	if !storage.jobq.done() || !storage.loopFilterApplied {
+	if !storage.jobq.done() || !storage.loopFilterApplied() {
 		t.Fatal("multi-tile row-mt queue or loop filter did not finish")
 	}
 	var counts [3]int

@@ -1077,7 +1077,21 @@ func spatialCapForAccessUnit(ctl *controlState, current int, forceKey bool) int 
 	return clampSpatialCap(int(ctl.spatialCap.Load()))
 }
 
+// spatialCapBackoffPhase is the explicit state of adaptive spatial-cap backoff:
+//
+//	Uninit -> Nominal -> Pressured -> BackedOff <-> Recovering -> Nominal
+type spatialCapBackoffPhase uint8
+
+const (
+	spatialCapBackoffUninit spatialCapBackoffPhase = iota
+	spatialCapBackoffNominal
+	spatialCapBackoffPressured
+	spatialCapBackoffBackedOff
+	spatialCapBackoffRecovering
+)
+
 type spatialCapBackoff struct {
+	phase          spatialCapBackoffPhase
 	maxCap         int
 	lastRequested  int
 	overrunStreak  int
@@ -1087,24 +1101,41 @@ type spatialCapBackoff struct {
 func newSpatialCapBackoff(initialCap int) spatialCapBackoff {
 	cap := clampSpatialCap(initialCap)
 	return spatialCapBackoff{
+		phase:         spatialCapBackoffNominal,
 		maxCap:        cap,
 		lastRequested: cap,
 	}
 }
 
+func (b *spatialCapBackoff) resetToRequested(requestedCap int) {
+	b.phase = spatialCapBackoffNominal
+	b.lastRequested = requestedCap
+	b.maxCap = requestedCap
+	b.overrunStreak = 0
+	b.recoveryStreak = 0
+}
+
+func (b *spatialCapBackoff) ensureInit(requestedCap int) {
+	if b.phase == spatialCapBackoffUninit {
+		if b.maxCap == 0 {
+			b.maxCap = requestedCap
+		}
+		if b.lastRequested == 0 {
+			b.lastRequested = requestedCap
+		}
+		if b.maxCap < b.lastRequested {
+			b.phase = spatialCapBackoffBackedOff
+		} else {
+			b.phase = spatialCapBackoffNominal
+		}
+	}
+}
+
 func (b *spatialCapBackoff) effectiveCap(requestedCap int) int {
 	requestedCap = clampSpatialCap(requestedCap)
-	if b.maxCap == 0 {
-		b.maxCap = requestedCap
-	}
-	if b.lastRequested == 0 {
-		b.lastRequested = requestedCap
-	}
+	b.ensureInit(requestedCap)
 	if requestedCap != b.lastRequested {
-		b.lastRequested = requestedCap
-		b.maxCap = requestedCap
-		b.overrunStreak = 0
-		b.recoveryStreak = 0
+		b.resetToRequested(requestedCap)
 		return requestedCap
 	}
 	maxCap := clampSpatialCap(b.maxCap)
@@ -1122,17 +1153,9 @@ func (b *spatialCapBackoff) observe(
 ) bool {
 	activeCap = clampSpatialCap(activeCap)
 	requestedCap = clampSpatialCap(requestedCap)
-	if b.maxCap == 0 {
-		b.maxCap = requestedCap
-	}
-	if b.lastRequested == 0 {
-		b.lastRequested = requestedCap
-	}
+	b.ensureInit(requestedCap)
 	if requestedCap != b.lastRequested {
-		b.lastRequested = requestedCap
-		b.maxCap = requestedCap
-		b.overrunStreak = 0
-		b.recoveryStreak = 0
+		b.resetToRequested(requestedCap)
 		return activeCap != requestedCap
 	}
 	if interval <= 0 {
@@ -1142,13 +1165,20 @@ func (b *spatialCapBackoff) observe(
 		b.recoveryStreak = 0
 		if activeCap >= clampSpatialCap(b.maxCap) && b.maxCap > 1 {
 			b.overrunStreak++
+			b.phase = spatialCapBackoffPressured
 			if b.overrunStreak >= spatialCapBackoffOverruns {
 				b.maxCap--
 				b.overrunStreak = 0
+				b.phase = spatialCapBackoffBackedOff
 				return activeCap != b.maxCap
 			}
 		} else {
 			b.overrunStreak = 0
+			if b.maxCap < b.lastRequested {
+				b.phase = spatialCapBackoffBackedOff
+			} else {
+				b.phase = spatialCapBackoffNominal
+			}
 		}
 		return false
 	}
@@ -1156,13 +1186,24 @@ func (b *spatialCapBackoff) observe(
 	if requestedCap > b.maxCap && activeCap == b.maxCap &&
 		elapsed < interval*3/4 {
 		b.recoveryStreak++
+		b.phase = spatialCapBackoffRecovering
 		if b.recoveryStreak >= spatialCapBackoffRecoveryFrames {
 			b.maxCap++
 			b.recoveryStreak = 0
+			if b.maxCap >= b.lastRequested {
+				b.phase = spatialCapBackoffNominal
+			} else {
+				b.phase = spatialCapBackoffBackedOff
+			}
 			return activeCap != b.maxCap
 		}
 	} else {
 		b.recoveryStreak = 0
+		if b.maxCap < b.lastRequested {
+			b.phase = spatialCapBackoffBackedOff
+		} else {
+			b.phase = spatialCapBackoffNominal
+		}
 	}
 	return false
 }

@@ -118,7 +118,7 @@ func (d *VP9Decoder) DecodeRTP(payloads []RTPPayloadFragment) error {
 
 // DecodeRTPWithPTS is DecodeRTP with an explicit presentation timestamp.
 func (d *VP9Decoder) DecodeRTPWithPTS(payloads []RTPPayloadFragment, pts uint64) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	frame, err := AssembleVP9RTPFrame(payloads)
@@ -139,7 +139,7 @@ func (d *VP9Decoder) DecodeRTPInto(frameBuf []byte, payloads []RTPPayloadFragmen
 // DecodeRTPIntoWithPTS is DecodeRTPInto with an explicit presentation
 // timestamp.
 func (d *VP9Decoder) DecodeRTPIntoWithPTS(frameBuf []byte, payloads []RTPPayloadFragment, pts uint64) (int, error) {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return 0, ErrClosed
 	}
 	n, err := AssembleVP9RTPFrameInto(frameBuf, payloads)

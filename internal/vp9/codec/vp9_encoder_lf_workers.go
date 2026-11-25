@@ -22,6 +22,7 @@ type vp9LfSync struct {
 	tilesDone []atomic.Int32
 	rows      int
 	syncRange int
+	aborted   atomic.Bool
 }
 
 // vp9LfSyncRange mirrors get_sync_range (vp9_thread_common.c:249):
@@ -65,6 +66,14 @@ func (s *vp9LfSync) reset(sbRows, width int) {
 	}
 	s.rows = sbRows
 	s.syncRange = vp9LfSyncRange(width)
+	s.aborted.Store(false)
+}
+
+func (s *vp9LfSync) abort() {
+	if s == nil {
+		return
+	}
+	s.aborted.Store(true)
 }
 
 // tileRowDone mirrors lpf_map_write_check: the final tile reconstruction for
@@ -78,23 +87,27 @@ func (s *vp9LfSync) tileRowDone(row, tileCols int) bool {
 
 // read mirrors sync_read (vp9_thread_common.c:22): before filtering SB
 // (r, c) the worker waits until row r-1 has advanced at least sync range
-// columns past c.
-func (s *vp9LfSync) read(r, c int) {
+// columns past c. Returns false if the sync was aborted by a sibling error.
+func (s *vp9LfSync) read(r, c int) bool {
 	if s == nil || r <= 0 || r >= s.rows {
-		return
+		return true
 	}
 	nsync := s.syncRange
 	if nsync <= 0 || (c&(nsync-1)) != 0 {
-		return
+		return true
 	}
 	target := int32(c + nsync)
 	for spins := 0; s.curSbCol[r-1].Load() < target; spins++ {
+		if s.aborted.Load() {
+			return false
+		}
 		runtimeProcYield(30)
 		if spins >= rowWorkerIdleSchedulerBackoff &&
 			spins%rowWorkerIdleSchedulerBackoff == 0 {
 			runtime.Gosched()
 		}
 	}
+	return true
 }
 
 // write mirrors sync_write (vp9_thread_common.c:42): record the row's
@@ -169,12 +182,14 @@ func (d *VP9Decoder) applyVP9LoopFilterRowsInterleaved(miRows, miCols,
 		r := miRow >> common.MiBlockSizeLog2
 		for miCol := 0; miCol < miCols; miCol += common.MiBlockSize {
 			c := miCol >> common.MiBlockSizeLog2
-			lfSync.read(r, c)
+			if !lfSync.read(r, c) {
+				return false
+			}
 			lfm, ok := d.vp9LoopFilterMaskAt(miRow, miCol)
 			if !ok || !d.vp9FilterLoopBlock(miRows, miCols, miRow, miCol, lfm) {
-				// Defensive bail: release the rows this worker owns so
-				// siblings blocked in read never deadlock, then report
-				// the failure to the dispatcher.
+				// Defensive bail: abort sync and release the rows this worker
+				// owns so siblings blocked in read never deadlock.
+				lfSync.abort()
 				lfSync.write(r, sbCols-1, sbCols)
 				lfSync.markRowsDone(r+step, step, sbRows, sbCols)
 				return false
@@ -196,6 +211,7 @@ func (d *VP9Decoder) applyVP9LoopFilterRowMT(miRows, miCols, miRow int,
 	}
 	endMiRow := min(miRow+common.MiBlockSize, miRows)
 	if !d.prepareVP9LoopFilterMasksCached(miRows, miCols, miRow, endMiRow) {
+		lfSync.abort()
 		return false
 	}
 	sbRows := (miRows + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
@@ -203,9 +219,12 @@ func (d *VP9Decoder) applyVP9LoopFilterRowMT(miRows, miCols, miRow int,
 	r := miRow >> common.MiBlockSizeLog2
 	for miCol := 0; miCol < miCols; miCol += common.MiBlockSize {
 		c := miCol >> common.MiBlockSizeLog2
-		lfSync.read(r, c)
+		if !lfSync.read(r, c) {
+			return false
+		}
 		lfm, ok := d.vp9LoopFilterMaskAt(miRow, miCol)
 		if !ok || !d.vp9FilterLoopBlock(miRows, miCols, miRow, miCol, lfm) {
+			lfSync.abort()
 			lfSync.write(r, sbCols-1, sbCols)
 			lfSync.markRowsDone(r+1, 1, sbRows, sbCols)
 			return false

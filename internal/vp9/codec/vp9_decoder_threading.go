@@ -261,6 +261,26 @@ func (q *vp9DecoderRowMTJobQueue) done() bool {
 	return done
 }
 
+// vp9RowMTPhase is the explicit lifecycle state of one frame's Row-MT
+// decode pipeline. Within a single frame, transitions are monotonic:
+//
+//	Idle -> RunningNoLPF   -> CompletedNoLPF   | Aborted
+//	Idle -> RunningWithLPF -> CompletedWithLPF | Aborted
+//
+// Reset/Idle transitions occur single-threaded at frame start before helper
+// workers are dispatched. All concurrent reads and transitions use lock-free
+// atomics with zero heap allocations and zero GC pointer overhead.
+type vp9RowMTPhase uint32
+
+const (
+	vp9RowMTPhaseIdle vp9RowMTPhase = iota
+	vp9RowMTPhaseRunningNoLPF
+	vp9RowMTPhaseRunningWithLPF
+	vp9RowMTPhaseCompletedNoLPF
+	vp9RowMTPhaseCompletedWithLPF
+	vp9RowMTPhaseAborted
+)
+
 type vp9DecoderRowMTFrameStorage struct {
 	numSBs   int
 	numJobs  int
@@ -280,9 +300,87 @@ type vp9DecoderRowMTFrameStorage struct {
 	lfSync        vp9LfSync
 	tileStates    []vp9DecoderRowMTTileState
 	tilesDone     atomic.Int32
+	phase         atomic.Uint32
+}
 
-	loopFilterActive  bool
-	loopFilterApplied bool
+func (s *vp9DecoderRowMTFrameStorage) currentPhase() vp9RowMTPhase {
+	if s == nil {
+		return vp9RowMTPhaseIdle
+	}
+	return vp9RowMTPhase(s.phase.Load())
+}
+
+func (s *vp9DecoderRowMTFrameStorage) markIdle() {
+	if s == nil {
+		return
+	}
+	s.phase.Store(uint32(vp9RowMTPhaseIdle))
+}
+
+func (s *vp9DecoderRowMTFrameStorage) start(withLPF bool) {
+	if s == nil {
+		return
+	}
+	if withLPF {
+		s.phase.Store(uint32(vp9RowMTPhaseRunningWithLPF))
+	} else {
+		s.phase.Store(uint32(vp9RowMTPhaseRunningNoLPF))
+	}
+}
+
+func (s *vp9DecoderRowMTFrameStorage) loopFilterActive() bool {
+	return s.currentPhase() == vp9RowMTPhaseRunningWithLPF
+}
+
+func (s *vp9DecoderRowMTFrameStorage) loopFilterApplied() bool {
+	return s.currentPhase() == vp9RowMTPhaseCompletedWithLPF
+}
+
+func (s *vp9DecoderRowMTFrameStorage) aborted() bool {
+	return s.currentPhase() == vp9RowMTPhaseAborted
+}
+
+func (s *vp9DecoderRowMTFrameStorage) completeTileRecon() {
+	if s == nil || s.currentPhase() != vp9RowMTPhaseRunningNoLPF {
+		return
+	}
+	if s.tilesDone.Add(1) == int32(s.tileCols) {
+		if s.phase.CompareAndSwap(uint32(vp9RowMTPhaseRunningNoLPF), uint32(vp9RowMTPhaseCompletedNoLPF)) {
+			s.jobq.terminate()
+		}
+	}
+}
+
+func (s *vp9DecoderRowMTFrameStorage) completeLastLPFRow() {
+	if s == nil {
+		return
+	}
+	if s.phase.CompareAndSwap(uint32(vp9RowMTPhaseRunningWithLPF), uint32(vp9RowMTPhaseCompletedWithLPF)) {
+		s.jobq.terminate()
+	}
+}
+
+func (s *vp9DecoderRowMTFrameStorage) abort() {
+	if s == nil {
+		return
+	}
+	if vp9RowMTPhase(s.phase.Swap(uint32(vp9RowMTPhaseAborted))) == vp9RowMTPhaseAborted {
+		return
+	}
+	s.jobq.terminate()
+	s.lfSync.abort()
+	s.wakeAllReconWaiters()
+}
+
+func (s *vp9DecoderRowMTFrameStorage) wakeAllReconWaiters() {
+	for i := range s.reconCond {
+		if s.reconCond[i] == nil {
+			continue
+		}
+		s.reconMu[i].Lock()
+		s.reconCond[i].Broadcast()
+		s.reconMu[i].Unlock()
+	}
 }
 
 type vp9DecoderRowMTTileState struct {
@@ -313,8 +411,7 @@ func (s *vp9DecoderRowMTFrameStorage) reset(numSBs int) {
 		s.tileCols = 0
 		s.tileStates = s.tileStates[:0]
 		s.tilesDone.Store(0)
-		s.loopFilterActive = false
-		s.loopFilterApplied = false
+		s.phase.Store(uint32(vp9RowMTPhaseIdle))
 		return
 	}
 
@@ -334,8 +431,7 @@ func (s *vp9DecoderRowMTFrameStorage) reset(numSBs int) {
 	s.tileCols = 0
 	s.tileStates = s.tileStates[:0]
 	s.tilesDone.Store(0)
-	s.loopFilterActive = false
-	s.loopFilterApplied = false
+	s.phase.Store(uint32(vp9RowMTPhaseIdle))
 }
 
 func (s *vp9DecoderRowMTFrameStorage) ensureModeStorage(miRows, miCols int) {
@@ -392,8 +488,7 @@ func (s *vp9DecoderRowMTFrameStorage) release() {
 	s.lfSync = vp9LfSync{}
 	s.tileStates = nil
 	s.tilesDone.Store(0)
-	s.loopFilterActive = false
-	s.loopFilterApplied = false
+	s.phase.Store(uint32(vp9RowMTPhaseIdle))
 }
 
 func (s *vp9DecoderRowMTFrameStorage) prepareTileStates(parent *VP9Decoder,
@@ -472,10 +567,14 @@ func (s *vp9DecoderRowMTFrameStorage) reconMapRead(mapIdx, syncIdx int) bool {
 	mu := &s.reconMu[syncIdx]
 	mu.Lock()
 	for s.reconMap[mapIdx] == 0 {
+		if s.aborted() {
+			mu.Unlock()
+			return false
+		}
 		s.reconCond[syncIdx].Wait()
 	}
 	mu.Unlock()
-	return true
+	return !s.aborted()
 }
 
 type vp9DecoderTileJob struct {
@@ -1123,11 +1222,12 @@ func (j *vp9DecoderTileJob) runRowMT() {
 	worker.rowMTSync = nil
 	worker.interPredictScratch = j.interPredictScratch
 	spins := 0
+workLoop:
 	for {
 		rowJob, ok := j.rowMTStorage.jobq.dequeue(false)
 		if !ok {
 			if j.rowMTStorage.jobq.done() {
-				break
+				break workLoop
 			}
 			runtimeProcYield(30)
 			spins++
@@ -1146,50 +1246,42 @@ func (j *vp9DecoderTileJob) runRowMT() {
 		case vp9DecoderRowMTJobParse:
 			if err := j.runRowMTParse(rowJob); err != nil {
 				j.err = err
-				j.rowMTStorage.jobq.terminate()
-				break
+				j.rowMTStorage.abort()
+				break workLoop
 			}
-			continue
 		case vp9DecoderRowMTJobLPF:
 			if !worker.applyVP9LoopFilterRowMT(j.miRows, j.miCols,
 				rowJob.rowNum, &j.rowMTStorage.lfSync) {
 				j.err = ErrInvalidVP9Data
-				j.rowMTStorage.jobq.terminate()
-				break
+				j.rowMTStorage.abort()
+				break workLoop
 			}
 			if rowJob.rowNum+common.MiBlockSize >= j.miRows {
-				j.rowMTStorage.loopFilterApplied = true
-				j.rowMTStorage.jobq.terminate()
+				j.rowMTStorage.completeLastLPFRow()
 			}
-			continue
 		case vp9DecoderRowMTJobRecon:
+			var err error
+			if j.kind == vp9DecoderTileJobIntra {
+				err = worker.reconstructVP9IntraModeTileRowMTRow(
+					j.hdr, j.rowMTStorage, tile, j.miRows, j.miCols,
+					rowJob.rowNum, rowJob.tileCol)
+			} else {
+				err = worker.reconstructVP9InterModeTileRowMTRow(
+					j.hdr, j.rowMTStorage, tile, j.miRows, j.miCols,
+					rowJob.rowNum, rowJob.tileCol)
+			}
+			if err != nil {
+				j.err = err
+				j.rowMTStorage.abort()
+				break workLoop
+			}
+			if rowJob.rowNum+common.MiBlockSize >= tile.MiRowEnd {
+				j.rowMTStorage.completeTileRecon()
+			}
 		default:
 			j.err = ErrInvalidVP9Data
-			j.rowMTStorage.jobq.terminate()
-			break
-		}
-		if j.err != nil {
-			break
-		}
-		var err error
-		if j.kind == vp9DecoderTileJobIntra {
-			err = worker.reconstructVP9IntraModeTileRowMTRow(
-				j.hdr, j.rowMTStorage, tile, j.miRows, j.miCols,
-				rowJob.rowNum, rowJob.tileCol)
-		} else {
-			err = worker.reconstructVP9InterModeTileRowMTRow(
-				j.hdr, j.rowMTStorage, tile, j.miRows, j.miCols,
-				rowJob.rowNum, rowJob.tileCol)
-		}
-		if err != nil {
-			j.err = err
-			j.rowMTStorage.jobq.terminate()
-			break
-		}
-		lastRow := rowJob.rowNum+common.MiBlockSize >= tile.MiRowEnd
-		if !j.rowMTStorage.loopFilterActive && lastRow &&
-			j.rowMTStorage.tilesDone.Add(1) == int32(j.rowMTStorage.tileCols) {
-			j.rowMTStorage.jobq.terminate()
+			j.rowMTStorage.abort()
+			break workLoop
 		}
 	}
 	j.interPredictScratch = worker.interPredictScratch

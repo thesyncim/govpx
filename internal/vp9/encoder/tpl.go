@@ -327,6 +327,9 @@ func (s *TPLState) Populate(frames []*image.YCbCr) {
 		s.deriveFrameR0(slab)
 		slab.Valid = true
 	}
+	for idx := limit; idx < len(s.frames); idx++ {
+		s.frames[idx].Valid = false
+	}
 }
 
 // computeIntraStats fills the intra-only stats for slab against src.  Used on

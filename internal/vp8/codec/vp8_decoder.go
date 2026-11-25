@@ -57,18 +57,27 @@ type DecoderOptions struct {
 	RejectResolutionChange bool
 }
 
+// vp8DecoderState is the explicit lifecycle state of a VP8Decoder:
+//
+//	NeedKey (cold start / Reset) --keyframe--> Active <--> FrameReady
+//	Any                          --Close()---> Closed (terminal)
+type vp8DecoderState uint8
+
+const (
+	vp8DecoderNeedKey vp8DecoderState = iota
+	vp8DecoderActive
+	vp8DecoderFrameReady
+	vp8DecoderClosed
+)
+
 // VP8Decoder decodes raw VP8 frame payloads.
 type VP8Decoder struct {
 	opts            DecoderOptions
-	closed          bool
-	needKey         bool
-	frameReady      bool
+	lifecycle       vp8DecoderState
 	lastFrame       Image
 	lastInfo        FrameInfo
-	lastInfoValid   bool
 	currentPTS      uint64
 	visibleFrames   int
-	initialized     bool
 	ecActive        bool
 	frameCorrupt    bool
 	frameSuppress   bool
@@ -113,6 +122,14 @@ type VP8Decoder struct {
 	reconstructScratch vp8dec.IntraReconstructionScratch
 }
 
+func (d *VP8Decoder) isClosed() bool {
+	return d == nil || d.lifecycle == vp8DecoderClosed
+}
+
+func (d *VP8Decoder) isActive() bool {
+	return d != nil && (d.lifecycle == vp8DecoderActive || d.lifecycle == vp8DecoderFrameReady)
+}
+
 // NewVP8Decoder creates a VP8 decoder with validated options. The zero
 // value of opts is valid: it produces a single-threaded decoder with no
 // postprocessing, no error concealment, and no dimension caps.
@@ -121,10 +138,11 @@ func NewVP8Decoder(opts DecoderOptions) (*VP8Decoder, error) {
 		return nil, err
 	}
 	d := &VP8Decoder{
-		opts:           opts,
-		needKey:        true,
-		coefProbs:      vp8tables.DefaultCoefProbs,
-		frameCoefProbs: vp8tables.DefaultCoefProbs,
+		opts:            opts,
+		lifecycle:       vp8DecoderNeedKey,
+		residualCorrupt: -1,
+		coefProbs:       vp8tables.DefaultCoefProbs,
+		frameCoefProbs:  vp8tables.DefaultCoefProbs,
 	}
 	vp8dec.ResetModeProbs(&d.modeProbs)
 	vp8dec.ResetModeProbs(&d.frameModeProbs)
@@ -136,7 +154,7 @@ func NewVP8Decoder(opts DecoderOptions) (*VP8Decoder, error) {
 // in [0, 16] and requires PostProcessAddNoise when non-zero. The update is
 // atomic: invalid inputs leave the existing decoder options unchanged.
 func (d *VP8Decoder) SetPostProcess(flags PostProcessFlag, noiseLevel int) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	next := d.opts
@@ -149,7 +167,7 @@ func (d *VP8Decoder) SetPostProcess(flags PostProcessFlag, noiseLevel int) error
 // runtime, including deblocking strength. deblockingLevel and noiseLevel must
 // be in [0, 16]. The update is atomic.
 func (d *VP8Decoder) SetPostProcessConfig(flags PostProcessFlag, deblockingLevel int, noiseLevel int) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	next := d.opts
@@ -185,7 +203,7 @@ func (d *VP8Decoder) setPostProcessOptions(next DecoderOptions) error {
 // SetDecryptor changes the VP8D_SET_DECRYPTOR callback and opaque state used
 // before parsing compressed bytes. Passing nil disables decryption.
 func (d *VP8Decoder) SetDecryptor(decryptor VP8Decryptor, state any) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	d.opts.Decryptor = decryptor
@@ -227,7 +245,7 @@ func (d *VP8Decoder) Decode(packet []byte) error {
 // DecodeWithPTS is Decode with an explicit presentation timestamp. pts is
 // echoed back through [VP8Decoder.LastFrameInfo].
 func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	packet = d.decryptPacket(packet)
@@ -239,20 +257,20 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 			if err != nil {
 				return err
 			}
-			d.frameReady = false
+			d.lifecycle = vp8DecoderActive
 			if frameInfo.ShowFrame {
 				output, err := d.outputReferenceFrameImage(info, &d.current.Img)
 				if err != nil {
 					return err
 				}
 				d.lastFrame = publicImageFromVP8(output)
-				d.frameReady = true
+				d.lifecycle = vp8DecoderFrameReady
 			}
 			return nil
 		}
 		return err
 	}
-	if d.needKey && !info.KeyFrame {
+	if d.lifecycle == vp8DecoderNeedKey && !info.KeyFrame {
 		return ErrNeedKeyFrame
 	}
 	if err := d.validateStreamInfo(info); err != nil {
@@ -261,14 +279,14 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 	if err := d.decodeFramePacket(packet, frame, info); err != nil {
 		if d.opts.effectiveErrorConcealment() && d.canConceal(info) {
 			frameInfo := d.finishConcealedFrame(info, pts)
-			d.frameReady = false
+			d.lifecycle = vp8DecoderActive
 			if frameInfo.ShowFrame {
 				output, err := d.outputReferenceFrameImage(info, &d.lastRef.Img)
 				if err != nil {
 					return err
 				}
 				d.lastFrame = publicImageFromVP8(output)
-				d.frameReady = true
+				d.lifecycle = vp8DecoderFrameReady
 			}
 			return nil
 		}
@@ -277,7 +295,7 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 
 	d.finishFrame(info, pts)
 	if !info.ShowFrame || d.frameSuppress {
-		d.frameReady = false
+		d.lifecycle = vp8DecoderActive
 		return nil
 	}
 	output, err := d.outputFrameImage(info)
@@ -285,7 +303,7 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 		return err
 	}
 	d.lastFrame = publicImageFromVP8(output)
-	d.frameReady = true
+	d.lifecycle = vp8DecoderFrameReady
 	return nil
 }
 
@@ -299,10 +317,10 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 // produce a NextFrame result; only their reference-buffer updates take
 // effect.
 func (d *VP8Decoder) NextFrame() (Image, bool) {
-	if d == nil || d.closed || !d.frameReady {
+	if d == nil || d.lifecycle != vp8DecoderFrameReady {
 		return Image{}, false
 	}
-	d.frameReady = false
+	d.lifecycle = vp8DecoderActive
 	return d.lastFrame, true
 }
 
@@ -310,7 +328,7 @@ func (d *VP8Decoder) NextFrame() (Image, bool) {
 // is false on a nil or closed decoder, and before the first successful
 // Decode/DecodeInto call.
 func (d *VP8Decoder) LastFrameInfo() (FrameInfo, bool) {
-	if d == nil || d.closed || !d.lastInfoValid {
+	if !d.isActive() {
 		return FrameInfo{}, false
 	}
 	return d.lastInfo, true
@@ -322,7 +340,7 @@ func (d *VP8Decoder) LastFrameInfo() (FrameInfo, bool) {
 // vp8dx_get_quantizer). ok is false on a nil or closed decoder, and before
 // the first successful Decode/DecodeInto call.
 func (d *VP8Decoder) LastQuantizer() (public int, internal int, ok bool) {
-	if d == nil || d.closed || !d.lastInfoValid {
+	if !d.isActive() {
 		return 0, 0, false
 	}
 	return d.lastInfo.Quantizer, d.lastInfo.InternalQuantizer, true
@@ -334,7 +352,7 @@ func (d *VP8Decoder) LastQuantizer() (public int, internal int, ok bool) {
 // nil or closed decoder, and before the first successful Decode/DecodeInto
 // call.
 func (d *VP8Decoder) LastFrameCorrupted() (corrupted bool, ok bool) {
-	if d == nil || d.closed || !d.lastInfoValid {
+	if !d.isActive() {
 		return false, false
 	}
 	return d.lastInfo.Corrupted, true
@@ -346,7 +364,7 @@ func (d *VP8Decoder) LastFrameCorrupted() (corrupted bool, ok bool) {
 // nil or closed decoder, and before the first successful Decode/DecodeInto
 // call.
 func (d *VP8Decoder) LastReferenceUpdates() (flags ReferenceFlags, ok bool) {
-	if d == nil || d.closed || !d.lastInfoValid {
+	if !d.isActive() {
 		return 0, false
 	}
 	return d.lastInfo.RefUpdates, true
@@ -359,7 +377,7 @@ func (d *VP8Decoder) LastReferenceUpdates() (flags ReferenceFlags, ok bool) {
 // is false on a nil or closed decoder, and before the first successful
 // Decode/DecodeInto call.
 func (d *VP8Decoder) LastReferencesUsed() (flags ReferenceFlags, ok bool) {
-	if d == nil || d.closed || !d.lastInfoValid {
+	if !d.isActive() {
 		return 0, false
 	}
 	return d.lastInfo.RefUsed, true
@@ -372,7 +390,7 @@ func (d *VP8Decoder) LastReferencesUsed() (flags ReferenceFlags, ok bool) {
 // decoded yet or when dimensions or strides do not match. The decoder
 // extends reference borders after copying.
 func (d *VP8Decoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	fb, ok := d.referenceFrameBuffer(ref)
@@ -393,7 +411,7 @@ func (d *VP8Decoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
 // I420 strides. Returns [ErrInvalidConfig] when no key frame has been
 // decoded yet or when dimensions or strides do not match.
 func (d *VP8Decoder) CopyReferenceFrame(ref ReferenceFrame, dst *Image) error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	if dst == nil {
@@ -422,7 +440,7 @@ func (d *VP8Decoder) DecodeInto(packet []byte, dst *Image) (FrameInfo, error) {
 // DecodeIntoWithPTS is DecodeInto with an explicit presentation timestamp.
 // pts is echoed back in the returned FrameInfo.
 func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (FrameInfo, error) {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return FrameInfo{}, ErrClosed
 	}
 	if dst == nil {
@@ -441,7 +459,7 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 			if err != nil {
 				return FrameInfo{}, err
 			}
-			d.frameReady = false
+			d.lifecycle = vp8DecoderActive
 			if frameInfo.ShowFrame {
 				output, err := d.outputReferenceFrameImage(info, &d.current.Img)
 				if err != nil {
@@ -453,7 +471,7 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 		}
 		return FrameInfo{}, err
 	}
-	if d.needKey && !info.KeyFrame {
+	if d.lifecycle == vp8DecoderNeedKey && !info.KeyFrame {
 		return FrameInfo{}, ErrNeedKeyFrame
 	}
 	if err := d.validateStreamInfo(info); err != nil {
@@ -466,7 +484,7 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 	if err := d.decodeFramePacket(packet, frame, info); err != nil {
 		if d.opts.effectiveErrorConcealment() && d.canConceal(info) {
 			frameInfo := d.finishConcealedFrame(info, pts)
-			d.frameReady = false
+			d.lifecycle = vp8DecoderActive
 			if frameInfo.ShowFrame {
 				output, err := d.outputReferenceFrameImage(info, &d.lastRef.Img)
 				if err != nil {
@@ -479,7 +497,7 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 		return FrameInfo{}, err
 	}
 	frameInfo := d.finishFrame(info, pts)
-	d.frameReady = false
+	d.lifecycle = vp8DecoderActive
 	if !info.ShowFrame || d.frameSuppress {
 		if d.frameSuppress {
 			// Mirror libvpx vp8/decoder/onyxd_if.c swap_frame_buffers
@@ -507,14 +525,15 @@ func (d *VP8Decoder) Reset() {
 	if d == nil {
 		return
 	}
-	d.needKey = true
-	d.frameReady = false
+	d.lifecycle = vp8DecoderNeedKey
 	d.lastFrame = Image{}
 	d.lastInfo = FrameInfo{}
-	d.lastInfoValid = false
 	d.currentPTS = 0
 	d.visibleFrames = 0
-	d.initialized = false
+	d.frameWidth = 0
+	d.frameHeight = 0
+	d.mbRows = 0
+	d.mbCols = 0
 	d.ecActive = false
 	d.frameCorrupt = false
 	d.frameSuppress = false
@@ -549,15 +568,19 @@ func (d *VP8Decoder) Reset() {
 // [VP8Decoder.LastFrameInfo] report not-ready instead. Calling Close on
 // a nil or already-closed decoder returns [ErrClosed].
 func (d *VP8Decoder) Close() error {
-	if d == nil || d.closed {
+	if d.isClosed() {
 		return ErrClosed
 	}
 	d.Reset()
-	d.closed = true
+	d.lifecycle = vp8DecoderClosed
 	return nil
 }
 
 func (d *VP8Decoder) decodeFramePacket(packet []byte, frame vp8dec.FrameHeader, info StreamInfo) error {
+	if d.lifecycle == vp8DecoderFrameReady {
+		// Invalidate any unconsumed NextFrame alias before mutating d.current.
+		d.lifecycle = vp8DecoderActive
+	}
 	errorConcealment := d.opts.effectiveErrorConcealment() && d.canConceal(info)
 	if errorConcealment {
 		d.ecActive = true
@@ -675,7 +698,7 @@ func (d *VP8Decoder) validateStreamInfo(info StreamInfo) error {
 	if d.opts.MaxHeight > 0 && info.Height > d.opts.MaxHeight {
 		return ErrFrameRejected
 	}
-	if d.initialized && d.opts.RejectResolutionChange {
+	if d.isActive() && d.opts.RejectResolutionChange {
 		if info.Width != d.lastInfo.Width || info.Height != d.lastInfo.Height {
 			return ErrFrameRejected
 		}
@@ -685,10 +708,7 @@ func (d *VP8Decoder) validateStreamInfo(info StreamInfo) error {
 
 func (d *VP8Decoder) finishFrame(info StreamInfo, pts uint64) FrameInfo {
 	d.currentPTS = pts
-	d.initialized = true
-	if info.KeyFrame {
-		d.needKey = false
-	}
+	d.lifecycle = vp8DecoderActive
 	width, height := d.outputDimensions(info)
 	frameInfo := FrameInfo{
 		Width:             width,
@@ -703,7 +723,6 @@ func (d *VP8Decoder) finishFrame(info StreamInfo, pts uint64) FrameInfo {
 		PTS:               pts,
 	}
 	d.lastInfo = frameInfo
-	d.lastInfoValid = true
 	if info.ShowFrame && !d.frameSuppress {
 		d.visibleFrames++
 	}
@@ -711,7 +730,7 @@ func (d *VP8Decoder) finishFrame(info StreamInfo, pts uint64) FrameInfo {
 }
 
 func (d *VP8Decoder) canConceal(info StreamInfo) bool {
-	return d.initialized &&
+	return d.isActive() &&
 		!info.KeyFrame &&
 		d.frameWidth > 0 &&
 		d.frameHeight > 0 &&
@@ -733,7 +752,7 @@ func (d *VP8Decoder) finishConcealedFrame(info StreamInfo, pts uint64) FrameInfo
 		PTS:               pts,
 	}
 	d.lastInfo = frameInfo
-	d.lastInfoValid = true
+	d.lifecycle = vp8DecoderActive
 	if info.ShowFrame {
 		d.visibleFrames++
 	}
@@ -1154,7 +1173,7 @@ func (d *VP8Decoder) referenceFrameBuffer(ref ReferenceFrame) (*vp8common.FrameB
 // safely use the reference buffers. govpx requires a decoded key frame to
 // establish stream dimensions before callers can replace decoder references.
 func (d *VP8Decoder) referenceFramesInitialized() bool {
-	return d.initialized &&
+	return d.isActive() &&
 		d.frameWidth > 0 &&
 		d.frameHeight > 0 &&
 		d.lastRef.BufferLen() != 0

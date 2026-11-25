@@ -355,10 +355,35 @@ func FrameRefSignBias(hdr *UncompressedHeader) [MaxRefFrames]uint8 {
 	return signBias
 }
 
+// HeaderKind classifies the mutually exclusive VP9 uncompressed frame header
+// variants without colliding on Go's zero value (KeyFrame == 0).
+type HeaderKind uint8
+
+const (
+	HeaderKindShowExisting HeaderKind = iota
+	HeaderKindKeyFrame
+	HeaderKindIntraOnly
+	HeaderKindInterFrame
+)
+
+// Kind returns the explicit frame-header variant of hdr.
+func (hdr *UncompressedHeader) Kind() HeaderKind {
+	if hdr == nil || hdr.ShowExistingFrame {
+		return HeaderKindShowExisting
+	}
+	if hdr.FrameType == common.KeyFrame {
+		return HeaderKindKeyFrame
+	}
+	if hdr.IntraOnly {
+		return HeaderKindIntraOnly
+	}
+	return HeaderKindInterFrame
+}
+
 // CompoundReferenceAllowedForHeader reports whether compound prediction is
 // allowed for this uncompressed header.
 func CompoundReferenceAllowedForHeader(hdr *UncompressedHeader) bool {
-	if hdr.FrameType == common.KeyFrame || hdr.IntraOnly {
+	if hdr == nil || hdr.Kind() != HeaderKindInterFrame {
 		return false
 	}
 	return CompoundReferenceAllowed(FrameRefSignBias(hdr))
@@ -367,8 +392,11 @@ func CompoundReferenceAllowedForHeader(hdr *UncompressedHeader) bool {
 // HeaderResetsPastIndependence reports whether this header resets state that
 // depends on prior frames.
 func HeaderResetsPastIndependence(hdr *UncompressedHeader) bool {
-	return hdr != nil && (hdr.FrameType == common.KeyFrame ||
-		hdr.IntraOnly || hdr.ErrorResilientMode)
+	if hdr == nil || hdr.ShowExistingFrame {
+		return false
+	}
+	return hdr.FrameType == common.KeyFrame ||
+		hdr.IntraOnly || hdr.ErrorResilientMode
 }
 
 // PartitionContextUpdateWidth returns the context update width used by libvpx
