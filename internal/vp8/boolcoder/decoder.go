@@ -414,6 +414,125 @@ func vp8ReadSignedCoeffNoFill(coeff int, value uint64, rng uint32, count int) (i
 	return (v ^ m16) - m16, value << 1, nextRange << 1, count - 1
 }
 
+func decodeVP8NonZeroBlockFast(
+	buf []byte, pos int, value uint64, rng uint32, count int,
+	bt *[tables.CoefBands][tables.PrevCoefContexts][tables.EntropyNodes]uint8,
+	p *[tables.EntropyNodes]uint8,
+	nn int,
+	out *[16]int16,
+) (int, uint64, uint32, int, int) {
+	var bit uint8
+	for {
+		nn++
+		bit, value, rng, count = vp8ReadBoolNoFill(p[1], value, rng, count)
+		if bit == 0 {
+			if nn == 16 {
+				return 16, value, rng, count, pos
+			}
+			p = &bt[tables.CoefBandsTable[nn&15]&7][0]
+			if count < 16 {
+				value, count, pos = fillBoolFast(buf, pos, value, count)
+			}
+			continue
+		}
+		v := 0
+		tokenClass := uint8(2)
+		bit, value, rng, count = vp8ReadBoolNoFill(p[2], value, rng, count)
+		if bit == 0 {
+			tokenClass = 1
+			v = 1
+		} else {
+			if count < 32 {
+				value, count, pos = fillBoolFast(buf, pos, value, count)
+			}
+			bit, value, rng, count = vp8ReadBoolNoFill(p[3], value, rng, count)
+			if bit == 0 {
+				bit, value, rng, count = vp8ReadBoolNoFill(p[4], value, rng, count)
+				if bit == 0 {
+					v = 2
+				} else {
+					bit, value, rng, count = vp8ReadBoolNoFill(p[5], value, rng, count)
+					v = 3 + int(bit)
+				}
+			} else {
+				if count < 32 {
+					value, count, pos = fillBoolFast(buf, pos, value, count)
+				}
+				bit, value, rng, count = vp8ReadBoolNoFill(p[6], value, rng, count)
+				if bit == 0 {
+					bit, value, rng, count = vp8ReadBoolNoFill(p[7], value, rng, count)
+					if bit == 0 {
+						bit, value, rng, count = vp8ReadBoolNoFill(159, value, rng, count)
+						v = 5 + int(bit)
+					} else {
+						bit, value, rng, count = vp8ReadBoolNoFill(165, value, rng, count)
+						v = 7 + 2*int(bit)
+						bit, value, rng, count = vp8ReadBoolNoFill(145, value, rng, count)
+						v += int(bit)
+					}
+				} else {
+					var b1, b0 uint8
+					b1, value, rng, count = vp8ReadBoolNoFill(p[8], value, rng, count)
+					b0, value, rng, count = vp8ReadBoolNoFill(p[9+b1], value, rng, count)
+					cat := 2*int(b1) + int(b0)
+					switch cat {
+					case 0:
+						for _, prob := range tables.Cat3Prob {
+							if count < 0 {
+								value, count, pos = fillBoolFast(buf, pos, value, count)
+							}
+							bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
+							v += v + int(bit)
+						}
+					case 1:
+						for _, prob := range tables.Cat4Prob {
+							if count < 0 {
+								value, count, pos = fillBoolFast(buf, pos, value, count)
+							}
+							bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
+							v += v + int(bit)
+						}
+					case 2:
+						for _, prob := range tables.Cat5Prob {
+							if count < 0 {
+								value, count, pos = fillBoolFast(buf, pos, value, count)
+							}
+							bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
+							v += v + int(bit)
+						}
+					default:
+						for _, prob := range tables.Cat6Prob {
+							if count < 0 {
+								value, count, pos = fillBoolFast(buf, pos, value, count)
+							}
+							bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
+							v += v + int(bit)
+						}
+					}
+					v += 3 + (8 << cat)
+					if count < 0 {
+						value, count, pos = fillBoolFast(buf, pos, value, count)
+					}
+				}
+			}
+		}
+
+		j := tables.DefaultZigZag1D[(nn-1)&15]
+		out[j&15], value, rng, count = vp8ReadSignedCoeffNoFill(v, value, rng, count)
+		if nn == 16 {
+			return 16, value, rng, count, pos
+		}
+		p = &bt[tables.CoefBandsTable[nn&15]&7][tokenClass]
+		if count < 24 {
+			value, count, pos = fillBoolFast(buf, pos, value, count)
+		}
+		bit, value, rng, count = vp8ReadBoolNoFill(p[0], value, rng, count)
+		if bit == 0 {
+			return nn, value, rng, count, pos
+		}
+	}
+}
+
 func (d *Decoder) ReadVP8MacroblockCoeffs(
 	probs *tables.CoefficientProbs, is4x4 bool,
 	aboveY1 *[4]uint8, leftY1 *[4]uint8,
@@ -431,57 +550,59 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 
 	skipDC := 0
 	lumaType := 3
-	idx := 0
+	var bit uint8
+
 	if !is4x4 {
 		skipDC = 1
 		lumaType = 0
-		idx = -1 // decode the Y2 block first
-	}
-
-	var bit uint8
-	for ; idx < 24; idx++ {
 		if pos > fastLimit {
-			d.value = value
-			d.count = count
-			d.rng = rng
-			d.pos = pos
+			d.value, d.count, d.rng, d.pos = value, count, rng, pos
 			return d.readVP8MacroblockCoeffsSlow(
-				probs, is4x4, idx, eobTotal, dirtyMask,
+				probs, is4x4, -1, eobTotal, dirtyMask,
 				aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
 				aboveY2, leftY2, qcoeff, eob,
 			)
 		}
-		var b int
-		var bt *[tables.CoefBands][tables.PrevCoefContexts][tables.EntropyNodes]uint8
-		var aP, lP *uint8
-		var n int
-		switch {
-		case idx < 0:
-			b = 24
-			bt = &(*probs)[1]
-			aP, lP = aboveY2, leftY2
-		case idx < 16:
-			b = idx
-			bt = &(*probs)[lumaType]
-			aP = &aboveY1[idx&3]
-			lP = &leftY1[(idx&0x0c)>>2]
-			n = skipDC
-		default:
-			b = idx
-			bt = &(*probs)[2]
-			if idx < 20 {
-				aP = &aboveU[idx&1]
-				lP = &leftU[(idx&3)>>1]
-			} else {
-				aP = &aboveV[idx&1]
-				lP = &leftV[(idx&3)>>1]
-			}
+		bt := &(*probs)[1]
+		p := &bt[0][int(*aboveY2+*leftY2)]
+		if count < 24 {
+			value, count, pos = fillBoolFast(buf, pos, value, count)
 		}
+		bit, value, rng, count = vp8ReadBoolNoFill(p[0], value, rng, count)
+		if bit == 0 {
+			*aboveY2 = 0
+			*leftY2 = 0
+			eob[24] = 0
+			eobTotal = -16
+		} else {
+			var nz int
+			nz, value, rng, count, pos = decodeVP8NonZeroBlockFast(buf, pos, value, rng, count, bt, p, 0, &qcoeff[24])
+			has := uint8(0)
+			if nz > 0 {
+				has = 1
+				dirtyMask |= 1 << 24
+			}
+			*aboveY2 = has
+			*leftY2 = has
+			eob[24] = uint8(nz)
+			eobTotal = nz - 16
+		}
+	}
 
-		ctx := int(*aP + *lP)
-		p := &bt[n&1][ctx]
-		// One batched refill guarantees count >= 24, covering p[0] (<=7) +
-		// p[1] (<=7) + p[2] (<=7) + sign (1) = <=22 bits on the hot ±1 path.
+	btY := &(*probs)[lumaType]
+	bandY := &btY[skipDC]
+	for b := range 16 {
+		if pos > fastLimit {
+			d.value, d.count, d.rng, d.pos = value, count, rng, pos
+			return d.readVP8MacroblockCoeffsSlow(
+				probs, is4x4, b, eobTotal, dirtyMask,
+				aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
+				aboveY2, leftY2, qcoeff, eob,
+			)
+		}
+		aP := &aboveY1[b&3]
+		lP := &leftY1[b>>2]
+		p := &bandY[int(*aP+*lP)]
 		if count < 24 {
 			value, count, pos = fillBoolFast(buf, pos, value, count)
 		}
@@ -489,153 +610,94 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 		if bit == 0 {
 			*aP = 0
 			*lP = 0
-			if idx < 0 {
-				eob[24] = 0
-				eobTotal -= 16
-			} else if idx < 16 {
-				eob[b] = uint8(skipDC)
-				eobTotal += skipDC
-			} else {
-				eob[b] = 0
-			}
+			eob[b] = uint8(skipDC)
+			eobTotal += skipDC
 			continue
 		}
-		out := &qcoeff[b]
-		nonzeros := 0
-		nn := n
-	walk:
-		for {
-			nn++
-			bit, value, rng, count = vp8ReadBoolNoFill(p[1], value, rng, count)
-			if bit == 0 {
-				if nn == 16 {
-					nonzeros = 16
-					break walk
-				}
-				p = &bt[tables.CoefBandsTable[nn&15]&7][0]
-				if count < 16 {
-					value, count, pos = fillBoolFast(buf, pos, value, count)
-				}
-				continue
-			}
-			v := 0
-			tokenClass := uint8(2)
-			bit, value, rng, count = vp8ReadBoolNoFill(p[2], value, rng, count)
-			if bit == 0 {
-				tokenClass = 1
-				v = 1
-			} else {
-				if count < 32 {
-					value, count, pos = fillBoolFast(buf, pos, value, count)
-				}
-				bit, value, rng, count = vp8ReadBoolNoFill(p[3], value, rng, count)
-				if bit == 0 {
-					bit, value, rng, count = vp8ReadBoolNoFill(p[4], value, rng, count)
-					if bit == 0 {
-						v = 2
-					} else {
-						bit, value, rng, count = vp8ReadBoolNoFill(p[5], value, rng, count)
-						v = 3 + int(bit)
-					}
-				} else {
-					if count < 32 {
-						value, count, pos = fillBoolFast(buf, pos, value, count)
-					}
-					bit, value, rng, count = vp8ReadBoolNoFill(p[6], value, rng, count)
-					if bit == 0 {
-						bit, value, rng, count = vp8ReadBoolNoFill(p[7], value, rng, count)
-						if bit == 0 {
-							bit, value, rng, count = vp8ReadBoolNoFill(159, value, rng, count)
-							v = 5 + int(bit)
-						} else {
-							bit, value, rng, count = vp8ReadBoolNoFill(165, value, rng, count)
-							v = 7 + 2*int(bit)
-							bit, value, rng, count = vp8ReadBoolNoFill(145, value, rng, count)
-							v += int(bit)
-						}
-					} else {
-						var b1, b0 uint8
-						b1, value, rng, count = vp8ReadBoolNoFill(p[8], value, rng, count)
-						b0, value, rng, count = vp8ReadBoolNoFill(p[9+b1], value, rng, count)
-						cat := 2*int(b1) + int(b0)
-						switch cat {
-						case 0:
-							for _, prob := range tables.Cat3Prob {
-								if count < 0 {
-									value, count, pos = fillBoolFast(buf, pos, value, count)
-								}
-								bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
-								v += v + int(bit)
-							}
-						case 1:
-							for _, prob := range tables.Cat4Prob {
-								if count < 0 {
-									value, count, pos = fillBoolFast(buf, pos, value, count)
-								}
-								bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
-								v += v + int(bit)
-							}
-						case 2:
-							for _, prob := range tables.Cat5Prob {
-								if count < 0 {
-									value, count, pos = fillBoolFast(buf, pos, value, count)
-								}
-								bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
-								v += v + int(bit)
-							}
-						default:
-							for _, prob := range tables.Cat6Prob {
-								if count < 0 {
-									value, count, pos = fillBoolFast(buf, pos, value, count)
-								}
-								bit, value, rng, count = vp8ReadBoolNoFill(prob, value, rng, count)
-								v += v + int(bit)
-							}
-						}
-						v += 3 + (8 << cat)
-						if count < 0 {
-							value, count, pos = fillBoolFast(buf, pos, value, count)
-						}
-					}
-				}
-			}
-
-			j := tables.DefaultZigZag1D[(nn-1)&15]
-			out[j&15], value, rng, count = vp8ReadSignedCoeffNoFill(v, value, rng, count)
-			if nn == 16 {
-				nonzeros = 16
-				break walk
-			}
-			p = &bt[tables.CoefBandsTable[nn&15]&7][tokenClass]
-			if count < 24 {
-				value, count, pos = fillBoolFast(buf, pos, value, count)
-			}
-			bit, value, rng, count = vp8ReadBoolNoFill(p[0], value, rng, count)
-			if bit == 0 {
-				nonzeros = nn
-				break walk
-			}
-		}
-
-		hasCoeffs := uint8(0)
-		if nonzeros > 0 {
-			hasCoeffs = 1
+		var nz int
+		nz, value, rng, count, pos = decodeVP8NonZeroBlockFast(buf, pos, value, rng, count, btY, p, skipDC, &qcoeff[b])
+		has := uint8(0)
+		if nz > 0 {
+			has = 1
 			dirtyMask |= 1 << uint(b)
 		}
-		*aP = hasCoeffs
-		*lP = hasCoeffs
-		switch {
-		case idx < 0:
-			eob[24] = uint8(nonzeros)
-			eobTotal += nonzeros - 16
-		case idx < 16:
-			nz := nonzeros + skipDC
-			eob[b] = uint8(nz)
-			eobTotal += nz
-		default:
-			eob[b] = uint8(nonzeros)
-			eobTotal += nonzeros
+		*aP = has
+		*lP = has
+		eob[b] = uint8(nz + skipDC)
+		eobTotal += nz + skipDC
+	}
+
+	btUV := &(*probs)[2]
+	bandUV := &btUV[0]
+	for i := range 4 {
+		b := 16 + i
+		if pos > fastLimit {
+			d.value, d.count, d.rng, d.pos = value, count, rng, pos
+			return d.readVP8MacroblockCoeffsSlow(
+				probs, is4x4, b, eobTotal, dirtyMask,
+				aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
+				aboveY2, leftY2, qcoeff, eob,
+			)
 		}
+		aP := &aboveU[i&1]
+		lP := &leftU[i>>1]
+		p := &bandUV[int(*aP+*lP)]
+		if count < 24 {
+			value, count, pos = fillBoolFast(buf, pos, value, count)
+		}
+		bit, value, rng, count = vp8ReadBoolNoFill(p[0], value, rng, count)
+		if bit == 0 {
+			*aP = 0
+			*lP = 0
+			eob[b] = 0
+			continue
+		}
+		var nz int
+		nz, value, rng, count, pos = decodeVP8NonZeroBlockFast(buf, pos, value, rng, count, btUV, p, 0, &qcoeff[b])
+		has := uint8(0)
+		if nz > 0 {
+			has = 1
+			dirtyMask |= 1 << uint(b)
+		}
+		*aP = has
+		*lP = has
+		eob[b] = uint8(nz)
+		eobTotal += nz
+	}
+	for i := range 4 {
+		b := 20 + i
+		if pos > fastLimit {
+			d.value, d.count, d.rng, d.pos = value, count, rng, pos
+			return d.readVP8MacroblockCoeffsSlow(
+				probs, is4x4, b, eobTotal, dirtyMask,
+				aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
+				aboveY2, leftY2, qcoeff, eob,
+			)
+		}
+		aP := &aboveV[i&1]
+		lP := &leftV[i>>1]
+		p := &bandUV[int(*aP+*lP)]
+		if count < 24 {
+			value, count, pos = fillBoolFast(buf, pos, value, count)
+		}
+		bit, value, rng, count = vp8ReadBoolNoFill(p[0], value, rng, count)
+		if bit == 0 {
+			*aP = 0
+			*lP = 0
+			eob[b] = 0
+			continue
+		}
+		var nz int
+		nz, value, rng, count, pos = decodeVP8NonZeroBlockFast(buf, pos, value, rng, count, btUV, p, 0, &qcoeff[b])
+		has := uint8(0)
+		if nz > 0 {
+			has = 1
+			dirtyMask |= 1 << uint(b)
+		}
+		*aP = has
+		*lP = has
+		eob[b] = uint8(nz)
+		eobTotal += nz
 	}
 
 	d.value = value
