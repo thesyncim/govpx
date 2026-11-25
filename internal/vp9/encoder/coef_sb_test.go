@@ -1082,3 +1082,111 @@ func equalInt16Bytes(a, b []byte) bool {
 	}
 	return true
 }
+
+func TestCoefSbPartialFrameEdgeContexts(t *testing.T) {
+	// Block32x32 with Tx32x32 at (0,0) in a 3x3 MI frame:
+	//   luma (4x4 units):   step=8, in-frame=6 -> indices [0..5]=1, [6..7]=0
+	//   chroma (4x4 units): step=4, in-frame=3 -> indices [0..2]=1, [3]=0
+	fc := seedDefaultCoefProbsForEnc()
+	dequant := [vp9dec.MaxMbPlane][2]int16{{4, 4}, {4, 4}, {4, 4}}
+
+	makePlanes := func() [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane {
+		var p [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
+		vp9dec.SetupBlockPlanes(&p, 1, 1)
+		p[0].AboveContext = []uint8{1, 1, 1, 1, 1, 1, 1, 1}
+		p[0].LeftContext = []uint8{1, 1, 1, 1, 1, 1, 1, 1}
+		p[1].AboveContext = []uint8{1, 1, 1, 1}
+		p[1].LeftContext = []uint8{1, 1, 1, 1}
+		p[2].AboveContext = []uint8{1, 1, 1, 1}
+		p[2].LeftContext = []uint8{1, 1, 1, 1}
+		return p
+	}
+	wantY := []uint8{1, 1, 1, 1, 1, 1, 0, 0}
+	wantUV := []uint8{1, 1, 1, 0}
+	check := func(name string, p [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane) {
+		t.Helper()
+		if !equalUint8s(p[0].AboveContext, wantY) || !equalUint8s(p[0].LeftContext, wantY) {
+			t.Fatalf("%s: Y contexts = above %v left %v, want %v",
+				name, p[0].AboveContext, p[0].LeftContext, wantY)
+		}
+		for plane := 1; plane < vp9dec.MaxMbPlane; plane++ {
+			if !equalUint8s(p[plane].AboveContext, wantUV) || !equalUint8s(p[plane].LeftContext, wantUV) {
+				t.Fatalf("%s: plane %d contexts = above %v left %v, want %v",
+					name, plane, p[plane].AboveContext, p[plane].LeftContext, wantUV)
+			}
+		}
+	}
+
+	nonZero := func(plane, r, c int, txSize common.TxSize) []int16 {
+		buf := make([]int16, vp9dec.MaxEobForTxSize(txSize))
+		buf[0] = 4
+		return buf
+	}
+	baseArgs := func(p *[vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane) WriteCoefSbArgs {
+		return WriteCoefSbArgs{
+			Planes:       p,
+			Fc:           &fc,
+			BSize:        common.Block32x32,
+			MiTxSize:     common.Tx32x32,
+			MiRows:       3,
+			MiCols:       3,
+			MiRow:        0,
+			MiCol:        0,
+			PlaneDequant: dequant,
+			GetCoeffs:    nonZero,
+		}
+	}
+
+	// 1. Direct WriteCoefSb
+	pDirect := makePlanes()
+	var bw bitstream.Writer
+	buf := make([]byte, 4096)
+	bw.Start(buf)
+	if err := WriteCoefSb(&bw, baseArgs(&pDirect)); err != nil {
+		t.Fatalf("WriteCoefSb: %v", err)
+	}
+	if _, err := bw.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	check("WriteCoefSb", pDirect)
+
+	// 2. CommitCoefSbContexts
+	pCommit := makePlanes()
+	if err := CommitCoefSbContexts(baseArgs(&pCommit)); err != nil {
+		t.Fatalf("CommitCoefSbContexts: %v", err)
+	}
+	check("CommitCoefSbContexts", pCommit)
+
+	// Stage tokens once for replay paths
+	pStage := makePlanes()
+	tokens := make([]TokenExtra, 4096)
+	tokIdx := 0
+	stageArgs := baseArgs(&pStage)
+	stageArgs.TokenDst = tokens
+	stageArgs.TokenIndex = &tokIdx
+	stageArgs.TokenOnly = true
+	if err := WriteCoefSb(nil, stageArgs); err != nil {
+		t.Fatalf("WriteCoefSb stage: %v", err)
+	}
+	tokens[tokIdx] = TokenExtra{Token: EOSBToken}
+	staged := tokens[:tokIdx+1]
+	check("WriteCoefSb(staged)", pStage)
+
+	// 3. CommitCoefSbContextsFromTokens
+	pFromTok := makePlanes()
+	if err := CommitCoefSbContextsFromTokens(baseArgs(&pFromTok), staged); err != nil {
+		t.Fatalf("CommitCoefSbContextsFromTokens: %v", err)
+	}
+	check("CommitCoefSbContextsFromTokens", pFromTok)
+
+	// 4. PackTokensAndCommitCoefSbContexts
+	pPack := makePlanes()
+	bw.Start(buf)
+	if _, err := PackTokensAndCommitCoefSbContexts(&bw, staged, &fc, baseArgs(&pPack)); err != nil {
+		t.Fatalf("PackTokensAndCommitCoefSbContexts: %v", err)
+	}
+	if _, err := bw.Stop(); err != nil {
+		t.Fatalf("Stop pack: %v", err)
+	}
+	check("PackTokensAndCommitCoefSbContexts", pPack)
+}

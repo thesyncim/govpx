@@ -201,9 +201,20 @@ func stampCoefContexts(aboveCtx, leftCtx []uint8, v uint8) {
 	}
 }
 
-func stampCoefContextsAt(aboveCtx []uint8, aboveOff int, leftCtx []uint8, leftOff int, step int, v uint8) {
-	stampCoefContexts(aboveCtx[aboveOff:aboveOff+step],
-		leftCtx[leftOff:leftOff+step], v)
+func stampCoefContextsAt(aboveCtx []uint8, aboveOff, c, num4x4W int,
+	leftCtx []uint8, leftOff, r, num4x4H int, step int, v uint8,
+) {
+	a := aboveCtx[aboveOff : aboveOff+step]
+	l := leftCtx[leftOff : leftOff+step]
+	stampCoefContexts(a, l, v)
+	if v != 0 {
+		if c+step > num4x4W {
+			clear(a[num4x4W-c:])
+		}
+		if r+step > num4x4H {
+			clear(l[num4x4H-r:])
+		}
+	}
 }
 
 // yModeForBlock mirrors libvpx's get_y_mode — picks the Y mode for
@@ -414,8 +425,8 @@ func WriteCoefSbFromArgs(bw *bitstream.Writer, a *WriteCoefSbArgs) error {
 				if eob > 0 {
 					hasResidue = 1
 				}
-				stampCoefContextsAt(pd.AboveContext, aboveOff,
-					pd.LeftContext, leftOff, step, hasResidue)
+				stampCoefContextsAt(pd.AboveContext, aboveOff, c, num4x4W,
+					pd.LeftContext, leftOff, r, num4x4H, step, hasResidue)
 				// libvpx's foreach_transformed_block_in_plane bumps the
 				// block-counter `i` by step^2 per tx block — matching
 				// the bmi[] index for sub-8x8 sub-block lookups.
@@ -489,8 +500,8 @@ func CommitCoefSbContexts(a WriteCoefSbArgs) error {
 				if eob > 0 {
 					hasResidue = 1
 				}
-				stampCoefContextsAt(pd.AboveContext, aboveOff,
-					pd.LeftContext, leftOff, step, hasResidue)
+				stampCoefContextsAt(pd.AboveContext, aboveOff, c, num4x4W,
+					pd.LeftContext, leftOff, r, num4x4H, step, hasResidue)
 				blockIdx += step * step
 			}
 		}
@@ -540,8 +551,8 @@ func CommitCoefSbContextsFromTokens(a WriteCoefSbArgs, tokens []TokenExtra) erro
 				if hasResidue {
 					v = 1
 				}
-				stampCoefContextsAt(pd.AboveContext, aboveBase+c,
-					pd.LeftContext, leftBase+r, step, v)
+				stampCoefContextsAt(pd.AboveContext, aboveBase+c, c, num4x4W,
+					pd.LeftContext, leftBase+r, r, num4x4H, step, v)
 			}
 		}
 	}
@@ -597,8 +608,8 @@ func PackTokensAndCommitCoefSbContexts(
 				if hasResidue {
 					v = 1
 				}
-				stampCoefContextsAt(pd.AboveContext, aboveBase+c,
-					pd.LeftContext, leftBase+r, step, v)
+				stampCoefContextsAt(pd.AboveContext, aboveBase+c, c, num4x4W,
+					pd.LeftContext, leftBase+r, r, num4x4H, step, v)
 			}
 		}
 	}
