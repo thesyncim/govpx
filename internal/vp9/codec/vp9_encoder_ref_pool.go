@@ -263,7 +263,8 @@ func (e *VP9Encoder) storeVP9EncoderRefCopy(slot int, src Image) bool {
 		return false
 	}
 	ent := &pool.frames[idx]
-	layout := common.NewFrameLayout(src.Width, src.Height)
+	ssX, ssY := src.Subsampling.Shifts()
+	layout := common.NewFrameLayoutSubsampled(src.Width, src.Height, uint8(ssX), uint8(ssY))
 	if cap(ent.yFull) < layout.YFullLen {
 		ent.yFull = buffers.NewAligned(layout.YFullLen, 32)
 	} else {
@@ -285,20 +286,20 @@ func (e *VP9Encoder) storeVP9EncoderRefCopy(slot int, src Image) bool {
 	y := ent.yFull[layout.YOrigin:]
 	u := ent.uFull[layout.UVOrigin:]
 	v := ent.vFull[layout.UVOrigin:]
-	uvW := (src.Width + 1) >> 1
-	uvH := (src.Height + 1) >> 1
+	uvW, uvH := src.Subsampling.ChromaDimensions(src.Width, src.Height)
 	buffers.CopyPlane(y, layout.YStride, src.Y, src.YStride, src.Width, src.Height)
 	buffers.CopyPlane(u, layout.UVStride, src.U, src.UStride, uvW, uvH)
 	buffers.CopyPlane(v, layout.UVStride, src.V, src.VStride, uvW, uvH)
 	ent.img = Image{
-		Width:   src.Width,
-		Height:  src.Height,
-		Y:       y,
-		U:       u,
-		V:       v,
-		YStride: layout.YStride,
-		UStride: layout.UVStride,
-		VStride: layout.UVStride,
+		Width:       src.Width,
+		Height:      src.Height,
+		Y:           y,
+		U:           u,
+		V:           v,
+		YStride:     layout.YStride,
+		UStride:     layout.UVStride,
+		VStride:     layout.UVStride,
+		Subsampling: src.Subsampling,
 	}
 	e.releaseVP9EncoderRefPoolSlot(slot)
 	e.refPoolIdx[slot] = idx

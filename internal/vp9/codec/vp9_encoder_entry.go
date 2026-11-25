@@ -13,16 +13,16 @@ func (e *VP9Encoder) validateVP9EncoderSource(img *image.YCbCr) error {
 	if img.Rect.Dx() != e.opts.Width || img.Rect.Dy() != e.opts.Height {
 		return ErrInvalidConfig
 	}
-	if img.SubsampleRatio != image.YCbCrSubsampleRatio420 {
+	if img.SubsampleRatio != e.opts.vp9YCbCrSubsampleRatio() {
 		return ErrInvalidConfig
 	}
-	if img.YStride < e.opts.Width || img.CStride < (e.opts.Width+1)/2 {
+	uvWidth, uvHeight := e.opts.Subsampling.ChromaDimensions(e.opts.Width, e.opts.Height)
+	if img.YStride < e.opts.Width || img.CStride < uvWidth {
 		return ErrInvalidConfig
 	}
 	if len(img.Y) < buffers.PlaneLen(img.YStride, e.opts.Height, e.opts.Width) {
 		return ErrInvalidConfig
 	}
-	uvWidth, uvHeight := buffers.Chroma420Dimensions(e.opts.Width, e.opts.Height)
 	if len(img.Cb) < buffers.PlaneLen(img.CStride, uvHeight, uvWidth) ||
 		len(img.Cr) < buffers.PlaneLen(img.CStride, uvHeight, uvWidth) {
 		return ErrInvalidConfig

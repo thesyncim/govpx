@@ -1,23 +1,25 @@
 package codec
 
 import (
+	"image"
+
+	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 const (
-	vp9EncoderTxCoeffSlots    = 1024
-	vp9EncoderBlockCoeffSlots = 64 * 64
-	vp9EncoderBlockEOBSlots   = 16 * 16
-	vp9EncoderPendingEOBSlots = vp9EncoderBlockEOBSlots +
-		2*(vp9EncoderBlockEOBSlots/4)
+	vp9EncoderTxCoeffSlots           = 1024
+	vp9EncoderBlockCoeffSlots        = 64 * 64
+	vp9EncoderBlockEOBSlots          = 16 * 16
+	vp9EncoderPendingEOBSlots        = 3 * vp9EncoderBlockEOBSlots
 	vp9MinEncodeIntoBuffer           = 64
-	vp9MaxPartitionReconScratch      = 64*64 + 2*32*32
+	vp9MaxPartitionReconScratch      = 3 * 64 * 64
 	vp9MaxPartitionReconScratchStack = 2*vp9MaxPartitionReconScratch +
-		32*32 + 2*16*16 +
-		16*16 + 2*8*8 +
-		8*8 + 2*4*4 +
-		4*4
+		3*32*32 +
+		3*16*16 +
+		3*8*8 +
+		3*4*4
 	vp9DefaultMinQuantizer = 4
 	vp9DefaultMaxQuantizer = 56
 	vp9DefaultCQLevel      = 32
@@ -85,6 +87,54 @@ func (e *VP9Encoder) vp9CoefUpdateModeForFrame() encoder.CoefUpdateMode {
 		return encoder.CoefUpdateOneLoopReduced
 	}
 	return encoder.CoefUpdateTwoLoop
+}
+
+func (opts VP9EncoderOptions) vp9Profile() common.BitstreamProfile {
+	if opts.Profile == 1 {
+		return common.Profile1
+	}
+	return common.Profile0
+}
+
+func (opts VP9EncoderOptions) vp9SubsamplingShifts() (uint8, uint8) {
+	ssX, ssY := opts.Subsampling.Shifts()
+	return uint8(ssX), uint8(ssY)
+}
+
+func (opts VP9EncoderOptions) vp9YCbCrSubsampleRatio() image.YCbCrSubsampleRatio {
+	switch opts.Subsampling {
+	case Subsampling422:
+		return image.YCbCrSubsampleRatio422
+	case Subsampling440:
+		return image.YCbCrSubsampleRatio440
+	case Subsampling444:
+		return image.YCbCrSubsampleRatio444
+	default:
+		return image.YCbCrSubsampleRatio420
+	}
+}
+
+// vp9ChromaBlockSizeValid reports whether bsize maps to a valid chroma block
+// size under the encoder's active subsampling (mirrors libvpx's
+// get_plane_block_size(subsize, &xd->plane[1]) < BLOCK_INVALID).
+func (e *VP9Encoder) vp9ChromaBlockSizeValid(bsize common.BlockSize) bool {
+	if bsize < common.Block8x8 {
+		return true
+	}
+	if bsize >= common.BlockSizes {
+		return false
+	}
+	return vp9dec.GetPlaneBlockSize(bsize, &e.planes[1]) < common.BlockInvalid
+}
+
+func vp9ChromaBlockOK422(bsize common.BlockSize) bool {
+	return bsize < common.Block8x8 ||
+		(bsize < common.BlockSizes && common.SsSizeLookup[bsize][1][0] < common.BlockInvalid)
+}
+
+func vp9ChromaBlockOK440(bsize common.BlockSize) bool {
+	return bsize < common.Block8x8 ||
+		(bsize < common.BlockSizes && common.SsSizeLookup[bsize][0][1] < common.BlockInvalid)
 }
 
 // VP9ColorSpace mirrors libvpx's vpx_color_space_t — the 3-bit color
@@ -164,12 +214,21 @@ const (
 	VP9LoopfilterDisableAll VP9DisableLoopfilter = 2
 )
 
-// VP9EncoderOptions configures a VP9 profile 0 encoder.
+// VP9EncoderOptions configures a VP9 encoder (Profile 0 8-bit 4:2:0 or
+// Profile 1 8-bit 4:2:2 / 4:4:0 / 4:4:4 / sRGB).
 type VP9EncoderOptions struct {
 	// Width and Height are the fixed visible dimensions accepted by
 	// EncodeInto. Must both be positive.
 	Width  int
 	Height int
+
+	// Profile selects the VP9 bitstream profile: 0 (default, 8-bit 4:2:0) or
+	// 1 (8-bit 4:2:2, 4:4:0, 4:4:4, or sRGB). Values > 1 return ErrInvalidConfig.
+	Profile uint8
+	// Subsampling selects the chroma subsampling layout. Zero (Subsampling420)
+	// is required for Profile 0. Profile 1 requires Subsampling422,
+	// Subsampling440, or Subsampling444 (and Subsampling444 for VP9ColorSpaceSRGB).
+	Subsampling ChromaSubsampling
 
 	// FPS sets a 1/FPS timebase when TimebaseNum and TimebaseDen are
 	// both zero. Defaults to 30 if all three are unset.

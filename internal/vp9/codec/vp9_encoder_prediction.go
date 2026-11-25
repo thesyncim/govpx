@@ -1666,13 +1666,26 @@ func vp9EncoderSourcePlane(img *image.YCbCr, plane int) (
 	if img == nil {
 		return nil, 0, 0, 0
 	}
+	w, h := img.Rect.Dx(), img.Rect.Dy()
 	switch plane {
 	case 0:
-		return img.Y, img.YStride, img.Rect.Dx(), img.Rect.Dy()
-	case 1:
-		return img.Cb, img.CStride, (img.Rect.Dx() + 1) >> 1, (img.Rect.Dy() + 1) >> 1
-	case 2:
-		return img.Cr, img.CStride, (img.Rect.Dx() + 1) >> 1, (img.Rect.Dy() + 1) >> 1
+		return img.Y, img.YStride, w, h
+	case 1, 2:
+		var cw, ch int
+		switch img.SubsampleRatio {
+		case image.YCbCrSubsampleRatio422:
+			cw, ch = (w+1)>>1, h
+		case image.YCbCrSubsampleRatio440:
+			cw, ch = w, (h+1)>>1
+		case image.YCbCrSubsampleRatio444:
+			cw, ch = w, h
+		default:
+			cw, ch = (w+1)>>1, (h+1)>>1
+		}
+		if plane == 1 {
+			return img.Cb, img.CStride, cw, ch
+		}
+		return img.Cr, img.CStride, cw, ch
 	default:
 		return nil, 0, 0, 0
 	}
@@ -1689,7 +1702,8 @@ func vp9ReferenceVisiblePlane(ref *vp9ReferenceFrame, plane int) (
 	case 0:
 		return pixels, stride, ref.img.Width, ref.img.Height
 	case 1, 2:
-		return pixels, stride, (ref.img.Width + 1) >> 1, (ref.img.Height + 1) >> 1
+		cw, ch := ref.img.Subsampling.ChromaDimensions(ref.img.Width, ref.img.Height)
+		return pixels, stride, cw, ch
 	default:
 		return nil, 0, 0, 0
 	}

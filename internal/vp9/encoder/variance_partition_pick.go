@@ -336,6 +336,7 @@ type ChoosePartitioningArgs struct {
 	CopiedFrameCnt        []uint8
 	CopiedPartition       *bool
 	CopiedPartitionUseMV  *bool
+	ChromaPlaneBlockOK    func(subsize common.BlockSize) bool
 
 	// YSadOut, when non-nil, receives the y_sad ChoosePartitioning
 	// computed for the inter predictor (libvpx keeps y_sad in a local
@@ -763,7 +764,7 @@ func choosePartitioning(a ChoosePartitioningArgs, stats *ChoosePartitioningStats
 	}
 
 	// libvpx: vp9_encodeframe.c:1696-1745 — recursive set_vt_partitioning.
-	chromaOK := func(_ common.BlockSize) bool { return true }
+	chromaOK := a.ChromaPlaneBlockOK
 	rootSet := false
 	if choosePartitioningStatsEnabled {
 		rootSet = setVTPartitioningWithStats(a.MiGrid, a.MiRows, a.MiCols, a.MiRow, a.MiCol,

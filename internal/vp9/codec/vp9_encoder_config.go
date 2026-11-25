@@ -351,7 +351,7 @@ func (e *VP9Encoder) SetAutoAltRef(enabled bool) error {
 	if e.vp9LookaheadEnabled() && len(e.autoAltRefPending.img.Y) == 0 {
 		rect := image.Rect(0, 0, e.opts.Width, e.opts.Height)
 		e.autoAltRefPending.img = *image.NewYCbCr(rect,
-			image.YCbCrSubsampleRatio420)
+			e.opts.vp9YCbCrSubsampleRatio())
 	}
 	if e.opts.ARNRMaxFrames > 1 && e.vp9LookaheadEnabled() &&
 		len(e.vp9ARNRScratch.Y) == 0 {
@@ -750,7 +750,8 @@ func (e *VP9Encoder) SetColorSpace(cs VP9ColorSpace) error {
 	if cs > VP9ColorSpaceSRGB {
 		return ErrInvalidConfig
 	}
-	if cs == VP9ColorSpaceSRGB {
+	if cs == VP9ColorSpaceSRGB &&
+		(e.opts.Profile != 1 || e.opts.Subsampling != Subsampling444) {
 		return ErrInvalidConfig
 	}
 	e.opts.ColorSpace = cs

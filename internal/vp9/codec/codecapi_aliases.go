@@ -30,6 +30,7 @@ const (
 )
 
 type Codec = codecapi.Codec
+type ChromaSubsampling = codecapi.ChromaSubsampling
 type Image = codecapi.Image
 type StreamInfo = codecapi.StreamInfo
 type ReferenceFlags = codecapi.ReferenceFlags
@@ -55,6 +56,11 @@ type workerWakeSlot = codecapi.WorkerWakeSlot
 type encoderPhaseStatsOptions = codecapi.EncoderPhaseStatsOptions
 
 const (
+	Subsampling420 = codecapi.Subsampling420
+	Subsampling422 = codecapi.Subsampling422
+	Subsampling440 = codecapi.Subsampling440
+	Subsampling444 = codecapi.Subsampling444
+
 	ReferenceFlagLast   = codecapi.ReferenceFlagLast
 	ReferenceFlagGolden = codecapi.ReferenceFlagGolden
 	ReferenceFlagAltRef = codecapi.ReferenceFlagAltRef

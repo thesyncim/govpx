@@ -152,6 +152,8 @@ func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
 		"NextFrameQIndex":             {Kind: "libvpx-control", HelperTokens: []string{"qonepass:"}},
 		"NextFrameQIndexSet":          {Kind: "local-default-selector"},
 		"PostEncodeDrop":              {Kind: "libvpx-control", HelperTokens: []string{"postdrop:", "--postencode-drop"}},
+		"Profile":                     {Kind: "libvpx-config-profile"},
+		"Subsampling":                 {Kind: "libvpx-config-subsampling"},
 		"MaxQuantizer":                {Kind: "libvpx-config", HelperTokens: []string{"maxq:", "--max-q"}},
 		"MinQuantizer":                {Kind: "libvpx-config", HelperTokens: []string{"minq:", "--min-q"}},
 		"OvershootPct":                {Kind: "libvpx-config", HelperTokens: []string{"overshoot:", "--overshoot-pct"}},

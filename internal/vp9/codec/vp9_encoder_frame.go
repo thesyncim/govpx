@@ -53,7 +53,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	height := uint32(e.opts.Height)
 	miCols := int((width + 7) >> 3)
 	miRows := int((height + 7) >> 3)
-	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
+	ssX, ssY := e.opts.vp9SubsamplingShifts()
+	vp9dec.SetupBlockPlanes(&e.planes, ssX, ssY)
 	e.ensureVP9EncoderModeBuffers(miRows, miCols)
 
 	isKey := e.vp9ShouldEncodeKeyFrame(flags)
@@ -206,7 +207,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 
 	header := &e.vp9HeaderScratch
 	*header = vp9dec.UncompressedHeader{
-		Profile:               common.Profile0,
+		Profile:               e.opts.vp9Profile(),
 		ShowFrame:             showFrame,
 		ErrorResilientMode:    e.opts.ErrorResilient,
 		IntraOnly:             intraOnly,
@@ -216,9 +217,11 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		FrameParallelDecoding: e.vp9FrameParallelDecodingMode(),
 		FrameContextIdx:       0,
 		BitDepthColor: vp9dec.BitdepthColorspaceSampling{
-			BitDepth:   vp9dec.Bits8,
-			ColorSpace: vp9CommonColorSpace(e.opts.ColorSpace),
-			ColorRange: vp9CommonColorRange(e.opts.ColorRange),
+			BitDepth:     vp9dec.Bits8,
+			ColorSpace:   vp9CommonColorSpace(e.opts.ColorSpace),
+			ColorRange:   vp9CommonColorRange(e.opts.ColorRange),
+			SubsamplingX: ssX,
+			SubsamplingY: ssY,
 		},
 	}
 	if rw, rh := e.opts.RenderWidth, e.opts.RenderHeight; rw > 0 && rh > 0 {

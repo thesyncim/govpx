@@ -5,7 +5,60 @@ import (
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
-// Image is an I420/YV12-style planar 8-bit 4:2:0 image.
+// ChromaSubsampling identifies the chroma plane subsampling of an [Image].
+// The zero value is [Subsampling420] (I420), preserving full backwards
+// compatibility with existing callers that leave the field unset.
+type ChromaSubsampling uint8
+
+const (
+	// Subsampling420 is 4:2:0 chroma subsampling (half width, half height).
+	Subsampling420 ChromaSubsampling = iota
+	// Subsampling422 is 4:2:2 chroma subsampling (half width, full height).
+	Subsampling422
+	// Subsampling440 is 4:4:0 chroma subsampling (full width, half height).
+	Subsampling440
+	// Subsampling444 is 4:4:4 / RGB (full width, full height).
+	Subsampling444
+)
+
+// Shifts returns the (subsamplingX, subsamplingY) right-shift counts.
+func (s ChromaSubsampling) Shifts() (int, int) {
+	switch s {
+	case Subsampling422:
+		return 1, 0
+	case Subsampling440:
+		return 0, 1
+	case Subsampling444:
+		return 0, 0
+	default:
+		return 1, 1
+	}
+}
+
+// ChromaDimensions returns the visible chroma plane dimensions for a luma
+// plane of size width x height.
+func (s ChromaSubsampling) ChromaDimensions(width, height int) (int, int) {
+	ssX, ssY := s.Shifts()
+	return (width + (1 << ssX) - 1) >> ssX, (height + (1 << ssY) - 1) >> ssY
+}
+
+// ChromaSubsamplingFromShifts maps VP9 (subsamplingX, subsamplingY) flags to
+// a [ChromaSubsampling] enum value.
+func ChromaSubsamplingFromShifts(ssX, ssY uint8) ChromaSubsampling {
+	switch {
+	case ssX == 1 && ssY == 0:
+		return Subsampling422
+	case ssX == 0 && ssY == 1:
+		return Subsampling440
+	case ssX == 0 && ssY == 0:
+		return Subsampling444
+	default:
+		return Subsampling420
+	}
+}
+
+// Image is an 8-bit planar YUV/RGB image (I420 by default, or I422/I440/I444
+// when Subsampling is set for VP9 Profile 1).
 //
 // Plane slices may include stride padding. Width and Height define the
 // visible image size, and callers must honor the per-plane strides. The
@@ -18,7 +71,7 @@ type Image struct {
 	Height int
 
 	// Y, U, and V hold visible plane data plus any caller-owned stride padding.
-	// U and V use 4:2:0 chroma dimensions: (Width+1)/2 by (Height+1)/2.
+	// Chroma plane dimensions follow Subsampling (4:2:0 by default).
 	Y []byte
 	U []byte
 	V []byte
@@ -28,9 +81,12 @@ type Image struct {
 	YStride int
 	UStride int
 	VStride int
+
+	// Subsampling selects the chroma plane subsampling. Zero is 4:2:0 (I420).
+	Subsampling ChromaSubsampling
 }
 
-// ValidForEncode reports whether img has valid 4:2:0 plane slices and strides
+// ValidForEncode reports whether img has valid plane slices and strides
 // for the given visible width and height.
 func (img Image) ValidForEncode(width int, height int) bool {
 	if img.Width != width || img.Height != height {
@@ -39,7 +95,7 @@ func (img Image) ValidForEncode(width int, height int) bool {
 	if width <= 0 || height <= 0 {
 		return false
 	}
-	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
+	uvWidth, uvHeight := img.Subsampling.ChromaDimensions(width, height)
 	if img.YStride < width || img.UStride < uvWidth || img.VStride < uvWidth {
 		return false
 	}

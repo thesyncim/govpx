@@ -76,7 +76,7 @@ func peekFrameStreamInfo(packet []byte, info *StreamInfo) error {
 	if profile >= common.MaxProfiles {
 		return vpxerrors.ErrInvalidVP9Data
 	}
-	if profile != common.Profile0 {
+	if profile != common.Profile0 && profile != common.Profile1 {
 		return vpxerrors.ErrVP9NotImplemented
 	}
 	info.Profile = int(profile)
@@ -116,6 +116,11 @@ func peekFrameStreamInfo(packet []byte, info *StreamInfo) error {
 	if info.IntraOnly {
 		if !ReadSyncCode(&r) {
 			return vpxerrors.ErrInvalidVP9Data
+		}
+		if profile > common.Profile0 {
+			if _, err := ReadBitdepthColorspaceSampling(&r, profile); err != nil {
+				return vpxerrors.ErrInvalidVP9Data
+			}
 		}
 		info.RefreshFrameFlags = uint8(r.ReadLiteral(common.RefFrames))
 		width, height := ReadFrameSize(&r)

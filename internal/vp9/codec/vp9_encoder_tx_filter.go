@@ -669,7 +669,8 @@ func (e *VP9Encoder) applyVP9EncoderLoopFilter(hdr *vp9dec.UncompressedHeader,
 	if hdr.Loopfilter.FilterLevel == 0 {
 		return true
 	}
-	layout := common.NewFrameLayout(int(hdr.Width), int(hdr.Height))
+	ssX, ssY := e.opts.vp9SubsamplingShifts()
+	layout := common.NewFrameLayoutSubsampled(int(hdr.Width), int(hdr.Height), ssX, ssY)
 	vp9dec.LoopFilterFrameInit(&e.lfi, &hdr.Loopfilter, seg,
 		int(hdr.Loopfilter.FilterLevel))
 	d := VP9Decoder{

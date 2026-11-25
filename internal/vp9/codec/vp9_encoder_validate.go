@@ -185,19 +185,37 @@ func (e *VP9Encoder) vp9SpatialResultFields() (
 		scalabilityStructure
 }
 
-// validateVP9ColorOptions rejects out-of-range ColorSpace/ColorRange
-// values and the Profile 0 / SRGB combination libvpx rejects.
+// validateVP9ColorOptions rejects out-of-range Profile/Subsampling/ColorSpace/
+// ColorRange combinations per VP9 spec §6.2.
 func validateVP9ColorOptions(opts VP9EncoderOptions) error {
+	if opts.Profile > 1 {
+		return ErrInvalidConfig
+	}
+	if opts.Subsampling > Subsampling444 {
+		return ErrInvalidConfig
+	}
 	if opts.ColorSpace > VP9ColorSpaceSRGB {
 		return ErrInvalidConfig
 	}
 	if opts.ColorRange > VP9ColorRangeFull {
 		return ErrInvalidConfig
 	}
-	// Profile 0 streams use 4:2:0 chroma; SRGB requires 4:4:4 sampling
-	// (allowed only on profiles 1 and 3) so the writer would emit a
-	// stream the decoder rejects.
-	if opts.ColorSpace == VP9ColorSpaceSRGB {
+	if opts.Profile == 0 {
+		if opts.Subsampling != Subsampling420 {
+			return ErrInvalidConfig
+		}
+		// Profile 0 streams use 4:2:0 chroma; SRGB requires 4:4:4 sampling
+		// (allowed only on profiles 1 and 3).
+		if opts.ColorSpace == VP9ColorSpaceSRGB {
+			return ErrInvalidConfig
+		}
+		return nil
+	}
+	// Profile 1 forbids 4:2:0 chroma and requires 4:4:4 for sRGB.
+	if opts.Subsampling == Subsampling420 {
+		return ErrInvalidConfig
+	}
+	if opts.ColorSpace == VP9ColorSpaceSRGB && opts.Subsampling != Subsampling444 {
 		return ErrInvalidConfig
 	}
 	return nil
