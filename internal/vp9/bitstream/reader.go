@@ -240,6 +240,86 @@ func (r *Reader) ReadLiteral(bits int) uint32 {
 	return literal
 }
 
+// ReadUnary3 decodes a 3-node right-leaning binary tree {-0, 2, -1, 4, -2, -3}
+// (PartitionTree, MvJointTree, MvFpTree, and remapped InterModeTree) in
+// registers with a single refill check and zero slice indexing.
+func (r *Reader) ReadUnary3(p0, p1, p2 uint32) int {
+	if len(r.buf)-r.pos > 8 {
+		value := r.value
+		rng := r.rng
+		count := r.count
+		pos := r.pos
+		if count < 24 {
+			value, count, pos = FillFast(r.buf, pos, value, count)
+		}
+		// Bit 0
+		s := 1 + (((rng - 1) * p0) >> 8)
+		bigsplit := uint64(s) << 56
+		if value < bigsplit {
+			sh := uint32(bits.LeadingZeros8(uint8(s)))
+			r.rng = s << sh
+			r.value = value << sh
+			r.count = count - int32(sh)
+			r.pos = pos
+			return 0
+		}
+		nr := rng - s
+		nv := value - bigsplit
+		sh := uint32(bits.LeadingZeros8(uint8(nr)))
+		rng = nr << sh
+		value = nv << sh
+		count -= int32(sh)
+
+		// Bit 1
+		s = 1 + (((rng - 1) * p1) >> 8)
+		bigsplit = uint64(s) << 56
+		if value < bigsplit {
+			sh = uint32(bits.LeadingZeros8(uint8(s)))
+			r.rng = s << sh
+			r.value = value << sh
+			r.count = count - int32(sh)
+			r.pos = pos
+			return 1
+		}
+		nr = rng - s
+		nv = value - bigsplit
+		sh = uint32(bits.LeadingZeros8(uint8(nr)))
+		rng = nr << sh
+		value = nv << sh
+		count -= int32(sh)
+
+		// Bit 2
+		s = 1 + (((rng - 1) * p2) >> 8)
+		bigsplit = uint64(s) << 56
+		ge := value >= bigsplit
+		nr = s
+		if ge {
+			nr = rng - s
+		}
+		nv = value
+		if ge {
+			nv = value - bigsplit
+		}
+		out := 2
+		if ge {
+			out = 3
+		}
+		sh = uint32(bits.LeadingZeros8(uint8(nr)))
+		r.rng = nr << sh
+		r.value = nv << sh
+		r.count = count - int32(sh)
+		r.pos = pos
+		return out
+	}
+	if r.Read(p0) == 0 {
+		return 0
+	}
+	if r.Read(p1) == 0 {
+		return 1
+	}
+	return 2 + int(r.Read(p2))
+}
+
 // ReadTree decodes a value from a binary token tree. `tree` is the
 // VP9 token-tree array (int8 per libvpx's vpx_tree_index): positive
 // entries are next-node indices, non-positive entries are leaf labels

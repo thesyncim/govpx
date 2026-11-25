@@ -83,7 +83,7 @@ func IsInside(tile TileBounds, miRows, miRow, miCol int, posRow, posCol int) boo
 func ReadPartition(r *bitstream.Reader, probs []uint8, hasRows, hasCols bool) common.PartitionType {
 	switch {
 	case hasRows && hasCols:
-		return common.PartitionType(r.ReadTree(common.PartitionTree[:], probs))
+		return common.PartitionType(r.ReadUnary3(uint32(probs[0]), uint32(probs[1]), uint32(probs[2])))
 	case !hasRows && hasCols:
 		if r.Read(uint32(probs[1])) != 0 {
 			return common.PartitionSplit

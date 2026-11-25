@@ -83,7 +83,37 @@ func ReadMvComponent(r *bitstream.Reader, c *NmvComponent, usehp bool) int {
 // flag; libvpx then ANDs it with use_mv_hp(ref) — we follow the same
 // gate (a magnitude check on ref against COMPANDED_MVREF_THRESH).
 func ReadMv(r *bitstream.Reader, mv, ref *MV, ctx *NmvContext, allowHp bool) {
-	joint := r.ReadTree(tables.MvJointTree[:], ctx.Joints[:])
+	rs := r.LocalState()
+	buf, _, _, pos := rs.BitView()
+	if len(buf)-pos > 56 {
+		value := rs.Value
+		rng := rs.Range
+		count := rs.Count
+		useHp := allowHp && useMvHp(ref)
+		var joint int
+		joint, pos, value, rng, count = readUnary3Fast(buf, pos, value, rng, count,
+			uint32(ctx.Joints[0]), uint32(ctx.Joints[1]), uint32(ctx.Joints[2]))
+		var diff MV
+		if mvJointVertical(joint) {
+			var v int
+			v, pos, value, rng, count = readMvComponentFast(buf, pos, value, rng, count, &ctx.Comps[0], useHp)
+			diff.Row = int16(v)
+		}
+		if mvJointHorizontal(joint) {
+			var v int
+			v, pos, value, rng, count = readMvComponentFast(buf, pos, value, rng, count, &ctx.Comps[1], useHp)
+			diff.Col = int16(v)
+		}
+		rs.Value = value
+		rs.Range = rng
+		rs.Count = count
+		rs.CommitPos(pos)
+		rs.Commit()
+		mv.Row = ref.Row + diff.Row
+		mv.Col = ref.Col + diff.Col
+		return
+	}
+	joint := r.ReadUnary3(uint32(ctx.Joints[0]), uint32(ctx.Joints[1]), uint32(ctx.Joints[2]))
 	useHp := allowHp && useMvHp(ref)
 
 	var diff MV
@@ -96,6 +126,105 @@ func ReadMv(r *bitstream.Reader, mv, ref *MV, ctx *NmvContext, allowHp bool) {
 
 	mv.Row = ref.Row + diff.Row
 	mv.Col = ref.Col + diff.Col
+}
+
+func readUnary3Fast(buf []byte, pos int, value uint64, rng uint32, count int32, p0, p1, p2 uint32) (int, int, uint64, uint32, int32) {
+	if count < 24 {
+		value, count, pos = bitstream.FillFast(buf, pos, value, count)
+	}
+	var b bool
+	b, value, rng, count = vpxReadBoolNoFill(p0, value, rng, count)
+	if !b {
+		return 0, pos, value, rng, count
+	}
+	b, value, rng, count = vpxReadBoolNoFill(p1, value, rng, count)
+	if !b {
+		return 1, pos, value, rng, count
+	}
+	b, value, rng, count = vpxReadBoolNoFill(p2, value, rng, count)
+	if !b {
+		return 2, pos, value, rng, count
+	}
+	return 3, pos, value, rng, count
+}
+
+func readMvComponentFast(buf []byte, pos int, value uint64, rng uint32, count int32, c *NmvComponent, usehp bool) (int, int, uint64, uint32, int32) {
+	if count < 16 {
+		value, count, pos = bitstream.FillFast(buf, pos, value, count)
+	}
+	var sign, b bool
+	sign, value, rng, count = vpxReadBoolNoFill(uint32(c.Sign), value, rng, count)
+	// Walk MvClassTree in registers.
+	i := int8(0)
+	var mvClass int
+	for {
+		if count < 8 {
+			value, count, pos = bitstream.FillFast(buf, pos, value, count)
+		}
+		b, value, rng, count = vpxReadBoolNoFill(uint32(c.Classes[i>>1]), value, rng, count)
+		bi := 0
+		if b {
+			bi = 1
+		}
+		next := tables.MvClassTree[int(i)+bi]
+		if next <= 0 {
+			mvClass = -int(next)
+			break
+		}
+		i = next
+	}
+	class0 := mvClass == tables.MvClass0
+	var d, mag int
+	if class0 {
+		if count < 8 {
+			value, count, pos = bitstream.FillFast(buf, pos, value, count)
+		}
+		b, value, rng, count = vpxReadBoolNoFill(uint32(c.Class0[0]), value, rng, count)
+		if b {
+			d = 1
+		}
+	} else {
+		n := mvClass + Class0Bits - 1
+		for k := range n {
+			if count < 8 {
+				value, count, pos = bitstream.FillFast(buf, pos, value, count)
+			}
+			b, value, rng, count = vpxReadBoolNoFill(uint32(c.Bits[k]), value, rng, count)
+			if b {
+				d |= 1 << uint(k)
+			}
+		}
+		mag = Class0Size << uint(mvClass+2)
+	}
+	var fr int
+	if class0 {
+		fp := &c.Class0Fp[d]
+		fr, pos, value, rng, count = readUnary3Fast(buf, pos, value, rng, count, uint32(fp[0]), uint32(fp[1]), uint32(fp[2]))
+	} else {
+		fp := &c.Fp
+		fr, pos, value, rng, count = readUnary3Fast(buf, pos, value, rng, count, uint32(fp[0]), uint32(fp[1]), uint32(fp[2]))
+	}
+	hp := 1
+	if usehp {
+		if count < 8 {
+			value, count, pos = bitstream.FillFast(buf, pos, value, count)
+		}
+		var hpProb uint32
+		if class0 {
+			hpProb = uint32(c.Class0Hp)
+		} else {
+			hpProb = uint32(c.Hp)
+		}
+		b, value, rng, count = vpxReadBoolNoFill(hpProb, value, rng, count)
+		if !b {
+			hp = 0
+		}
+	}
+	mag += ((d << 3) | (fr << 1) | hp) + 1
+	if sign {
+		return -mag, pos, value, rng, count
+	}
+	return mag, pos, value, rng, count
 }
 
 // mvJointVertical: joint has a non-zero vertical component.

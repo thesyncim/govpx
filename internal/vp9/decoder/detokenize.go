@@ -401,7 +401,6 @@ func PackFrameCoefProbs(dst *PackedFrameCoefProbs, fc *FrameCoefProbs) {
 // FastCoefPlaneCtx holds per-plane read-only decode state hoisted outside the
 // per-transform-block loop in readVP9InterResiduePlane.
 type FastCoefPlaneCtx struct {
-	R                *bitstream.ReaderState
 	TxSize           common.TxSize
 	PlaneType        int
 	IsInter          int
@@ -478,6 +477,7 @@ func decodeVP9Cat3to6Fast(
 // initial c==0 EOB bit was already consumed as 1, using pre-hoisted plane
 // context, power-of-2 packed uint32 probabilities, and scan-order tokenCache.
 func DecodeCoefsFastPlaneAfterEOB(
+	r *bitstream.ReaderState,
 	a *FastCoefPlaneCtx,
 	buf []byte, pos int,
 	value uint64, rng uint32, count int32,
@@ -638,11 +638,12 @@ doneFast:
 	if !slowResume {
 		return c, pos, value, rng, count
 	}
-	return decodeCoefsFastPlaneSlowTail(a, pos, value, rng, count, c, ctx, dqv, slowSkipEob)
+	return decodeCoefsFastPlaneSlowTail(r, a, pos, value, rng, count, c, ctx, dqv, slowSkipEob)
 }
 
 //go:noinline
 func decodeCoefsFastPlaneSlowTail(
+	r *bitstream.ReaderState,
 	a *FastCoefPlaneCtx,
 	pos int, value uint64, rng uint32, count int32,
 	c, ctx int, dqv int16, slowSkipEob bool,
@@ -654,7 +655,6 @@ func decodeCoefsFastPlaneSlowTail(
 	for k := range c {
 		rasterCache[int(scanArr[k&1023])&1023] = scanCache[k&1023]
 	}
-	r := a.R
 	r.Value = value
 	r.Range = rng
 	r.Count = count

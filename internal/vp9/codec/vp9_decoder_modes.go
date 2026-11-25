@@ -1929,13 +1929,14 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 			rng := rs.Range
 			count := rs.Count
 			ctxInit := false
-			var planeCtx vp9dec.FastCoefPlaneCtx
+			planeCtx := &d.fastCoefCtx
 			if num4x4H > 0 && num4x4W > 0 {
 				aCtx = aCtx[:num4x4W:num4x4W]
 				lCtx = lCtx[:num4x4H:num4x4H]
 			}
+			dstOff := baseY*dstStride + baseX
+			rowStep := 4 * dstStride
 			for rr := 0; rr < num4x4H; rr++ {
-				rowDst := dst[(baseY+rr*4)*dstStride+baseX:]
 				lv := lCtx[rr]
 				for cc := 0; cc < num4x4W; cc++ {
 					initCtx := int(aCtx[cc]&1) + int(lv&1)
@@ -1963,25 +1964,22 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 						rng = nr << sh
 						count -= int32(sh)
 						if !ctxInit {
-							planeCtx = vp9dec.FastCoefPlaneCtx{
-								R:                rs,
-								TxSize:           common.Tx4x4,
-								PlaneType:        planeType,
-								IsInter:          1,
-								Dequant:          dequant,
-								Scan:             so.Scan,
-								Neighbors:        so.Neighbors,
-								ScanArr:          so.ScanArr,
-								ScanNeighborsArr: so.ScanNeighborsArr,
-								FC:               &d.fc.CoefProbs,
-								PackedModel:      &d.coefProbsPacked[common.Tx4x4][planeType][1],
-								DQCoeff:          &d.dqcoeff,
-								TokenCache:       &d.coefTokenCache,
-							}
+							planeCtx.TxSize = common.Tx4x4
+							planeCtx.PlaneType = planeType
+							planeCtx.IsInter = 1
+							planeCtx.Dequant = dequant
+							planeCtx.Scan = so.Scan
+							planeCtx.Neighbors = so.Neighbors
+							planeCtx.ScanArr = so.ScanArr
+							planeCtx.ScanNeighborsArr = so.ScanNeighborsArr
+							planeCtx.FC = &d.fc.CoefProbs
+							planeCtx.PackedModel = &d.coefProbsPacked[common.Tx4x4][planeType][1]
+							planeCtx.DQCoeff = &d.dqcoeff
+							planeCtx.TokenCache = &d.coefTokenCache
 							ctxInit = true
 						}
 						eob, pos, value, rng, count = vp9dec.DecodeCoefsFastPlaneAfterEOB(
-							&planeCtx, buf, pos, value, rng, count, initCtx)
+							rs, planeCtx, buf, pos, value, rng, count, initCtx)
 					} else {
 						rs.Value = value
 						rs.Range = rng
@@ -1998,9 +1996,9 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 					hasResidue := uint8(0)
 					if eob > 0 {
 						if lossless {
-							vp9dec.Iwht4x4Add(coeffs, rowDst[cc*4:], dstStride, eob)
+							vp9dec.Iwht4x4Add(coeffs, dst[dstOff+cc*4:], dstStride, eob)
 						} else {
-							vp9dec.Idct4x4Add(coeffs, rowDst[cc*4:], dstStride, eob)
+							vp9dec.Idct4x4Add(coeffs, dst[dstOff+cc*4:], dstStride, eob)
 						}
 						if eob == 1 {
 							coeffs[0] = 0
@@ -2018,6 +2016,7 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 					lv = hasResidue
 				}
 				lCtx[rr] = lv
+				dstOff += rowStep
 			}
 			rs.Value = value
 			rs.Range = rng
@@ -2089,15 +2088,16 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 			rng := rs.Range
 			count := rs.Count
 			ctxInit := false
-			var planeCtx vp9dec.FastCoefPlaneCtx
+			planeCtx := &d.fastCoefCtx
 			if num4x4H > 0 && num4x4W > 0 {
 				aLim := (num4x4W + 1) &^ 1
 				lLim := (num4x4H + 1) &^ 1
 				aCtx = aCtx[:aLim:aLim]
 				lCtx = lCtx[:lLim:lLim]
 			}
+			dstOff := baseY*dstStride + baseX
+			rowStep := 8 * dstStride
 			for rr := 0; rr < num4x4H; rr += 2 {
-				rowDst := dst[(baseY+rr*4)*dstStride+baseX:]
 				lv := lCtx[rr] | lCtx[rr+1]
 				for cc := 0; cc < num4x4W; cc += 2 {
 					initCtx := int((aCtx[cc]|aCtx[cc+1])&1) + int(lv&1)
@@ -2126,25 +2126,22 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 						rng = nr << sh
 						count -= int32(sh)
 						if !ctxInit {
-							planeCtx = vp9dec.FastCoefPlaneCtx{
-								R:                rs,
-								TxSize:           common.Tx8x8,
-								PlaneType:        planeType,
-								IsInter:          1,
-								Dequant:          dequant,
-								Scan:             so.Scan,
-								Neighbors:        so.Neighbors,
-								ScanArr:          so.ScanArr,
-								ScanNeighborsArr: so.ScanNeighborsArr,
-								FC:               &d.fc.CoefProbs,
-								PackedModel:      &d.coefProbsPacked[common.Tx8x8][planeType][1],
-								DQCoeff:          &d.dqcoeff,
-								TokenCache:       &d.coefTokenCache,
-							}
+							planeCtx.TxSize = common.Tx8x8
+							planeCtx.PlaneType = planeType
+							planeCtx.IsInter = 1
+							planeCtx.Dequant = dequant
+							planeCtx.Scan = so.Scan
+							planeCtx.Neighbors = so.Neighbors
+							planeCtx.ScanArr = so.ScanArr
+							planeCtx.ScanNeighborsArr = so.ScanNeighborsArr
+							planeCtx.FC = &d.fc.CoefProbs
+							planeCtx.PackedModel = &d.coefProbsPacked[common.Tx8x8][planeType][1]
+							planeCtx.DQCoeff = &d.dqcoeff
+							planeCtx.TokenCache = &d.coefTokenCache
 							ctxInit = true
 						}
 						eob, pos, value, rng, count = vp9dec.DecodeCoefsFastPlaneAfterEOB(
-							&planeCtx, buf, pos, value, rng, count, initCtx)
+							rs, planeCtx, buf, pos, value, rng, count, initCtx)
 					} else {
 						rs.Value = value
 						rs.Range = rng
@@ -2160,7 +2157,7 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 					eobTotal += eob
 					hasResidue := uint8(0)
 					if eob > 0 {
-						vp9dec.Idct8x8Add(coeffs, rowDst[cc*4:], dstStride, eob)
+						vp9dec.Idct8x8Add(coeffs, dst[dstOff+cc*4:], dstStride, eob)
 						if eob == 1 {
 							coeffs[0] = 0
 						} else if eob <= 8 {
@@ -2185,6 +2182,7 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 				if lv != 0 && rr+2 > num4x4H {
 					clear(lCtx[num4x4H : rr+2])
 				}
+				dstOff += rowStep
 			}
 			rs.Value = value
 			rs.Range = rng
@@ -2261,9 +2259,10 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 			rng := rs.Range
 			count := rs.Count
 			ctxInit := false
-			var planeCtx vp9dec.FastCoefPlaneCtx
+			planeCtx := &d.fastCoefCtx
+			dstOff := baseY*dstStride + baseX
+			rowStep := 16 * dstStride
 			for rr := 0; rr < num4x4H; rr += 4 {
-				rowDst := dst[(baseY+rr*4)*dstStride+baseX:]
 				lv := lCtx[rr] | lCtx[rr+1] | lCtx[rr+2] | lCtx[rr+3]
 				for cc := 0; cc < num4x4W; cc += 4 {
 					initCtx := int(aCtx[cc]|aCtx[cc+1]|aCtx[cc+2]|aCtx[cc+3]) + int(lv)
@@ -2294,25 +2293,22 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 						rng = nr << sh
 						count -= int32(sh)
 						if !ctxInit {
-							planeCtx = vp9dec.FastCoefPlaneCtx{
-								R:                rs,
-								TxSize:           common.Tx16x16,
-								PlaneType:        planeType,
-								IsInter:          1,
-								Dequant:          dequant,
-								Scan:             so.Scan,
-								Neighbors:        so.Neighbors,
-								ScanArr:          so.ScanArr,
-								ScanNeighborsArr: so.ScanNeighborsArr,
-								FC:               &d.fc.CoefProbs,
-								PackedModel:      &d.coefProbsPacked[common.Tx16x16][planeType][1],
-								DQCoeff:          &d.dqcoeff,
-								TokenCache:       &d.coefTokenCache,
-							}
+							planeCtx.TxSize = common.Tx16x16
+							planeCtx.PlaneType = planeType
+							planeCtx.IsInter = 1
+							planeCtx.Dequant = dequant
+							planeCtx.Scan = so.Scan
+							planeCtx.Neighbors = so.Neighbors
+							planeCtx.ScanArr = so.ScanArr
+							planeCtx.ScanNeighborsArr = so.ScanNeighborsArr
+							planeCtx.FC = &d.fc.CoefProbs
+							planeCtx.PackedModel = &d.coefProbsPacked[common.Tx16x16][planeType][1]
+							planeCtx.DQCoeff = &d.dqcoeff
+							planeCtx.TokenCache = &d.coefTokenCache
 							ctxInit = true
 						}
 						eob, pos, value, rng, count = vp9dec.DecodeCoefsFastPlaneAfterEOB(
-							&planeCtx, buf, pos, value, rng, count, initCtx)
+							rs, planeCtx, buf, pos, value, rng, count, initCtx)
 					} else {
 						rs.Value = value
 						rs.Range = rng
@@ -2328,7 +2324,7 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 					eobTotal += eob
 					hasResidue := uint8(0)
 					if eob > 0 {
-						vp9dec.Idct16x16Add(coeffs, rowDst[cc*4:], dstStride, eob)
+						vp9dec.Idct16x16Add(coeffs, dst[dstOff+cc*4:], dstStride, eob)
 						if eob == 1 {
 							coeffs[0] = 0
 						} else if eob <= 8 {
@@ -2357,6 +2353,7 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 				if lv != 0 && rr+4 > num4x4H {
 					clear(lCtx[num4x4H : rr+4])
 				}
+				dstOff += rowStep
 			}
 			rs.Value = value
 			rs.Range = rng

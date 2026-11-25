@@ -297,6 +297,7 @@ type VP9Decoder struct {
 	dqcoeff         [1024]int16
 	coefTokenCache  [1024]uint8
 	coefProbsPacked vp9dec.PackedFrameCoefProbs
+	fastCoefCtx     vp9dec.FastCoefPlaneCtx
 	intraScratch    vp9dec.IntraPredictorScratch
 	convolveScratch dsp.Convolve8Scratch
 	counts          vp9dec.FrameCounts
@@ -1048,6 +1049,10 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 		}
 		d.prepareVP9CurrentFrameMvs(&hdr)
 		vp9dec.PackFrameCoefProbs(&d.coefProbsPacked, &d.fc.CoefProbs)
+		d.fastCoefCtx.IsInter = 1
+		d.fastCoefCtx.FC = &d.fc.CoefProbs
+		d.fastCoefCtx.DQCoeff = &d.dqcoeff
+		d.fastCoefCtx.TokenCache = &d.coefTokenCache
 		if err := d.parseVP9InterModeTiles(packet[compEnd:], &hdr, compHeader); err != nil {
 			return err
 		}

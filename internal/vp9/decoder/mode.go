@@ -15,12 +15,18 @@ func ReadIntraMode(r *bitstream.Reader, probs []uint8) common.PredictionMode {
 	return common.PredictionMode(r.ReadTree(common.IntraModeTree[:], probs))
 }
 
+var interModeFromUnary = [4]common.PredictionMode{
+	common.ZeroMv,
+	common.NearestMv,
+	common.NearMv,
+	common.NewMv,
+}
+
 // ReadInterMode mirrors read_inter_mode. Returns the absolute
 // PredictionMode (NEARESTMV..NEWMV), having added the NEARESTMV
 // offset that the InterModeTree leaves omit.
 func ReadInterMode(r *bitstream.Reader, interModeProbs [common.InterModes - 1]uint8) common.PredictionMode {
-	off := r.ReadTree(common.InterModeTree[:], interModeProbs[:])
-	return common.NearestMv + common.PredictionMode(off)
+	return interModeFromUnary[r.ReadUnary3(uint32(interModeProbs[0]), uint32(interModeProbs[1]), uint32(interModeProbs[2]))]
 }
 
 // ReadSegmentId mirrors read_segment_id. The supplied probability
