@@ -145,16 +145,15 @@ func idct4x4AddScalar(input *[16]int16, pred []byte, predStride int, dst []byte,
 	var output [16]int16
 
 	for i := range 4 {
-		a1 := int(input[i+0]) + int(input[i+8])
-		b1 := int(input[i+0]) - int(input[i+8])
+		i0, i4, i8, i12 := int(input[i]), int(input[i+4]), int(input[i+8]), int(input[i+12])
+		if i0|i4|i8|i12 == 0 {
+			continue
+		}
+		a1 := i0 + i8
+		b1 := i0 - i8
 
-		temp1 := (int(input[i+4]) * sinPI8Sqrt2) >> 16
-		temp2 := int(input[i+12]) + ((int(input[i+12]) * cosPI8Sqrt2Minus1) >> 16)
-		c1 := temp1 - temp2
-
-		temp1 = int(input[i+4]) + ((int(input[i+4]) * cosPI8Sqrt2Minus1) >> 16)
-		temp2 = (int(input[i+12]) * sinPI8Sqrt2) >> 16
-		d1 := temp1 + temp2
+		c1 := ((i4 * sinPI8Sqrt2) >> 16) - (i12 + ((i12 * cosPI8Sqrt2Minus1) >> 16))
+		d1 := (i4 + ((i4 * cosPI8Sqrt2Minus1) >> 16)) + ((i12 * sinPI8Sqrt2) >> 16)
 
 		output[i+0] = int16(a1 + d1)
 		output[i+12] = int16(a1 - d1)
@@ -162,35 +161,20 @@ func idct4x4AddScalar(input *[16]int16, pred []byte, predStride int, dst []byte,
 		output[i+8] = int16(b1 - c1)
 	}
 
-	for i := range 4 {
-		base := i * 4
-		a1 := int(output[base+0]) + int(output[base+2])
-		b1 := int(output[base+0]) - int(output[base+2])
-
-		temp1 := (int(output[base+1]) * sinPI8Sqrt2) >> 16
-		temp2 := int(output[base+3]) + ((int(output[base+3]) * cosPI8Sqrt2Minus1) >> 16)
-		c1 := temp1 - temp2
-
-		temp1 = int(output[base+1]) + ((int(output[base+1]) * cosPI8Sqrt2Minus1) >> 16)
-		temp2 = (int(output[base+3]) * sinPI8Sqrt2) >> 16
-		d1 := temp1 + temp2
-
-		output[base+0] = int16((a1 + d1 + 4) >> 3)
-		output[base+3] = int16((a1 - d1 + 4) >> 3)
-		output[base+1] = int16((b1 + c1 + 4) >> 3)
-		output[base+2] = int16((b1 - c1 + 4) >> 3)
-	}
-
 	for y := range 4 {
-		// Reslice to a 4-element row so the four writes share a single
-		// bounds check instead of one per ClipPixel call.
+		base := y * 4
+		o0, o1, o2, o3 := int(output[base+0]), int(output[base+1]), int(output[base+2]), int(output[base+3])
+		a1 := o0 + o2
+		b1 := o0 - o2
+		c1 := ((o1 * sinPI8Sqrt2) >> 16) - (o3 + ((o3 * cosPI8Sqrt2Minus1) >> 16))
+		d1 := (o1 + ((o1 * cosPI8Sqrt2Minus1) >> 16)) + ((o3 * sinPI8Sqrt2) >> 16)
+
 		dstRow := dst[y*dstStride : y*dstStride+4 : y*dstStride+4]
 		predRow := pred[y*predStride : y*predStride+4 : y*predStride+4]
-		outRow := y * 4
-		dstRow[0] = ClipPixel(int(output[outRow+0]) + int(predRow[0]))
-		dstRow[1] = ClipPixel(int(output[outRow+1]) + int(predRow[1]))
-		dstRow[2] = ClipPixel(int(output[outRow+2]) + int(predRow[2]))
-		dstRow[3] = ClipPixel(int(output[outRow+3]) + int(predRow[3]))
+		dstRow[0] = byte(min(max(int(int16((a1+d1+4)>>3))+int(predRow[0]), 0), 255))
+		dstRow[1] = byte(min(max(int(int16((b1+c1+4)>>3))+int(predRow[1]), 0), 255))
+		dstRow[2] = byte(min(max(int(int16((b1-c1+4)>>3))+int(predRow[2]), 0), 255))
+		dstRow[3] = byte(min(max(int(int16((a1-d1+4)>>3))+int(predRow[3]), 0), 255))
 	}
 }
 
@@ -198,6 +182,32 @@ func idct4x4AddScalar(input *[16]int16, pred []byte, predStride int, dst []byte,
 // the DC coefficient is non-zero.
 func dcOnlyIDCT4x4AddScalar(inputDC int16, pred []byte, predStride int, dst []byte, dstStride int) {
 	a1 := int((inputDC + 4) >> 3)
+	if predStride >= 0 && dstStride >= 0 && len(pred) >= 4 && predStride <= (len(pred)-4)/3 && len(dst) >= 4 && dstStride <= (len(dst)-4)/3 {
+		if a1 == 0 && &pred[0] == &dst[0] && predStride == dstStride {
+			return
+		}
+		p0, d0 := pred[:4], dst[:4]
+		d0[0] = ClipPixel(a1 + int(p0[0]))
+		d0[1] = ClipPixel(a1 + int(p0[1]))
+		d0[2] = ClipPixel(a1 + int(p0[2]))
+		d0[3] = ClipPixel(a1 + int(p0[3]))
+		p1, d1 := pred[predStride:predStride+4], dst[dstStride:dstStride+4]
+		d1[0] = ClipPixel(a1 + int(p1[0]))
+		d1[1] = ClipPixel(a1 + int(p1[1]))
+		d1[2] = ClipPixel(a1 + int(p1[2]))
+		d1[3] = ClipPixel(a1 + int(p1[3]))
+		p2, d2 := pred[2*predStride:2*predStride+4], dst[2*dstStride:2*dstStride+4]
+		d2[0] = ClipPixel(a1 + int(p2[0]))
+		d2[1] = ClipPixel(a1 + int(p2[1]))
+		d2[2] = ClipPixel(a1 + int(p2[2]))
+		d2[3] = ClipPixel(a1 + int(p2[3]))
+		p3, d3 := pred[3*predStride:3*predStride+4], dst[3*dstStride:3*dstStride+4]
+		d3[0] = ClipPixel(a1 + int(p3[0]))
+		d3[1] = ClipPixel(a1 + int(p3[1]))
+		d3[2] = ClipPixel(a1 + int(p3[2]))
+		d3[3] = ClipPixel(a1 + int(p3[3]))
+		return
+	}
 	for y := range 4 {
 		dstRow := dst[y*dstStride : y*dstStride+4 : y*dstStride+4]
 		predRow := pred[y*predStride : y*predStride+4 : y*predStride+4]

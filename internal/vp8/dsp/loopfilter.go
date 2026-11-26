@@ -1,5 +1,7 @@
 package dsp
 
+import "encoding/binary"
+
 // Ported from libvpx v1.16.0 vp8/common/loopfilter_filters.c.
 
 const MaxLoopFilter = 63
@@ -17,28 +19,88 @@ func LoopFilterSimpleVerticalEdge(s []byte, stride int, blimit byte) {
 // when the SIMD dispatch can't take the fast path.
 func loopFilterSimpleHorizontalEdgeScalar(s []byte, stride int, blimit byte) {
 	_ = s[3*stride+15]
+	r0 := (*[16]byte)(s[:16])
+	r1 := (*[16]byte)(s[stride : stride+16])
+	r2 := (*[16]byte)(s[2*stride : 2*stride+16])
+	r3 := (*[16]byte)(s[3*stride : 3*stride+16])
+	blim := int(blimit)
 
-	for i := range 16 {
-		p1 := &s[i]
-		p0 := &s[i+stride]
-		q0 := &s[i+2*stride]
-		q1 := &s[i+3*stride]
-		mask := simpleFilterMask(blimit, *p1, *p0, *q0, *q1)
-		simpleFilter(mask, p1, p0, q0, q1)
+	if binary.LittleEndian.Uint64(r1[:8]) != binary.LittleEndian.Uint64(r2[:8]) ||
+		binary.LittleEndian.Uint64(r0[:8]) != binary.LittleEndian.Uint64(r3[:8]) {
+		for i := 0; i < 8; i += 2 {
+			p1a, p0a, q0a, q1a := int(r0[i]), int(r1[i]), int(r2[i]), int(r3[i])
+			d0a := q0a - p0a
+			d1a := p1a - q1a
+			maska := (max(d0a, -d0a)*2 + (max(d1a, -d1a) >> 1) - blim - 1) >> signShift
+			fva := min(max(min(max(d1a, -128), 127)+3*d0a, -128), 127) & maska
+			r2[i] = byte(min(max(q0a-(min(fva+4, 127)>>3), 0), 255))
+			r1[i] = byte(min(max(p0a+(min(fva+3, 127)>>3), 0), 255))
+
+			p1b, p0b, q0b, q1b := int(r0[i+1]), int(r1[i+1]), int(r2[i+1]), int(r3[i+1])
+			d0b := q0b - p0b
+			d1b := p1b - q1b
+			maskb := (max(d0b, -d0b)*2 + (max(d1b, -d1b) >> 1) - blim - 1) >> signShift
+			fvb := min(max(min(max(d1b, -128), 127)+3*d0b, -128), 127) & maskb
+			r2[i+1] = byte(min(max(q0b-(min(fvb+4, 127)>>3), 0), 255))
+			r1[i+1] = byte(min(max(p0b+(min(fvb+3, 127)>>3), 0), 255))
+		}
+	}
+	if binary.LittleEndian.Uint64(r1[8:16]) != binary.LittleEndian.Uint64(r2[8:16]) ||
+		binary.LittleEndian.Uint64(r0[8:16]) != binary.LittleEndian.Uint64(r3[8:16]) {
+		for i := 8; i < 16; i += 2 {
+			p1a, p0a, q0a, q1a := int(r0[i]), int(r1[i]), int(r2[i]), int(r3[i])
+			d0a := q0a - p0a
+			d1a := p1a - q1a
+			maska := (max(d0a, -d0a)*2 + (max(d1a, -d1a) >> 1) - blim - 1) >> signShift
+			fva := min(max(min(max(d1a, -128), 127)+3*d0a, -128), 127) & maska
+			r2[i] = byte(min(max(q0a-(min(fva+4, 127)>>3), 0), 255))
+			r1[i] = byte(min(max(p0a+(min(fva+3, 127)>>3), 0), 255))
+
+			p1b, p0b, q0b, q1b := int(r0[i+1]), int(r1[i+1]), int(r2[i+1]), int(r3[i+1])
+			d0b := q0b - p0b
+			d1b := p1b - q1b
+			maskb := (max(d0b, -d0b)*2 + (max(d1b, -d1b) >> 1) - blim - 1) >> signShift
+			fvb := min(max(min(max(d1b, -128), 127)+3*d0b, -128), 127) & maskb
+			r2[i+1] = byte(min(max(q0b-(min(fvb+4, 127)>>3), 0), 255))
+			r1[i+1] = byte(min(max(p0b+(min(fvb+3, 127)>>3), 0), 255))
+		}
 	}
 }
 
 func loopFilterSimpleVerticalEdgeScalar(s []byte, stride int, blimit byte) {
 	_ = s[15*stride+3]
+	blim := int(blimit)
+	off := 0
 
-	for i := range 16 {
-		row := s[i*stride:]
-		p1 := &row[0]
-		p0 := &row[1]
-		q0 := &row[2]
-		q1 := &row[3]
-		mask := simpleFilterMask(blimit, *p1, *p0, *q0, *q1)
-		simpleFilter(mask, p1, p0, q0, q1)
+	for range 8 {
+		row0 := (*[4]byte)(s[off : off+4])
+		row1 := (*[4]byte)(s[off+stride : off+stride+4])
+		v0 := binary.LittleEndian.Uint32(row0[:])
+		v1 := binary.LittleEndian.Uint32(row1[:])
+
+		p1a := int(v0 & 0xff)
+		p0a := int((v0 >> 8) & 0xff)
+		q0a := int((v0 >> 16) & 0xff)
+		q1a := int(v0 >> 24)
+		d0a := q0a - p0a
+		d1a := p1a - q1a
+		maska := (max(d0a, -d0a)*2 + (max(d1a, -d1a) >> 1) - blim - 1) >> signShift
+		fva := min(max(min(max(d1a, -128), 127)+3*d0a, -128), 127) & maska
+		row0[2] = byte(min(max(q0a-(min(fva+4, 127)>>3), 0), 255))
+		row0[1] = byte(min(max(p0a+(min(fva+3, 127)>>3), 0), 255))
+
+		p1b := int(v1 & 0xff)
+		p0b := int((v1 >> 8) & 0xff)
+		q0b := int((v1 >> 16) & 0xff)
+		q1b := int(v1 >> 24)
+		d0b := q0b - p0b
+		d1b := p1b - q1b
+		maskb := (max(d0b, -d0b)*2 + (max(d1b, -d1b) >> 1) - blim - 1) >> signShift
+		fvb := min(max(min(max(d1b, -128), 127)+3*d0b, -128), 127) & maskb
+		row1[2] = byte(min(max(q0b-(min(fvb+4, 127)>>3), 0), 255))
+		row1[1] = byte(min(max(p0b+(min(fvb+3, 127)>>3), 0), 255))
+
+		off += 2 * stride
 	}
 }
 
@@ -203,15 +265,7 @@ func mbLoopFilterVerticalEdgeScalar(s []byte, stride int, blimit byte, limit byt
 // signedCharClamp saturates v into [-128, 127] without conditional branches.
 // Called per-pixel from the loopfilter inner kernel.
 func signedCharClamp(v int) int8 {
-	// (v + 128) maps the target window to [0, 255]; the unsigned compare
-	// catches both under- and overflow with one branch that the compiler
-	// turns into a cmov when it pays off.
-	u := v + 128
-	low := u >> signShift          // -1 if v < -128
-	high := (255 - u) >> signShift // -1 if v > 127
-	u = (u &^ low) | (0 & low)     // clamp low side
-	u = (u &^ high) | (255 & high) // clamp high side
-	return int8(u - 128)
+	return int8(min(max(v, -128), 127))
 }
 
 func filterMask(limit byte, blimit byte, p3 byte, p2 byte, p1 byte, p0 byte, q0 byte, q1 byte, q2 byte, q3 byte) int8 {

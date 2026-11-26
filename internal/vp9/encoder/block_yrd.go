@@ -513,7 +513,7 @@ func modelRdBlockVariance8x8(src []byte, srcStride, srcX, srcY int,
 	if blocks > len(sse8x8) || blocks > len(sum8x8) || blocks > len(var8x8) {
 		return 0, 0, false
 	}
-	if pixel.Enabled && w&15 == 0 {
+	if w&15 == 0 {
 		if totalSSE, totalSum, ok := pixel.SumSSE8x8Grid(
 			src[srcY*srcStride+srcX:], srcStride,
 			pred[predY*predStride+predX:], predStride,
@@ -531,23 +531,9 @@ func modelRdBlockVariance8x8(src []byte, srcStride, srcX, srcY int,
 	totalSum := 0
 	for y := 0; y < h; y += 8 {
 		for x := 0; x < w; x += 8 {
-			var blockSSE uint32
-			blockSum := 0
-			if pixel.Enabled {
-				_, blockSum, blockSSE = pixel.DiffMetrics(
-					src[(srcY+y)*srcStride+srcX+x:], srcStride,
-					pred[(predY+y)*predStride+predX+x:], predStride, 8, 8)
-			} else {
-				for yy := range 8 {
-					srcRow := src[(srcY+y+yy)*srcStride+srcX+x:]
-					predRow := pred[(predY+y+yy)*predStride+predX+x:]
-					for xx := range 8 {
-						diff := int(srcRow[xx]) - int(predRow[xx])
-						blockSum += diff
-						blockSSE += uint32(diff * diff)
-					}
-				}
-			}
+			blockSum, blockSSE := pixel.Stats(
+				src[(srcY+y)*srcStride+srcX+x:], srcStride,
+				pred[(predY+y)*predStride+predX+x:], predStride, 8, 8)
 			sse8x8[k] = blockSSE
 			sum8x8[k] = blockSum
 			sumSqr := uint32((int64(blockSum) * int64(blockSum)) >> 6)

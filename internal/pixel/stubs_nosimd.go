@@ -2,6 +2,8 @@
 
 package pixel
 
+import "encoding/binary"
+
 const Enabled = false
 
 func Copy16Rows(src []byte, ss int, dst []byte, ds int) bool { return false }
@@ -9,8 +11,40 @@ func Copy8Rows(src []byte, ss int, dst []byte, ds int) bool  { return false }
 
 // CopyBlock copies a w x h byte block from src (stride ss) to dst (stride ds).
 func CopyBlock(src []byte, ss int, dst []byte, ds, w, h int) {
-	for y := range h {
-		copy(dst[y*ds:y*ds+w], src[y*ss:y*ss+w])
+	if w <= 0 || h <= 0 {
+		return
+	}
+	si, di := 0, 0
+	switch w {
+	case 4:
+		for range h {
+			binary.LittleEndian.PutUint32(dst[di:di+4], binary.LittleEndian.Uint32(src[si:si+4]))
+			si += ss
+			di += ds
+		}
+	case 8:
+		for range h {
+			binary.LittleEndian.PutUint64(dst[di:di+8], binary.LittleEndian.Uint64(src[si:si+8]))
+			si += ss
+			di += ds
+		}
+	case 16:
+		for range h {
+			s := src[si : si+16]
+			d := dst[di : di+16]
+			a := binary.LittleEndian.Uint64(s[0:8])
+			b := binary.LittleEndian.Uint64(s[8:16])
+			binary.LittleEndian.PutUint64(d[0:8], a)
+			binary.LittleEndian.PutUint64(d[8:16], b)
+			si += ss
+			di += ds
+		}
+	default:
+		for range h {
+			copy(dst[di:di+w], src[si:si+w])
+			si += ss
+			di += ds
+		}
 	}
 }
 
@@ -36,12 +70,22 @@ func ExtendPlaneBorder(full []byte, origin, stride, width, height, borderX, bord
 	for range height {
 		leftFill := full[rowStart]
 		leftDst := full[rowStart-borderX : rowStart]
-		for i := range leftDst {
+		lv64 := uint64(leftFill) * 0x0101010101010101
+		i := 0
+		for ; i+7 < len(leftDst); i += 8 {
+			binary.LittleEndian.PutUint64(leftDst[i:], lv64)
+		}
+		for ; i < len(leftDst); i++ {
 			leftDst[i] = leftFill
 		}
 		rightFill := full[rowStart+width-1]
 		rightDst := full[rowStart+width : rowStart+width+borderX]
-		for i := range rightDst {
+		rv64 := uint64(rightFill) * 0x0101010101010101
+		i = 0
+		for ; i+7 < len(rightDst); i += 8 {
+			binary.LittleEndian.PutUint64(rightDst[i:], rv64)
+		}
+		for ; i < len(rightDst); i++ {
 			rightDst[i] = rightFill
 		}
 		rowStart += stride
@@ -75,7 +119,35 @@ func DCPairInPlaceInt32Native(c0, c1 int32, b []byte, stride int) {
 	dcPairNativeScalar(c0, c1, b, stride, b, stride)
 }
 
-func AddConstantPair4(_ []byte, _ int, _ []byte, _ int, _, _ int16) bool { return false }
+func AddConstantPair4(pred []byte, ps int, dst []byte, ds int, d0, d1 int16) bool {
+	if ps < 8 || ds < 8 || len(pred) < 8 || ps > (len(pred)-8)/3 || len(dst) < 8 || ds > (len(dst)-8)/3 {
+		return false
+	}
+	if &pred[0] != &dst[0] || ps != ds {
+		return false
+	}
+	a0, a1 := int(d0), int(d1)
+	if a0 == 0 && a1 == 0 {
+		return true
+	}
+	addConstPairRow(dst[0:8], binary.LittleEndian.Uint64(dst[0:8]), a0, a1)
+	addConstPairRow(dst[ds:ds+8], binary.LittleEndian.Uint64(dst[ds:ds+8]), a0, a1)
+	addConstPairRow(dst[2*ds:2*ds+8], binary.LittleEndian.Uint64(dst[2*ds:2*ds+8]), a0, a1)
+	addConstPairRow(dst[3*ds:3*ds+8], binary.LittleEndian.Uint64(dst[3*ds:3*ds+8]), a0, a1)
+	return true
+}
+
+func addConstPairRow(d []byte, w uint64, a0, a1 int) {
+	_ = d[7]
+	d[0] = byte(min(max(int(w&0xff)+a0, 0), 255))
+	d[1] = byte(min(max(int((w>>8)&0xff)+a0, 0), 255))
+	d[2] = byte(min(max(int((w>>16)&0xff)+a0, 0), 255))
+	d[3] = byte(min(max(int((w>>24)&0xff)+a0, 0), 255))
+	d[4] = byte(min(max(int((w>>32)&0xff)+a1, 0), 255))
+	d[5] = byte(min(max(int((w>>40)&0xff)+a1, 0), 255))
+	d[6] = byte(min(max(int((w>>48)&0xff)+a1, 0), 255))
+	d[7] = byte(min(max(int(w>>56)+a1, 0), 255))
+}
 
 func diffMetricsSIMD(src []byte, ss int, ref []byte, rs, w, h int) (int, int, uint32) {
 	panic("SIMD backend unavailable")
@@ -126,15 +198,49 @@ func SSEPlane16(_ []byte, _ int, _ []byte, _ int, _, _ int) (uint64, bool) { ret
 // Stats16x16Const computes (sum, sse) of (src - c) over a 16x16 byte block
 // against a constant predictor byte c.
 func Stats16x16Const(src []byte, ss int, c byte) (int, int) {
-	sum, sse := 0, 0
+	var sum0, sum1, sse0, sse1, sse2, sse3 int
 	ci := int(c)
-	for y := range 16 {
-		row := src[y*ss : y*ss+16]
-		for x := range 16 {
-			d := int(row[x]) - ci
-			sum += d
-			sse += d * d
-		}
+	si := 0
+	for range 16 {
+		row := src[si : si+16]
+		_ = row[15]
+		d0 := int(row[0]) - ci
+		d1 := int(row[1]) - ci
+		d2 := int(row[2]) - ci
+		d3 := int(row[3]) - ci
+		sum0 += d0 + d1 + d2 + d3
+		sse0 += d0 * d0
+		sse1 += d1 * d1
+		sse2 += d2 * d2
+		sse3 += d3 * d3
+		d4 := int(row[4]) - ci
+		d5 := int(row[5]) - ci
+		d6 := int(row[6]) - ci
+		d7 := int(row[7]) - ci
+		sum1 += d4 + d5 + d6 + d7
+		sse0 += d4 * d4
+		sse1 += d5 * d5
+		sse2 += d6 * d6
+		sse3 += d7 * d7
+		d8 := int(row[8]) - ci
+		d9 := int(row[9]) - ci
+		d10 := int(row[10]) - ci
+		d11 := int(row[11]) - ci
+		sum0 += d8 + d9 + d10 + d11
+		sse0 += d8 * d8
+		sse1 += d9 * d9
+		sse2 += d10 * d10
+		sse3 += d11 * d11
+		d12 := int(row[12]) - ci
+		d13 := int(row[13]) - ci
+		d14 := int(row[14]) - ci
+		d15 := int(row[15]) - ci
+		sum1 += d12 + d13 + d14 + d15
+		sse0 += d12 * d12
+		sse1 += d13 * d13
+		sse2 += d14 * d14
+		sse3 += d15 * d15
+		si += ss
 	}
-	return sum, sse
+	return sum0 + sum1, sse0 + sse1 + sse2 + sse3
 }

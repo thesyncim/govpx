@@ -22,35 +22,11 @@ func varFilterBlock2DBilinearSecondPass16(src *[17 * 16]uint16, dst []byte, heig
 // var_filter_block2d_bil_w16 specialized for byte output.
 
 func bilinearFilter16x16Horizontal(src []byte, srcStride int, dst []byte, height int, filter [2]int16) {
-	if pixel.Enabled {
-		pixel.Filter(src, srcStride, dst, 16, 16, height, 1, filter[:])
-		return
-	}
-
-	for y := range height {
-		srcRow := y * srcStride
-		dstRow := y * 16
-		for x := range 16 {
-			v := int(src[srcRow+x])*int(filter[0]) + int(src[srcRow+x+1])*int(filter[1])
-			dst[dstRow+x] = byte((v + tables.FilterWeight/2) >> tables.FilterShift)
-		}
-	}
+	pixel.Filter(src, srcStride, dst, 16, 16, height, 1, filter[:])
 }
 
 func bilinearFilter16x16Vertical(src []byte, srcStride int, dst []byte, height int, filter [2]int16) {
-	if pixel.Enabled {
-		pixel.Filter(src, srcStride, dst, 16, 16, height, srcStride, filter[:])
-		return
-	}
-
-	for y := range height {
-		srcRow := y * srcStride
-		dstRow := y * 16
-		for x := range 16 {
-			v := int(src[srcRow+x])*int(filter[0]) + int(src[srcRow+srcStride+x])*int(filter[1])
-			dst[dstRow+x] = byte((v + tables.FilterWeight/2) >> tables.FilterShift)
-		}
-	}
+	pixel.Filter(src, srcStride, dst, 16, 16, height, srcStride, filter[:])
 }
 
 func varianceBlock16x16(src []byte, srcStride int, ref []byte, refStride int) (int, int) {
@@ -211,9 +187,6 @@ func subpelVariance16x16Bilinear(src []byte, ss, x, y int, ref []byte, rs int) (
 }
 
 func subpelVariance16x16Fast(src []byte, ss, x, y int, ref []byte, rs int) (int, int) {
-	if !pixel.Enabled {
-		return SubpelVariance16x16(src, ss, x, y, ref, rs)
-	}
 	sum, sse := pixel.SubpelStats(src, ss, ref, rs, 16, 16, tables.BilinearFilters[x], tables.BilinearFilters[y])
 	return int(sse) - sum*sum/256, int(sse)
 }

@@ -21,49 +21,222 @@ func QuantizeFPBlock(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [2]in
 	return quantizeFPBlockTail(coeff, iscan, qcoeff, dqcoeff, 0, n, r, q, d, classes)
 }
 func quantizeFPBlockTail(coeff, iscan, qcoeff, dqcoeff []int16, start, n int, r, q, d [2]int16, classes []byte) (eob int) {
-	for i := start; i < n; i++ {
-		p := 1
-		if i == 0 {
-			p = 0
-		}
-		c := int(coeff[i])
+	if start >= n {
+		return 0
+	}
+	coeff = coeff[:n]
+	iscan = iscan[:n]
+	dqcoeff = dqcoeff[:n]
+	hasQ := qcoeff != nil
+	if hasQ {
+		qcoeff = qcoeff[:n]
+	}
+	hasC := classes != nil
+	if hasC {
+		classes = classes[:n]
+	}
+	i := start
+	if i == 0 {
+		r0, q0, d0 := int(r[0]), int(q[0]), int(d[0])
+		c := int(coeff[0])
 		a := max(c, -c)
 		v := 0
-		if a+int(r[p]) >= int(d[p]) {
-			v = min(max(a+int(r[p]), -32768), 32767) * int(q[p]) >> 16
+		if a+r0 >= d0 {
+			v = min(max(a+r0, -32768), 32767) * q0 >> 16
 			if c < 0 {
 				v = -v
 			}
 		}
-		if qcoeff != nil {
-			qcoeff[i] = int16(v)
+		if hasQ {
+			qcoeff[0] = int16(v)
 		}
-		dqcoeff[i] = int16(v * int(d[p]))
+		dqcoeff[0] = int16(v * d0)
 		if v != 0 {
-			eob = max(eob, int(iscan[i]))
+			eob = max(eob, int(iscan[0]))
 		}
-		if classes != nil {
-			a = max(v, -v)
-			class := byte(0)
-			if a > 0 {
-				class++
+		if hasC {
+			classes[0] = tokenClass(v)
+		}
+		i = 1
+	}
+	r1, q1, d1 := int(r[1]), int(q[1]), int(d[1])
+	thresh := d1 - r1
+	if !hasC {
+		if hasQ {
+			if thresh > 1 && thresh <= 32768 {
+				clear(qcoeff[i:n])
+				clear(dqcoeff[i:n])
+				off := int32(thresh - 1)
+				lim := uint64(uint32(2*off)) + 1
+				for ; i+3 < n; i += 4 {
+					c0, c1, c2, c3 := int32(coeff[i]), int32(coeff[i+1]), int32(coeff[i+2]), int32(coeff[i+3])
+					if ((uint64(uint32(c0+off))-lim)&(uint64(uint32(c1+off))-lim)&(uint64(uint32(c2+off))-lim)&(uint64(uint32(c3+off))-lim))>>63 != 0 {
+						continue
+					}
+					for k := range 4 {
+						idx := i + k
+						c := int(coeff[idx])
+						if uint(int32(c)+off) >= uint(lim) {
+							a := max(c, -c)
+							v := min(a+r1, 32767) * q1 >> 16
+							if c < 0 {
+								v = -v
+							}
+							qcoeff[idx] = int16(v)
+							dqcoeff[idx] = int16(v * d1)
+							if v != 0 {
+								eob = max(eob, int(iscan[idx]))
+							}
+						}
+					}
+				}
+				for ; i < n; i++ {
+					c := int(coeff[i])
+					if uint(int32(c)+off) >= uint(lim) {
+						a := max(c, -c)
+						v := min(a+r1, 32767) * q1 >> 16
+						if c < 0 {
+							v = -v
+						}
+						qcoeff[i] = int16(v)
+						dqcoeff[i] = int16(v * d1)
+						if v != 0 {
+							eob = max(eob, int(iscan[i]))
+						}
+					}
+				}
+				return
 			}
-			if a > 1 {
-				class++
+			for ; i < n; i++ {
+				c := int(coeff[i])
+				a := max(c, -c)
+				if a >= thresh {
+					v := min(max(a+r1, -32768), 32767) * q1 >> 16
+					if c < 0 {
+						v = -v
+					}
+					qcoeff[i] = int16(v)
+					dqcoeff[i] = int16(v * d1)
+					if v != 0 {
+						eob = max(eob, int(iscan[i]))
+					}
+				} else {
+					qcoeff[i] = 0
+					dqcoeff[i] = 0
+				}
 			}
-			if a > 2 {
-				class++
+		} else {
+			for ; i < n; i++ {
+				c := int(coeff[i])
+				a := max(c, -c)
+				if a >= thresh {
+					v := min(max(a+r1, -32768), 32767) * q1 >> 16
+					if c < 0 {
+						v = -v
+					}
+					dqcoeff[i] = int16(v * d1)
+					if v != 0 {
+						eob = max(eob, int(iscan[i]))
+					}
+				} else {
+					dqcoeff[i] = 0
+				}
 			}
-			if a > 4 {
-				class++
+		}
+		return
+	}
+	if hasQ && thresh > 1 && thresh <= 32768 {
+		clear(qcoeff[i:n])
+		clear(dqcoeff[i:n])
+		clear(classes[i:n])
+		off := int32(thresh - 1)
+		lim := uint64(uint32(2*off)) + 1
+		for ; i+3 < n; i += 4 {
+			c0, c1, c2, c3 := int32(coeff[i]), int32(coeff[i+1]), int32(coeff[i+2]), int32(coeff[i+3])
+			if ((uint64(uint32(c0+off))-lim)&(uint64(uint32(c1+off))-lim)&(uint64(uint32(c2+off))-lim)&(uint64(uint32(c3+off))-lim))>>63 != 0 {
+				continue
 			}
-			if a > 10 {
-				class++
+			for k := range 4 {
+				idx := i + k
+				c := int(coeff[idx])
+				if uint(int32(c)+off) >= uint(lim) {
+					a := max(c, -c)
+					v := min(a+r1, 32767) * q1 >> 16
+					if c < 0 {
+						v = -v
+					}
+					qcoeff[idx] = int16(v)
+					dqcoeff[idx] = int16(v * d1)
+					if v != 0 {
+						eob = max(eob, int(iscan[idx]))
+						classes[idx] = tokenClass(v)
+					}
+				}
 			}
-			classes[i] = class
+		}
+		for ; i < n; i++ {
+			c := int(coeff[i])
+			if uint(int32(c)+off) >= uint(lim) {
+				a := max(c, -c)
+				v := min(a+r1, 32767) * q1 >> 16
+				if c < 0 {
+					v = -v
+				}
+				qcoeff[i] = int16(v)
+				dqcoeff[i] = int16(v * d1)
+				if v != 0 {
+					eob = max(eob, int(iscan[i]))
+					classes[i] = tokenClass(v)
+				}
+			}
+		}
+		return
+	}
+	for ; i < n; i++ {
+		c := int(coeff[i])
+		a := max(c, -c)
+		if a >= thresh {
+			v := min(max(a+r1, -32768), 32767) * q1 >> 16
+			if c < 0 {
+				v = -v
+			}
+			if hasQ {
+				qcoeff[i] = int16(v)
+			}
+			dqcoeff[i] = int16(v * d1)
+			if v != 0 {
+				eob = max(eob, int(iscan[i]))
+			}
+			classes[i] = tokenClass(v)
+		} else {
+			if hasQ {
+				qcoeff[i] = 0
+			}
+			dqcoeff[i] = 0
+			classes[i] = 0
 		}
 	}
 	return
+}
+
+func tokenClass(v int) byte {
+	a := max(v, -v)
+	if a == 0 {
+		return 0
+	}
+	if a == 1 {
+		return 1
+	}
+	if a == 2 {
+		return 2
+	}
+	if a <= 4 {
+		return 3
+	}
+	if a <= 10 {
+		return 4
+	}
+	return 5
 }
 
 // QuantizeVP8Block fuses quantization, dequantization and EOB over one block.
