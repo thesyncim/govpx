@@ -12,12 +12,9 @@ var tmBytesNativeSink uint64
 
 // Scalar arithmetic oracle; the benchmark's reference windows are disjoint.
 func tmBytesNativeOracle(dst []byte, ds, w int, a, l []byte, top byte) {
-	for y := 0; y < w; y++ {
-		for x := 0; x < w; x++ {
-			v := int(a[x]) + int(l[y]) - int(top)
-			if v < 0 {
-				v = 0
-			}
+	for y := range w {
+		for x := range w {
+			v := max(int(a[x])+int(l[y])-int(top), 0)
 			if v > 255 {
 				v = 255
 			}
@@ -76,8 +73,8 @@ func BenchmarkTMPredictRowsNative(b *testing.B) {
 						b.Fatal("full output/input/canary mismatch")
 					}
 					var checksum uint64
-					for y := 0; y < w; y++ {
-						for x := 0; x < w; x++ {
+					for y := range w {
+						for x := range w {
 							checksum += uint64(dst[y*ds+x])
 						}
 					}
@@ -115,7 +112,7 @@ func tmPublicPrior(dst []byte, ds int, a, l []byte, top byte, w int) {
 		for x := 0; x < w; x += 4 {
 			word := binary.LittleEndian.Uint32(a[x:])
 			var packed uint32
-			for k := 0; k < 4; k++ {
+			for k := range 4 {
 				packed |= uint32(byte(min(max(int(byte(word>>uint(8*k)))+delta, 0), 255))) << uint(8*k)
 			}
 			binary.LittleEndian.PutUint32(dst[y*ds+x:], packed)
@@ -154,7 +151,7 @@ func TestTMPredictPublicFullState(t *testing.T) {
 					for _, alen := range []int{w - 1, w} {
 						for _, llen := range []int{w - 1, w} {
 							for _, clip := range []bool{false, true} {
-								for alias := 0; alias < 5; alias++ {
+								for alias := range 5 {
 									off := 64 + align
 									ao, lo := off+span+37, off+span+89
 									switch alias {
@@ -213,7 +210,7 @@ func TestTMPredictRowsNativeState(t *testing.T) {
 						for i := range above {
 							above[i], left[i] = byte(i*37+11), byte(i*29+251)
 						}
-						for i := 0; i < w; i++ {
+						for i := range w {
 							switch pattern {
 							case "flat":
 								above[ao+i], left[lo+i] = 128, 128
@@ -224,12 +221,9 @@ func TestTMPredictRowsNativeState(t *testing.T) {
 						a, l := above[ao:ao+w:ao+w], left[lo:lo+w:lo+w]
 						abefore, lbefore := bytes.Clone(above), bytes.Clone(left)
 						expected := bytes.Clone(storage)
-						for y := 0; y < w; y++ {
-							for x := 0; x < w; x++ {
-								v := int(a[x]) + int(l[y]) - int(top)
-								if v < 0 {
-									v = 0
-								}
+						for y := range w {
+							for x := range w {
+								v := max(int(a[x])+int(l[y])-int(top), 0)
 								if v > 255 {
 									v = 255
 								}

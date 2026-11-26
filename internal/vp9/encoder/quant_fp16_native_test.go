@@ -137,7 +137,7 @@ func BenchmarkVP9FP16Native(b *testing.B) {
 							if eob != wantEOB || !slices.Equal(cb, cbefore) || !slices.Equal(qb, qw) || !slices.Equal(db, dw) || !bytes.Equal(lb, lw) {
 								b.Fatalf("full backing/EOB mismatch got%d want%d", eob, wantEOB)
 							}
-							for i := 0; i < n; i++ {
+							for i := range n {
 								if scan.Scan[i] != scanBefore[i] || scan.IScan[i] != iscanBefore[i] {
 									b.Fatal("ScanOrder mutated")
 								}

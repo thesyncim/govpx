@@ -98,7 +98,7 @@ func BenchmarkFastQuantizeBatchNative(b *testing.B) {
 func TestVP8WorkElisionQuantOnlyReference(t *testing.T) {
 	rng := rand.New(rand.NewSource(715645))
 	for _, count := range []int{1, 2, 8, 16, 25} {
-		for trial := 0; trial < 40; trial++ {
+		for trial := range 40 {
 			var dq common.MacroblockDequant
 			var q MacroblockQuant
 			var tables common.FrameDequantTables

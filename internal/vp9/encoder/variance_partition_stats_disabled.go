@@ -11,10 +11,6 @@ const choosePartitioningStatsEnabled = false
 
 type choosePartitioningStatsArg struct{}
 
-func choosePartitioningStats(choosePartitioningStatsArg) *ChoosePartitioningStats {
-	return nil
-}
-
 func setVTPartitioningWithStats(miGrid []vp9dec.NeighborMi, miRows, miCols, miRow, miCol int,
 	bsize, bsizeMin common.BlockSize, threshold int64, forceSplit bool, isKeyFrame bool,
 	args setVTPartitioningArgs,

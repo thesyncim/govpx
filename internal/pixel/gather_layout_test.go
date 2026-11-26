@@ -31,7 +31,7 @@ func BenchmarkGatherBlockLayout(b *testing.B) {
 func TestGatherRepeatedAndOverlappingRows(t *testing.T) {
 	for _, w := range []int{8, 16} {
 		for _, strides := range [][2]int{{0, 0}, {0, 1}, {1, 0}, {1, 3}, {w - 1, w + 1}} {
-			for align := 0; align < 8; align++ {
+			for align := range 8 {
 				ss, ps := strides[0], strides[1]
 				src, pred := make([]byte, align+(w-1)*ss+w), make([]byte, align+(w-1)*ps+w)
 				for i := range src {

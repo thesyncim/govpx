@@ -485,20 +485,6 @@ func (e *VP9Encoder) storeVP9InterPartitionRDDecision(miRow, miCol int,
 	}
 }
 
-// vp9LookupDeepInterRDDecision is the flag-gated read entry the bitstream write
-// descent uses to replay a committed deep-RD leaf decision. When
-// vp9InterUseDeepRDPartition is off it returns a miss unconditionally, so the
-// write path falls through to its normal pick/lookup chain and production stays
-// byte-identical (the deep cache is never even allocated in that case).
-func (e *VP9Encoder) vp9LookupDeepInterRDDecision(miRow, miCol int,
-	bsize common.BlockSize,
-) (vp9InterModeDecision, bool) {
-	if !vp9InterUseDeepRDPartition || !vp9InterDeepRDReplayWrites {
-		return vp9InterModeDecision{}, false
-	}
-	return e.lookupVP9LeafInterRDDecision(miRow, miCol, bsize)
-}
-
 // vp9LookupDeepInterRDDecisionForWrite is the write-descent replay entry that
 // reconciles the sub-8x8 key mismatch. The deep recursion stores each leaf at
 // its actual bsize, but the writer's prepareVP9InterBlockResidue runs at

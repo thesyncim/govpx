@@ -266,7 +266,6 @@ const (
 	libvpxVBRBufferSizeMs           = 240000
 	libvpxVBRBufferInitialMs        = 60000
 	libvpxVBRBufferOptimalMs        = 60000
-	libvpxBPerMBNormBits            = 9
 	libvpxIntMax                    = 1<<31 - 1
 	libvpxMinBPBFactor              = 0.01
 	libvpxMaxBPBFactor              = 50.0

@@ -191,7 +191,7 @@ func Average(src []byte, ss int, dst []byte, ds, w, h int) {
 	if w < 8 {
 		for y := range h {
 			a, b := src[y*ss:], dst[y*ds:]
-			for x := 0; x < w; x++ {
+			for x := range w {
 				b[x] = byte((int(a[x]) + int(b[x]) + 1) >> 1)
 			}
 		}

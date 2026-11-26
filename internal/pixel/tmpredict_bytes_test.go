@@ -73,11 +73,11 @@ func TestTMPredictBytesArithmetic(t *testing.T) {
 	const w = 8
 	dst := bytes.Repeat([]byte{91}, w*w+17)
 	above, left := make([]byte, w), make([]byte, w)
-	for a := 0; a < 256; a++ {
+	for a := range 256 {
 		for i := range above {
 			above[i] = byte(a)
 		}
-		for l := 0; l < 256; l++ {
+		for l := range 256 {
 			for i := range left {
 				left[i] = byte(l)
 			}
@@ -104,8 +104,8 @@ func TestTMPredictBytesFullBackingAliases(t *testing.T) {
 	selected := Enabled && runtime.GOARCH == "arm64"
 	for _, w := range []int{8, 16} {
 		for _, ds := range []int{0, 1, w - 1, w, w + 3, 37, 1312} {
-			for align := 0; align < 16; align++ {
-				for mode := 0; mode < 12; mode++ {
+			for align := range 16 {
+				for mode := range 12 {
 					span := (w-1)*ds + w
 					off := 64 + align
 					ao, lo := off+span+37, off+span+89
@@ -171,8 +171,8 @@ func TestTMPredictBytesIndependentAlignments(t *testing.T) {
 	selected := Enabled && runtime.GOARCH == "arm64"
 	for _, w := range []int{8, 16} {
 		for _, ds := range []int{w, 37} {
-			for a := 0; a < 16; a++ {
-				for l := 0; l < 16; l++ {
+			for a := range 16 {
+				for l := range 16 {
 					span := (w-1)*ds + w
 					dst := bytes.Repeat([]byte{37}, span+31)
 					want := bytes.Clone(dst)
@@ -207,7 +207,7 @@ func TestTMPredictBytesFallbackPanicState(t *testing.T) {
 				for _, alen := range []int{0, 1, w - 1, w} {
 					for _, llen := range []int{0, 1, w - 1, w} {
 						for _, clip := range []bool{false, true} {
-							for alias := 0; alias < 4; alias++ {
+							for alias := range 4 {
 								off := 64
 								ao, lo := off+span+37, off+span+89
 								switch alias {

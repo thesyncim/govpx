@@ -2,7 +2,6 @@ package codec
 
 import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
-	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vpx/codecapi"
 	vpxerrors "github.com/thesyncim/govpx/internal/vpx/errors"
 )
@@ -11,9 +10,7 @@ const (
 	UpstreamLibvpxVersion        = codecapi.UpstreamLibvpxVersion
 	CodecVP8                     = codecapi.CodecVP8
 	CodecVP9                     = codecapi.CodecVP9
-	maxVP8Dimension              = codecapi.MaxVP8Dimension
 	maxVP9Dimension              = codecapi.MaxVP9Dimension
-	maxQuantizer                 = codecapi.MaxQuantizer
 	maxARNRFrames                = codecapi.MaxARNRFrames
 	defaultDropFramesWaterMark   = codecapi.DefaultDropFramesWaterMark
 	libvpxDefaultBufferSizeMs    = codecapi.LibvpxDefaultBufferSizeMs
@@ -146,10 +143,6 @@ func publicImageFromVP8(src *vp8common.Image) Image {
 
 func PeekVP9StreamInfo(packet []byte) (VP9StreamInfo, error) {
 	return codecapi.PeekVP9StreamInfo(packet)
-}
-
-func vp9StreamInfoFromInternal(info vp9dec.StreamInfo) VP9StreamInfo {
-	return codecapi.VP9StreamInfoFromInternal(info)
 }
 
 func FinalizeFirstPassStats(stats []FirstPassFrameStats) []FirstPassFrameStats {

@@ -1282,26 +1282,6 @@ func (e *VP9Encoder) vp9FullRDInterIntraFoldDecision(inter *vp9InterEncodeState,
 	}, true
 }
 
-func (e *VP9Encoder) pickVP9FullRDInterIntraLeaf(inter *vp9InterEncodeState,
-	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize, above, left *vp9dec.NeighborMi, budgetRD uint64,
-) (vp9InterModeDecision, bool) {
-	if inter == nil || bsize < common.Block8x8 {
-		return vp9InterModeDecision{}, false
-	}
-	// Save/restore inline to preserve the alloc-parity gate.
-	prevCbRdmult := e.cbRdmult
-	defer func() { e.cbRdmult = prevCbRdmult }()
-	rdmult := e.vp9FullRDInterIntraPrimeRdmult(miRow, miCol, bsize)
-
-	res, ok := e.vp9FullRDInterIntraSB(inter, tile, miRows, miCols, miRow, miCol,
-		bsize, rdmult, budgetRD)
-	if !ok || !res.Valid {
-		return vp9InterModeDecision{}, false
-	}
-	return e.vp9FullRDInterIntraFoldDecision(inter, res, above, left, rdmult)
-}
-
 func (e *VP9Encoder) pickVP9FullRDInterReferenceMode(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, refFrameSet []int8,

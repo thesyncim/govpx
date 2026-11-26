@@ -117,15 +117,8 @@ func bandTranslatePadded(tx common.TxSize) *[1024]uint8 {
 	return &tables.CoefbandTrans8x8Plus
 }
 
-// bandTranslateForTxSize selects the scan-position → coef-band map.
-// Mirrors get_band_translate in vp9_entropy.h.
-func bandTranslateForTxSize(tx common.TxSize) []uint8 {
-	return BandTranslateForTxSize(tx)
-}
-
-// BandTranslateForTxSize is the public mirror of
-// bandTranslateForTxSize — returns the scan-position → coef-band
-// table for the given transform shape.
+// BandTranslateForTxSize returns the scan-position → coef-band
+// table for the given transform shape. Mirrors get_band_translate in vp9_entropy.h.
 func BandTranslateForTxSize(tx common.TxSize) []uint8 {
 	if tx == common.Tx4x4 {
 		return tables.CoefbandTrans4x4[:]

@@ -118,7 +118,7 @@ func InitSegmentMacroblockQuants(baseQIndex int, deltas common.QuantDeltas, segm
 		q := common.ClampQIndex(qIndex)
 		previousQ[segment] = q
 		reused := false
-		for prior := 0; prior < segment; prior++ {
+		for prior := range segment {
 			if previousQ[prior] == q {
 				out[segment] = out[prior]
 				reused = true

@@ -8,12 +8,12 @@ import (
 )
 
 func copy16ProbeOracle(src []byte, ss int, dst []byte, ds int) {
-	for y := 0; y < 16; y++ {
+	for y := range 16 {
 		var row [16]byte
-		for x := 0; x < 16; x++ {
+		for x := range 16 {
 			row[x] = src[y*ss+x]
 		}
-		for x := 0; x < 16; x++ {
+		for x := range 16 {
 			dst[y*ds+x] = row[x]
 		}
 	}
@@ -53,8 +53,8 @@ func TestCopy16AMDProbeRowsAndAliases(t *testing.T) {
 }
 func TestCopy16AMDProbeEveryAlignment(t *testing.T) {
 	selected := copy16ProbeEnabled(t)
-	for so := 0; so < 16; so++ {
-		for do := 0; do < 16; do++ {
+	for so := range 16 {
+		for do := range 16 {
 			for _, p := range [][2]int{{16, 16}, {31, 37}} {
 				for _, alias := range []bool{false, true} {
 					got := make([]byte, 2048)

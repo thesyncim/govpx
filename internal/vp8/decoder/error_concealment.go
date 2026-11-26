@@ -124,8 +124,8 @@ func calculateErrorConcealmentOverlaps(overlaps []errorConcealmentMacroblockOver
 	overlapMBRow := floorErrorConcealment((overlapBRow<<3)/4, 3) >> 3
 	overlapMBCol := floorErrorConcealment((overlapBCol<<3)/4, 3) >> 3
 
-	endRow := minInt(rows-overlapMBRow, 2)
-	endCol := minInt(cols-overlapMBCol, 2)
+	endRow := min(rows-overlapMBRow, 2)
+	endCol := min(cols-overlapMBCol, 2)
 	if absInt(newRow-((16*overlapMBRow)<<3)) < ((3 * 4) << 3) {
 		endRow = 1
 	}
@@ -149,13 +149,13 @@ func calculateErrorConcealmentOverlaps(overlaps []errorConcealmentMacroblockOver
 func calculateErrorConcealmentOverlapsMB(mb *errorConcealmentMacroblockOverlap, mv MotionVector, newRow int, newCol int, mbRow int, mbCol int, firstBlockRow int, firstBlockCol int) {
 	relBlockRow := firstBlockRow - mbRow*4
 	relBlockCol := firstBlockCol - mbCol*4
-	blockIndex := maxInt(relBlockRow, 0)*4 + maxInt(relBlockCol, 0)
+	blockIndex := max(relBlockRow, 0)*4 + max(relBlockCol, 0)
 	if uint(blockIndex) >= uint(len(mb.blocks)) {
 		return
 	}
 
-	endRow := minInt(4+mbRow*4-firstBlockRow, 2)
-	endCol := minInt(4+mbCol*4-firstBlockCol, 2)
+	endRow := min(4+mbRow*4-firstBlockRow, 2)
+	endCol := min(4+mbCol*4-firstBlockCol, 2)
 	if newRow >= 0 && (newRow&0x1f) == 0 {
 		endRow = 1
 	}
@@ -199,10 +199,10 @@ func assignErrorConcealmentOverlap(block *errorConcealmentBlockOverlap, mv Motio
 }
 
 func errorConcealmentBlockOverlapArea(aRow int, aCol int, bRow int, bCol int) int {
-	top := maxInt(aRow, bRow)
-	left := maxInt(aCol, bCol)
-	right := minInt(aCol+(4<<3), bCol+(4<<3))
-	bottom := minInt(aRow+(4<<3), bRow+(4<<3))
+	top := max(aRow, bRow)
+	left := max(aCol, bCol)
+	right := min(aCol+(4<<3), bCol+(4<<3))
+	bottom := min(aRow+(4<<3), bRow+(4<<3))
 	return (bottom - top) * (right - left)
 }
 
@@ -249,20 +249,6 @@ func estimateBlockMotionVector(overlap *errorConcealmentBlockOverlap) MotionVect
 
 func floorErrorConcealment(x int, q int) int {
 	return x & -(1 << q)
-}
-
-func minInt(a int, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func maxInt(a int, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func absInt(v int) int {

@@ -713,74 +713,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		e.sf.SkipEncodeFrame = vp9SkipEncodeFrameFromCounts(header, counts)
 	}
 	n := tileStart + tileSize
-	// Post-tile loop-filter strength picker. The reconstruction
-	// buffer (e.reconYFull) is now populated with the unfiltered
-	// luma; the dispatcher can route LPF_PICK_FROM_FULL_IMAGE /
-	// LPF_PICK_FROM_SUBIMAGE through the quadratic search against
-	// real recon (libvpx vp9_picklpf.c:78-157 search_filter_level via
-	// try_filter_frame at lines 46-76). LPF_PICK_FROM_Q and
-	// LPF_PICK_MINIMAL_LPF do not consult the recon buffer, so the
-	// pre-tile placeholder already carries the libvpx-correct level
-	// and we skip the post-tile re-run entirely — this also keeps
-	// the steady-state encode path allocation-free for the
-	// (default-realtime) speed >= 3 case where sf.LpfPick =
-	// LpfPickFromQ. libvpx vp9_speed_features.c:555 anchors the
-	// realtime-default switchover.
-	//
-	// The picker is suppressed when the disable / lossless gates
-	// already forced filter_level to 0; rerunning would only flip
-	// the level back away from the intended override. The applyLPF
-	// gate further enforces zero-level skip below.
-	runFullImageSearch := (e.sf.LpfPick == LpfPickFromFullImage ||
-		e.sf.LpfPick == LpfPickFromSubImage) &&
-		header.Loopfilter.FilterLevel != 0 &&
-		!vp9DisableLoopfilterForFrame(e.opts.DisableLoopfilter, isKey) &&
-		!header.Quant.Lossless
-	if runFullImageSearch {
-		filterPickPhase := e.vp9PhaseStart()
-		// header.Seg already mirrors seg at this point (line 2426
-		// above); we pass header.Seg so the compiler doesn't have to
-		// heap-promote the local seg in the steady-state FROM_Q /
-		// MINIMAL path that never enters this block.
-		pickedLevel := e.vp9EncoderRunFullImagePicker(header, &header.Seg, img,
-			txMode, isKey)
-		if pickedLevel != header.Loopfilter.FilterLevel {
-			header.Loopfilter.FilterLevel = pickedLevel
-			// Re-write the uncompressed header in place at dst[0:].
-			// The byte length is invariant under filter_level (6-bit
-			// literal at a fixed position), so the compressed-header
-			// + tiles tail stays valid.
-			var rewriteBW encoder.BitWriter
-			rewriteBW.Init(dst)
-			var rewSize int
-			rewPrevLfRef, rewPrevLfMode := e.vp9EncoderLoopFilterPrevDeltas(resetLoopfilterDeltas)
-			if header.FrameType == common.KeyFrame {
-				rewSize = encoder.WriteKeyframeUncompressedHeaderWithLoopfilterPrev(
-					&rewriteBW, header, &rewPrevLfRef, &rewPrevLfMode)
-			} else if header.IntraOnly {
-				rewSize = encoder.WriteIntraOnlyUncompressedHeaderWithLoopfilterPrev(
-					&rewriteBW, header, &rewPrevLfRef, &rewPrevLfMode)
-			} else {
-				rewSize = encoder.WriteInterUncompressedHeaderWithLoopfilterPrev(
-					&rewriteBW, header, e.vp9RefDims, &rewPrevLfRef, &rewPrevLfMode)
-			}
-			if rewSize != uncSize {
-				// The uncompressed-header byte length must be
-				// invariant — filter_level is a fixed-width 6-bit
-				// literal and all sibling fields are independent of
-				// it (libvpx encode_loopfilter, header_writer.go:384).
-				// A drift here indicates a bitstream-writer bug; bail
-				// rather than corrupting the stream.
-				return VP9EncodeResult{}, ErrInvalidVP9Data
-			}
-		}
-		// libvpx: vp9_encoder.c:3448 — `lf->last_filt_level =
-		// lf->filter_level` after the picker returns. We refresh the
-		// encoder-side cache here so the next frame's picker reads
-		// the final post-search level instead of the pre-tile
-		// placeholder.
-		e.vp9LastFiltLevel = header.Loopfilter.FilterLevel
-		e.vp9PhaseEnd(vp9EncoderPhaseLoopFilterPick, filterPickPhase)
+	if err := e.runVP9PostTileLoopFilterPick(dst, header, img, txMode, isKey,
+		resetLoopfilterDeltas, uncSize); err != nil {
+		return VP9EncodeResult{}, err
 	}
 	// libvpx vp9/encoder/vp9_encodeframe.c:5890-5891 — after the encode
 	// pass produces rdc->filter_diff (per-block best_filter_diff[i] sums
@@ -816,53 +751,31 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		}
 		e.rc.postEncodeDropFrame(qindex)
 	} else {
-		e.adaptVP9EncoderFrameContext(header, frameContextIdx, counts, txMode)
-		if header.RefreshFrameFlags != 0 {
-			filterApplyPhase := e.vp9PhaseStart()
-			filterOK := e.applyVP9EncoderLoopFilter(header, &seg)
-			e.vp9PhaseEnd(vp9EncoderPhaseLoopFilterApply, filterApplyPhase)
-			if !filterOK {
-				return VP9EncodeResult{}, ErrInvalidVP9Data
-			}
-		}
-		cyclicForRC, cyclicPost := e.vp9CyclicRefreshPostencodeFromMiGrid(
-			miRows, miCols, header, isKey, intraOnly, logicalRefreshFlags)
-		e.applyCyclicRefreshPostencodeResult(header, cyclicPost)
-		e.refreshVP9EncoderSegmentMap(miRows, miCols)
-		e.prevSegmentation = header.Seg
-		e.prevSegmentationValid = true
-		e.prevFrameActiveMapEnabled = e.activeMapEnabled
-		e.refreshVP9EncoderMvRefs(isKey || intraOnly, miRows, miCols)
-		e.refreshVP9EncoderRefs(header, flags)
-		e.finishVP9DenoiserFrame(header, img)
-		e.commitVP9EncoderLoopFilterDeltas(&header.Loopfilter, resetLoopfilterDeltas)
-		e.commitVP9EncoderFrameContext(header, frameContextIdx)
-		e.lastVP9HeaderFrameType = header.FrameType
-		e.lastVP9HeaderValid = true
-		// libvpx vp9/encoder/vp9_encodeframe.c:5650 writes cm->tx_mode at the
-		// top of vp9_encode_frame_internal; the value persists across frames so
-		// the final else branch of select_tx_mode (vp9_encodeframe.c:4344) can
-		// read back the previous frame's tx_mode. Mirror that commit here once
-		// the per-frame encode (including the post-encode demotion at
-		// vp9_encodeframe.c:5911-5944) has settled the final tx_mode.
-		e.prevFrameTxMode = txMode
-		e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
-			logicalRefreshFlags, macroblocks,
-			e.vp9AltRefEnabledForRateControlStats(), cyclicForRC,
-			e.vp9DampedAdjustmentRFLevel())
-		if !isKey && !intraOnly {
-			e.rc.computeFrameLowMotion(miRows, miCols,
-				func(miRow, miCol int) *vp9dec.NeighborMi {
-					return e.vp9MiAt(miRows, miCols, miRow, miCol)
-				})
+		if err := e.commitVP9EncodedFrameState(header, &seg, img, flags,
+			miRows, miCols, frameContextIdx, counts, txMode,
+			isKey, intraOnly, logicalRefreshFlags, macroblocks, qindex, n,
+			resetLoopfilterDeltas); err != nil {
+			return VP9EncodeResult{}, err
 		}
 	}
+	return e.finalizeVP9EncodeResult(dst, img, header, flags, temporalFrame,
+		firstPassStats, twoPassTargetBits, txMode, referenceMode,
+		compoundAllowed, interRefMask, qindex, n, isKey, intraOnly,
+		forceInterLayerRefresh, postDrop), nil
+}
+
+// finalizeVP9EncodeResult finishes per-frame bookkeeping (two-pass, temporal
+// layers, keyframe distance, TPL shift, external refresh overrides) and builds
+// the caller-visible VP9EncodeResult.
+func (e *VP9Encoder) finalizeVP9EncodeResult(dst []byte, img *image.YCbCr,
+	header *vp9dec.UncompressedHeader, flags EncodeFlags,
+	temporalFrame temporalFrame, firstPassStats VP9FirstPassFrameStats,
+	twoPassTargetBits int, txMode common.TxMode, referenceMode vp9dec.ReferenceMode,
+	compoundAllowed bool, interRefMask uint8, qindex, n int,
+	isKey, intraOnly, forceInterLayerRefresh, postDrop bool,
+) VP9EncodeResult {
 	e.lastFrameDropped = postDrop
 	if header.ShowFrame {
-		// libvpx vp9_twopass_postencode_update consumes the encoded bit
-		// count to drive vbr_bits_off_target. Feed it 0 on drops, the
-		// encoded size in bits otherwise, mirroring rc->projected_frame_size.
-		// libvpx: vp9/encoder/vp9_firstpass.c:3733
 		projected := 0
 		if !postDrop {
 			projected = vpxrc.EncodedSizeBits(n)
@@ -895,8 +808,6 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	}
 	e.vp9LatchDeadlineModePreviousFrame()
 	e.cyclicResizeFramePending = false
-	// Consume the head TPL slab now that this frame has committed.  The
-	// pass refills the new tail on the next populate call.
 	if e.vp9TPLEnabled() {
 		e.tpl.ShiftAndInvalidate()
 	}
@@ -907,10 +818,6 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	resultSize := n
 	resultRefreshFlags := header.RefreshFrameFlags
 	if postDrop {
-		// Discard the encoded payload and clear refresh-frame metadata so
-		// downstream consumers treat the frame as dropped. The post-drop
-		// decision is made before reference slots, segment maps, and frame
-		// contexts commit, matching libvpx's restore-and-return path.
 		resultData = nil
 		resultSize = 0
 		resultRefreshFlags = 0
@@ -927,7 +834,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if forceInterLayerRefresh && temporalFrame.LayerID == 0 {
 		interPicturePredicted = false
 	}
-	result = VP9EncodeResult{
+	result := VP9EncodeResult{
 		Data:                        resultData,
 		KeyFrame:                    isKey,
 		IntraOnly:                   intraOnly,
@@ -966,12 +873,95 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		e.emitVP9OracleEncodedFrameTrace(encodedFrameIndex, flags, header,
 			int(txMode), int(referenceMode), compoundAllowed, result, n)
 	}
-	// libvpx vp9/encoder/vp9_encoder.c:5567 clears
-	// cpi->ext_refresh_frame_flags_pending at the tail of
-	// encode_frame_to_data_rate, after the per-frame encode has committed.
-	// govpx mirrors this so the next frame defaults to the
-	// encoder-internal refresh decision unless the caller rearms it via
-	// vp9_apply_encoding_flags (i.e., passes a fresh EncodeFlags set).
 	e.vp9CommitExtOverridesAfterEncode()
-	return result, nil
+	return result
+}
+
+// runVP9PostTileLoopFilterPick runs the post-tile full/sub-image loop-filter
+// search (libvpx vp9_picklpf.c:78-157) when active and rewrites the fixed-size
+// uncompressed header in place if filter_level changed.
+func (e *VP9Encoder) runVP9PostTileLoopFilterPick(dst []byte,
+	header *vp9dec.UncompressedHeader, img *image.YCbCr, txMode common.TxMode,
+	isKey bool, resetLoopfilterDeltas bool, uncSize int,
+) error {
+	runFullImageSearch := (e.sf.LpfPick == LpfPickFromFullImage ||
+		e.sf.LpfPick == LpfPickFromSubImage) &&
+		header.Loopfilter.FilterLevel != 0 &&
+		!vp9DisableLoopfilterForFrame(e.opts.DisableLoopfilter, isKey) &&
+		!header.Quant.Lossless
+	if !runFullImageSearch {
+		return nil
+	}
+	filterPickPhase := e.vp9PhaseStart()
+	pickedLevel := e.vp9EncoderRunFullImagePicker(header, &header.Seg, img,
+		txMode, isKey)
+	if pickedLevel != header.Loopfilter.FilterLevel {
+		header.Loopfilter.FilterLevel = pickedLevel
+		var rewriteBW encoder.BitWriter
+		rewriteBW.Init(dst)
+		var rewSize int
+		rewPrevLfRef, rewPrevLfMode := e.vp9EncoderLoopFilterPrevDeltas(resetLoopfilterDeltas)
+		if header.FrameType == common.KeyFrame {
+			rewSize = encoder.WriteKeyframeUncompressedHeaderWithLoopfilterPrev(
+				&rewriteBW, header, &rewPrevLfRef, &rewPrevLfMode)
+		} else if header.IntraOnly {
+			rewSize = encoder.WriteIntraOnlyUncompressedHeaderWithLoopfilterPrev(
+				&rewriteBW, header, &rewPrevLfRef, &rewPrevLfMode)
+		} else {
+			rewSize = encoder.WriteInterUncompressedHeaderWithLoopfilterPrev(
+				&rewriteBW, header, e.vp9RefDims, &rewPrevLfRef, &rewPrevLfMode)
+		}
+		if rewSize != uncSize {
+			return ErrInvalidVP9Data
+		}
+	}
+	e.vp9LastFiltLevel = header.Loopfilter.FilterLevel
+	e.vp9PhaseEnd(vp9EncoderPhaseLoopFilterPick, filterPickPhase)
+	return nil
+}
+
+// commitVP9EncodedFrameState commits entropy adaptation, loop filtering,
+// cyclic refresh, reference buffers, denoiser state, and rate-control stats
+// after a non-dropped frame completes tile encoding.
+func (e *VP9Encoder) commitVP9EncodedFrameState(header *vp9dec.UncompressedHeader,
+	seg *vp9dec.SegmentationParams, img *image.YCbCr, flags EncodeFlags,
+	miRows, miCols, frameContextIdx int, counts *encoder.FrameCounts,
+	txMode common.TxMode, isKey, intraOnly bool, logicalRefreshFlags uint8,
+	macroblocks, qindex, n int, resetLoopfilterDeltas bool,
+) error {
+	e.adaptVP9EncoderFrameContext(header, frameContextIdx, counts, txMode)
+	if header.RefreshFrameFlags != 0 {
+		filterApplyPhase := e.vp9PhaseStart()
+		filterOK := e.applyVP9EncoderLoopFilter(header, seg)
+		e.vp9PhaseEnd(vp9EncoderPhaseLoopFilterApply, filterApplyPhase)
+		if !filterOK {
+			return ErrInvalidVP9Data
+		}
+	}
+	cyclicForRC, cyclicPost := e.vp9CyclicRefreshPostencodeFromMiGrid(
+		miRows, miCols, header, isKey, intraOnly, logicalRefreshFlags)
+	e.applyCyclicRefreshPostencodeResult(header, cyclicPost)
+	e.refreshVP9EncoderSegmentMap(miRows, miCols)
+	e.prevSegmentation = header.Seg
+	e.prevSegmentationValid = true
+	e.prevFrameActiveMapEnabled = e.activeMapEnabled
+	e.refreshVP9EncoderMvRefs(isKey || intraOnly, miRows, miCols)
+	e.refreshVP9EncoderRefs(header, flags)
+	e.finishVP9DenoiserFrame(header, img)
+	e.commitVP9EncoderLoopFilterDeltas(&header.Loopfilter, resetLoopfilterDeltas)
+	e.commitVP9EncoderFrameContext(header, frameContextIdx)
+	e.lastVP9HeaderFrameType = header.FrameType
+	e.lastVP9HeaderValid = true
+	e.prevFrameTxMode = txMode
+	e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
+		logicalRefreshFlags, macroblocks,
+		e.vp9AltRefEnabledForRateControlStats(), cyclicForRC,
+		e.vp9DampedAdjustmentRFLevel())
+	if !isKey && !intraOnly {
+		e.rc.computeFrameLowMotion(miRows, miCols,
+			func(miRow, miCol int) *vp9dec.NeighborMi {
+				return e.vp9MiAt(miRows, miCols, miRow, miCol)
+			})
+	}
+	return nil
 }

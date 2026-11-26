@@ -55,7 +55,7 @@ fast:
 	// Exact original SIMD evaluation order for four-pixel rows: capture left
 	// once per row, then form the output slice before loading the above packet.
 	t := archsimd.BroadcastInt32x4(int32(top))
-	for y := 0; y < 4; y++ {
+	for y := range 4 {
 		v := archsimd.BroadcastInt32x4(int32(left[y])).Sub(t)
 		StorePixels4(dst[y*ds:], LoadPixels4(above).Add(v))
 	}

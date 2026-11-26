@@ -64,22 +64,22 @@ type wavefrontJob struct {
 // A dedicated loop-filter worker runs concurrently two rows behind the
 // reconstruction wavefront, matching libvpx's row-thread dependency contract.
 type WavefrontPool struct {
-	mu           sync.Mutex
-	closed       bool
-	maxWorkers   int
-	bgWorkers    []wavefrontWorker
-	lfStartCh    chan struct{}
-	lfDoneCh     chan struct{}
-	lfErr        error
-	exitWg       sync.WaitGroup
-	mainScratch  IntraReconstructionScratch
-	mainTokens   MacroblockTokens
-	aboveGrid    []EntropyContextPlanes
-	rowProgress  []paddedAtomicInt32
-	aborted      atomic.Bool
-	job          wavefrontJob
-	lfActive     bool
-	activeBG     int
+	mu          sync.Mutex
+	closed      bool
+	maxWorkers  int
+	bgWorkers   []wavefrontWorker
+	lfStartCh   chan struct{}
+	lfDoneCh    chan struct{}
+	lfErr       error
+	exitWg      sync.WaitGroup
+	mainScratch IntraReconstructionScratch
+	mainTokens  MacroblockTokens
+	aboveGrid   []EntropyContextPlanes
+	rowProgress []paddedAtomicInt32
+	aborted     atomic.Bool
+	job         wavefrontJob
+	lfActive    bool
+	activeBG    int
 }
 
 // NewWavefrontPool creates a persistent pool sized for up to threads workers.

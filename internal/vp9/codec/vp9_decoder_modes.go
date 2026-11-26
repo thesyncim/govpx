@@ -2050,9 +2050,9 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 			}
 			dstOff := baseY*dstStride + baseX
 			rowStep := 4 * dstStride
-			for rr := 0; rr < num4x4H; rr++ {
+			for rr := range num4x4H {
 				lv := lCtx[rr]
-				for cc := 0; cc < num4x4W; cc++ {
+				for cc := range num4x4W {
 					initCtx := int(aCtx[cc]&1) + int(lv&1)
 					if count < 0 && pos <= fastLimit {
 						value, count, pos = bitstream.FillFast(buf, pos, value, count)
@@ -2139,10 +2139,10 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 			rs.CommitPos(pos)
 			return eobTotal
 		}
-		for rr := 0; rr < num4x4H; rr++ {
+		for rr := range num4x4H {
 			rowDst := dst[(baseY+rr*4)*dstStride+baseX:]
 			lv := lCtx[rr]
-			for cc := 0; cc < num4x4W; cc++ {
+			for cc := range num4x4W {
 				initCtx := 0
 				if aCtx[cc] != 0 {
 					initCtx++

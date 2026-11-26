@@ -65,16 +65,6 @@ func (s *interFrameMotionSearchStats) recordSubpelVariance() {
 	}
 }
 
-func (s *interFrameMotionSearchStats) recordSubpelCacheHit() {
-	if s == nil {
-		return
-	}
-	s.subpelCacheHits++
-	if phase := s.phase; phase != nil {
-		phase.SubpelCacheHits++
-	}
-}
-
 func (s *interFrameMotionSearchStats) recordSubpelBoundsReject() {
 	if s == nil {
 		return

@@ -71,7 +71,7 @@ func FillCoefficientTokenCostTable(probs *tables.CoefficientProbs, costs *Coeffi
 				v[9] = a + z[10]
 				v[10] = a + o[10]
 				if ctx == 0 && band > coefElisionBandThreshold[bt] {
-					for t := 0; t < 11; t++ {
+					for t := range 11 {
 						if v[t] <= o[0] {
 							v[t] = tokenCostMaxInt() / 4
 						} else {

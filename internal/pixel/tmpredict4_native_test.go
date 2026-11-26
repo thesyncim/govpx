@@ -8,8 +8,8 @@ import (
 func TestTMPredict4TileFullBackingAliases(t *testing.T) {
 	const w = 4
 	for _, ds := range []int{0, 1, 2, 3, 4, 7, 37, 1312} {
-		for align := 0; align < 16; align++ {
-			for mode := 0; mode < 10; mode++ {
+		for align := range 16 {
+			for mode := range 10 {
 				span, off := 3*ds+w, 64+align
 				ao, lo := off+span+7, off+span+17
 				switch mode {
@@ -59,7 +59,7 @@ func TestTMPredict4TileArithmetic(t *testing.T) {
 		for i := range a {
 			a[i] = av
 		}
-		for lv := 0; lv < 256; lv++ {
+		for lv := range 256 {
 			for i := range l {
 				l[i] = byte(lv)
 			}
@@ -89,7 +89,7 @@ func TestTMPredict4TileFallbackPanicState(t *testing.T) {
 			for _, alen := range []int{0, 1, 3, 4} {
 				for _, llen := range []int{0, 1, 3, 4} {
 					for _, clip := range []bool{false, true} {
-						for mode := 0; mode < 4; mode++ {
+						for mode := range 4 {
 							off, ao, lo := 32, 32+span+7, 32+span+17
 							switch mode {
 							case 1:
@@ -145,7 +145,7 @@ func TestTMPredict4TileCheckedPanicState(t *testing.T) {
 			for _, al := range []int{0, 1, 3, 4} {
 				for _, ll := range []int{0, 1, 3, 4} {
 					for _, clip := range []bool{false, true} {
-						for mode := 0; mode < 4; mode++ {
+						for mode := range 4 {
 							off, ao, lo := 32, 32+span+7, 32+span+17
 							if mode == 1 {
 								ao = off

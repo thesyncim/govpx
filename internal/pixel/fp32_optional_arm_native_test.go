@@ -94,7 +94,7 @@ func BenchmarkFP32PublicOptionalNative(b *testing.B) {
 							var backing16, want16 [4][]int16
 							var views16 [4][]int16
 							var off16 [4]int
-							for k := 0; k < 4; k++ {
+							for k := range 4 {
 								backing16[k], views16[k], off16[k] = fp32OptionalWindowInt16(n, offset)
 								if reflect.ValueOf(views16[k]).Pointer()&63 != uintptr(offset) {
 									b.Fatal("fixture alignment")

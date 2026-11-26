@@ -16,7 +16,6 @@ const interFrameMotionCandidateMax = 15
 const interFrameMaxMVSearchSteps = vp8enc.InterFrameMaxMVSearchSteps
 const interFrameMaxFirstStep = vp8enc.InterFrameMaxFirstStep
 const interFrameSplitMVFullSearchThreshold = 4000
-const interFrameMaxFullPelVal = vp8enc.InterFrameMaxFullPelVal
 const interFrameUMVBorderPixels = vp8enc.InterFrameUMVBorderPixels
 
 type interAnalysisFullPixelSearchMethod uint8
@@ -362,13 +361,7 @@ func interRDThreshBaselineRefSig(refCount int, lastEnabled bool, goldenEnabled b
 // same generation (e.g. test fixtures that re-call the helper with shifted
 // closest-ref distances). Building the fingerprint is cheap relative to the
 // cached body and only walks the refs slice once.
-func (e *VP8Encoder) interModeRDThresholdsBaseline(qIndex int, refs []interAnalysisReference, refCount int) [libvpxInterModeCount]int {
-	baseline, _ := e.interModeRDThresholdsBaselineRef(qIndex, refs, refCount)
-	return *baseline
-}
-
-// interModeRDThresholdsBaselineRef is the cache-slot-returning form of
-// interModeRDThresholdsBaseline: it returns a pointer into the live cache
+// interModeRDThresholdsBaselineRef returns a pointer into the live cache
 // slot plus a stamp that uniquely identifies the slot fill (generation in
 // the high half, per-encoder fill sequence in the low half). Callers must
 // consume the pointer before the next call that could refill a slot.

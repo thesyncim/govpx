@@ -39,7 +39,7 @@ func TestIntraDCFillSelectedAndDeclines(t *testing.T) {
 	// Every incomplete destination length must decline before any write, even with spare capacity.
 	for _, n := range []int{8, 16} {
 		need := (n-1)*37 + n
-		for length := 0; length < need; length++ {
+		for length := range need {
 			storage := make([]byte, need+11)
 			for i := range storage {
 				storage[i] = 77

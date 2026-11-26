@@ -207,7 +207,7 @@ func buildNmvComponentCostTable(mvcost []int, c *vp9dec.NmvComponent, useHP bool
 		wholeCost := classCost[cls]
 		var delta [vp9dec.MvOffsetBits]int
 		prefix := 0
-		for i := 0; i < n; i++ {
+		for i := range n {
 			wholeCost += bitsCost[i][0]
 			change := bitsCost[i][1] - bitsCost[i][0]
 			delta[i] = change - prefix

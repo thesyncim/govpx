@@ -1323,17 +1323,6 @@ func (e *VP9Encoder) scoreVP9InterTxReconstruction(inter *vp9InterEncodeState,
 	return distortion, true
 }
 
-// vp9InterCoeffBlockRateCostQ mirrors libvpx's cost_coeffs is_inter=1
-// path (vp9_rdopt.c:358-459). When qcoeffs is non-nil the per-coefficient
-// magnitude is read directly from qcoeffs[raster] — see
-// vp9KeyframeCoeffBlockRateCostPlaneQ for the rationale.
-func (e *VP9Encoder) vp9InterCoeffBlockRateCostQ(txSize common.TxSize,
-	planeType int, dequant [2]int16, coeffs, qcoeffs []int16, initCtx int,
-) int {
-	return e.vp9InterCoeffBlockRateCostQEOB(txSize, planeType, dequant,
-		coeffs, qcoeffs, initCtx, 0, false)
-}
-
 func (e *VP9Encoder) vp9InterCoeffBlockRateCostQEOB(txSize common.TxSize,
 	planeType int, dequant [2]int16, coeffs, qcoeffs []int16, initCtx int,
 	eob int, eobKnown bool,
@@ -1341,19 +1330,6 @@ func (e *VP9Encoder) vp9InterCoeffBlockRateCostQEOB(txSize common.TxSize,
 	return e.vp9InterCoeffBlockRateCostQFcWithCosts(&e.fc,
 		e.vp9CoeffTokenCostTable(txSize, planeType, 1), txSize, planeType,
 		dequant, coeffs, qcoeffs, initCtx, eob, eobKnown)
-}
-
-// vp9InterCoeffBlockRateCostQFc is vp9InterCoeffBlockRateCostQ with an explicit
-// frame context, so the zcoeff_blk recompute can cost coefficients with the
-// search-time (pre-compressed-header-update) coef probs (inter.selectFc) rather
-// than the live e.fc that the header writer mutates between the count and write
-// passes.
-func (e *VP9Encoder) vp9InterCoeffBlockRateCostQFc(fc *vp9dec.FrameContext,
-	txSize common.TxSize, planeType int, dequant [2]int16,
-	coeffs, qcoeffs []int16, initCtx int,
-) int {
-	return e.vp9InterCoeffBlockRateCostQFcWithCosts(fc, nil, txSize, planeType,
-		dequant, coeffs, qcoeffs, initCtx, 0, false)
 }
 
 func (e *VP9Encoder) vp9InterCoeffBlockRateCostQFcWithCosts(fc *vp9dec.FrameContext,

@@ -100,7 +100,7 @@ func sixTapPredict16xNScalar(src []byte, srcStride int, xoffset int, yoffset int
 	for y := 0; y < height+5; y++ {
 		srcRow := y * srcStride
 		tmpRow := y * 16
-		for x := 0; x < 16; x++ {
+		for x := range 16 {
 			v := int(src[srcRow+x+0])*int(hFilter[0]) +
 				int(src[srcRow+x+1])*int(hFilter[1]) +
 				int(src[srcRow+x+2])*int(hFilter[2]) +
@@ -112,10 +112,10 @@ func sixTapPredict16xNScalar(src []byte, srcStride int, xoffset int, yoffset int
 		}
 	}
 
-	for y := 0; y < height; y++ {
+	for y := range height {
 		dstRow := y * dstStride
 		tmpRow := y * 16
-		for x := 0; x < 16; x++ {
+		for x := range 16 {
 			v := int(tmp[tmpRow+x])*int(vFilter[0]) +
 				int(tmp[tmpRow+16+x])*int(vFilter[1]) +
 				int(tmp[tmpRow+32+x])*int(vFilter[2]) +
@@ -136,7 +136,7 @@ func sixTapPredict8xNScalar(src []byte, srcStride int, xoffset int, yoffset int,
 	for y := 0; y < height+5; y++ {
 		srcRow := y * srcStride
 		tmpRow := y * 8
-		for x := 0; x < 8; x++ {
+		for x := range 8 {
 			v := int(src[srcRow+x+0])*int(hFilter[0]) +
 				int(src[srcRow+x+1])*int(hFilter[1]) +
 				int(src[srcRow+x+2])*int(hFilter[2]) +
@@ -148,10 +148,10 @@ func sixTapPredict8xNScalar(src []byte, srcStride int, xoffset int, yoffset int,
 		}
 	}
 
-	for y := 0; y < height; y++ {
+	for y := range height {
 		dstRow := y * dstStride
 		tmpRow := y * 8
-		for x := 0; x < 8; x++ {
+		for x := range 8 {
 			v := int(tmp[tmpRow+x])*int(vFilter[0]) +
 				int(tmp[tmpRow+8+x])*int(vFilter[1]) +
 				int(tmp[tmpRow+16+x])*int(vFilter[2]) +
@@ -172,7 +172,7 @@ func sixTapPredict4xNScalar(src []byte, srcStride int, xoffset int, yoffset int,
 	for y := 0; y < height+5; y++ {
 		srcRow := y * srcStride
 		tmpRow := y * 4
-		for x := 0; x < 4; x++ {
+		for x := range 4 {
 			v := int(src[srcRow+x+0])*int(hFilter[0]) +
 				int(src[srcRow+x+1])*int(hFilter[1]) +
 				int(src[srcRow+x+2])*int(hFilter[2]) +
@@ -184,10 +184,10 @@ func sixTapPredict4xNScalar(src []byte, srcStride int, xoffset int, yoffset int,
 		}
 	}
 
-	for y := 0; y < height; y++ {
+	for y := range height {
 		dstRow := y * dstStride
 		tmpRow := y * 4
-		for x := 0; x < 4; x++ {
+		for x := range 4 {
 			v := int(tmp[tmpRow+x])*int(vFilter[0]) +
 				int(tmp[tmpRow+4+x])*int(vFilter[1]) +
 				int(tmp[tmpRow+8+x])*int(vFilter[2]) +

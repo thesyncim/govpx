@@ -462,15 +462,6 @@ func vp9WebRTCRecoveryKeyRequiredError() error {
 	return errors.Join(ErrInvalidConfig, errVP9WebRTCRecoveryKeyRequired)
 }
 
-func (p *VP9WebRTCPacketizer) requireVP9RecoveryKeyAfterPacketizationError(
-	err error,
-) {
-	if p == nil || !errors.Is(err, errVP9WebRTCRecoveryKeyRequired) {
-		return
-	}
-	p.keyFrameRequired = true
-}
-
 func (p *VP9WebRTCPacketizer) requireVP9RecoveryKeyAfterEncodedPacketizationError(
 	err error,
 ) {

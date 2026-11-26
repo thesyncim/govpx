@@ -226,18 +226,6 @@ func (e *VP9Encoder) vp9AvgSourceSADStats(img *image.YCbCr, miCols, miRow, miCol
 	return stats, true
 }
 
-// vp9SourceSADContentState is the per-frame, per-SB cache for the
-// avg_source_sad result. libvpx resets x->content_state_sb at SB entry and
-// computes it once before partitioning; every leaf mode pick in that SB reads
-// the same value.
-func (e *VP9Encoder) vp9SourceSADContentState(img *image.YCbCr, miRows, miCols, miRow, miCol int) (encoder.ContentStateSB, bool) {
-	stats, ok := e.vp9SourceSADState(img, miRows, miCols, miRow, miCol)
-	if !ok {
-		return encoder.ContentStateInvalid, false
-	}
-	return stats.ContentState, true
-}
-
 func (e *VP9Encoder) vp9SourceSADState(img *image.YCbCr, miRows, miCols, miRow, miCol int) (encoder.AvgSourceSADResult, bool) {
 	if e == nil || img == nil || e.sf.UseSourceSad == 0 {
 		return encoder.AvgSourceSADResult{}, false

@@ -159,12 +159,12 @@ func TestX64Round2Metrics(t *testing.T) {
 		for _, xy := range [][2]int{{0, 0}, {40, 0}, {0, 40}, {40, 40}, {100, 100}} {
 			got, ok := BlockDiffStatsClampedSource(a[:], 64, 57, 53, b[:], 64, xy[0], xy[1], 0, 0, size, size)
 			want := BlockDiffStats{Count: uint64(size * size)}
-			for y := 0; y < size; y++ {
+			for y := range size {
 				sy := xy[1] + y
 				if sy >= 53 {
 					sy = 52
 				}
-				for x := 0; x < size; x++ {
+				for x := range size {
 					sx := xy[0] + x
 					if sx >= 57 {
 						sx = 56

@@ -342,7 +342,7 @@ func TestTokenZeroY1FrozenState(t *testing.T) {
 				for _, capacity := range []int{0, 1, 24, 384} {
 					for _, alias := range []bool{false, true} {
 						coeff := tokenCountMacroInput(seed)
-						for block := 0; block < 16; block++ {
+						for block := range 16 {
 							coeff.EOB[block] = 0
 							if !is4 && seed%2 == 0 {
 								coeff.EOB[block] = 1

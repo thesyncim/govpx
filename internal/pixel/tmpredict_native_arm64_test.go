@@ -11,12 +11,12 @@ func TestTMPredictBytesPacketLaneSelection(t *testing.T) {
 	for _, w := range []int{8, 16} {
 		for _, ds := range []int{0, 1, w - 1, w, 37} {
 			for _, top := range []byte{0, 1, 127, 128, 254, 255} {
-				for shift := 0; shift < 256; shift++ {
+				for shift := range 256 {
 					span := (w-1)*ds + w
 					got := bytes.Repeat([]byte{39}, span+47)
 					want := bytes.Clone(got)
 					a, l := make([]byte, w+31), make([]byte, w+31)
-					for i := 0; i < w; i++ {
+					for i := range w {
 						a[7+i] = byte(i*37 + shift)
 						l[15+i] = byte(i*101 + shift)
 					}
@@ -43,7 +43,7 @@ func TestTMPredictNativeByteArithmetic(t *testing.T) {
 			for i := range above {
 				above[i] = a
 			}
-			for l := 0; l < 256; l++ {
+			for l := range 256 {
 				for i := range left {
 					left[i] = byte(l)
 				}

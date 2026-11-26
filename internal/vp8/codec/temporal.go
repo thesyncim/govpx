@@ -309,46 +309,6 @@ func (t *temporalState) nextFrame(timing timingState) temporalFrame {
 	return meta
 }
 
-func (t *temporalState) keyFrameMeta(meta temporalFrame, timing timingState) temporalFrame {
-	if !t.enabled || !meta.Enabled {
-		return meta
-	}
-	meta.LayerID = 0
-	meta.LayerSync = false
-	if t.tl0Valid {
-		meta.TL0PICIDX = t.tl0PicIdx + 1
-	} else {
-		meta.TL0PICIDX = 0
-	}
-	meta.LayerTargetBitrateKbps = t.temporalLayerBitrateKbps(0)
-	meta.LayerFrameTargetBits = t.temporalLayerFrameTargetBits(0, timing)
-	meta.LayerCumulativeBitrateKbps = t.config.LayerTargetBitrateKbps[0]
-	return meta
-}
-
-func (t *temporalState) restartInterLayerKeyAccessUnit() {
-	if !t.enabled {
-		return
-	}
-	t.refLayer = [temporalReferenceCount]int{}
-	t.frameIndex = uint64(positiveLCM(t.pattern.Periodicity,
-		t.pattern.FlagPeriodicity))
-}
-
-func (t *temporalState) restartInterLayerKeyAccessUnitAtTL0(tl0PicIdx uint8) {
-	t.restartInterLayerKeyAccessUnit()
-	if !t.enabled {
-		return
-	}
-	if tl0PicIdx == 0 {
-		t.tl0PicIdx = 0
-		t.tl0Valid = false
-		return
-	}
-	t.tl0PicIdx = tl0PicIdx - 1
-	t.tl0Valid = true
-}
-
 func (t *temporalState) finishFrame(meta temporalFrame, keyFrame bool, showFrame bool, refresh temporalReferenceRefresh, encodedBits int, buffers temporalBufferConfig) {
 	if !t.enabled {
 		return
@@ -372,12 +332,6 @@ func (t *temporalState) finishFrame(meta temporalFrame, keyFrame bool, showFrame
 		t.tl0Valid = true
 	}
 	t.frameIndex++
-}
-
-func (t *temporalState) restartAfterKeyFrame() {
-	if t.enabled {
-		t.frameIndex = 1
-	}
 }
 
 func (t *temporalState) finishDroppedFrame(meta temporalFrame, buffers temporalBufferConfig) {

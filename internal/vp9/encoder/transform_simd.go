@@ -9,7 +9,6 @@ import (
 )
 
 func vecRound(v archsimd.Int32x4) archsimd.Int32x4 { return pixel.RoundTransform4(v) }
-func vecWrap(v archsimd.Int32x4) archsimd.Int32x4  { return pixel.WrapTransform4(v) }
 func forwardNetwork(in, out []archsimd.Int32x4, n int, adst bool) {
 	switch n {
 	case 4:

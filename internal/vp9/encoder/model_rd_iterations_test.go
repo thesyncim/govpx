@@ -32,7 +32,7 @@ func modelRDFrozen58(varN uint32, nLog2 uint, qstep uint32) (rate int, dist int6
 }
 func TestModelRDIterations58(t *testing.T) {
 	x := uint32(1873)
-	for i := 0; i < 8192; i++ {
+	for i := range 8192 {
 		x = x*1664525 + 1013904223
 		v := x
 		if i%7 == 0 {

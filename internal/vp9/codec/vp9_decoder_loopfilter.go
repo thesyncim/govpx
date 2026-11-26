@@ -196,12 +196,6 @@ func (d *VP9Decoder) vp9LoopFilterMaskAt(miRow, miCol int) (*vp9LoopFilterMask, 
 	return &d.vp9LoopFilterMasks[idx], true
 }
 
-func (d *VP9Decoder) applyVP9LoopFilterPlane(miRows, miCols int,
-	plane vp9LoopFilterPlane,
-) bool {
-	return d.applyVP9LoopFilterPlaneRowsCached(miRows, miCols, 0, miRows, plane)
-}
-
 // applyVP9LoopFilterPlaneRows runs the loop filter on a single plane
 // restricted to mi rows in [startMiRow, endMiRow). Mirrors libvpx
 // vp9_loop_filter_frame's row-range walk used by the partial-frame /

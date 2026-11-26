@@ -11,8 +11,8 @@ func TestFPClassIndexPacking(t *testing.T) {
 	if !Enabled {
 		t.Skip("native backend unavailable")
 	}
-	for base := 0; base < 12; base++ {
-		for step := 0; step < 12; step++ {
+	for base := range 12 {
+		for step := range 12 {
 			var lanes [8]int16
 			for i := range lanes {
 				lanes[i] = int16((base + i*step) % 12)

@@ -440,10 +440,6 @@ func applyLibvpxY2EobAdjustToAnalysisMacroblock(tokens *vp8dec.MacroblockTokens,
 	}
 }
 
-func clampEncodeCoord(v int, limit int) int {
-	return min(max(v, 0), limit-1)
-}
-
 func analysisBPredEdges(macroblock []byte, macroblockStride int, above []byte, left []byte, topLeft byte, block int) ([8]byte, [4]byte, byte) {
 	blockRow := block >> 2
 	blockCol := block & 3

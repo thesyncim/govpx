@@ -803,26 +803,6 @@ func (e *VP9Encoder) prepareVP9KeyframeTxResidueWithQEOBOpt(key *vp9KeyframeEnco
 	return true, eob
 }
 
-func (e *VP9Encoder) prepareVP9InterTxResidue(inter *vp9InterEncodeState,
-	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
-	miRow, miCol int, blockRow4x4, blockCol4x4 int, dequant [2]int16, out []int16,
-) bool {
-	return e.prepareVP9InterTxResidueWithQ(inter, pd, plane, txSize, miRow, miCol,
-		blockRow4x4, blockCol4x4, dequant, out, nil)
-}
-
-// prepareVP9InterTxResidueWithQ is the qcoeff-emitting sibling of
-// prepareVP9InterTxResidue. See prepareVP9KeyframeTxResidueWithQ for the
-// libvpx cost_coeffs rationale.
-func (e *VP9Encoder) prepareVP9InterTxResidueWithQ(inter *vp9InterEncodeState,
-	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
-	miRow, miCol int, blockRow4x4, blockCol4x4 int, dequant [2]int16, out, qOut []int16,
-) bool {
-	ok, _ := e.prepareVP9InterTxResidueWithQEOB(inter, pd, plane, txSize,
-		miRow, miCol, blockRow4x4, blockCol4x4, dequant, out, qOut)
-	return ok
-}
-
 func (e *VP9Encoder) prepareVP9InterTxResidueWithQEOB(inter *vp9InterEncodeState,
 	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
 	miRow, miCol int, blockRow4x4, blockCol4x4 int, dequant [2]int16, out, qOut []int16,
@@ -1062,20 +1042,7 @@ func vp9PredictionSSEClamped(src []byte, srcStride, srcW, srcH int,
 
 // quantizeVP9TxResidualWithQ mirrors quantizeVP9TxResidual and additionally
 // emits the signed quantized coefficients into qOut when non-nil. libvpx's
-// cost_coeffs (vp9_rdopt.c:367,392,405,438) reads qcoeff directly so
-// callers in the second-tier RD chain pass qOut and avoid recovering q
-// from int16-wrapped dqcoeff. libvpx file:line: vpx_dsp/quantize.c:42-77
-// (b) and 216-275 (b_32x32); vp9/encoder/vp9_quantize.c:26-56 (fp) and
-// 92-123 (fp_32x32) all write qcoeff_ptr + dqcoeff_ptr in lockstep.
-func (e *VP9Encoder) quantizeVP9TxResidualWithQ(dst []byte, stride int,
-	txSize common.TxSize, txType common.TxType, dequant [2]int16, qindex int,
-	out, qOut []int16, lossless bool, useFastQuant bool, useLp32x32RD bool,
-) bool {
-	return e.quantizeVP9TxResidualWithQTrellis(dst, stride, txSize, txType,
-		dequant, qindex, out, qOut, lossless, useFastQuant, useLp32x32RD, nil) > 0
-}
-
-// quantizeVP9TxResidualWithQTrellis is quantizeVP9TxResidualWithQ with an
+// quantizeVP9TxResidualWithQTrellis runs transform + quantization with an
 // optional trellis hook (libvpx block_rd_txfm runs vp9_optimize_b between
 // vp9_xform_quant and the inverse transform / dist_block, vp9_rdopt.c:792-795).
 // When trellis is non-nil it is called after quantization with the pre-quant

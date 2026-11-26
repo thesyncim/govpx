@@ -119,6 +119,7 @@ func initRepo(t *testing.T, dir string) {
 		{"init", "-q"},
 		{"config", "user.email", "test@example.com"},
 		{"config", "user.name", "test"},
+		{"config", "commit.gpgsign", "false"},
 		{"commit", "--allow-empty", "-q", "-m", "root"},
 	} {
 		cmd := exec.Command("git", args...)

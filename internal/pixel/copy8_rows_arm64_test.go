@@ -16,12 +16,12 @@ func TestCopy8RowsHandledAndDeclines(t *testing.T) {
 			}
 			want := append([]byte(nil), got...)
 			so, do := 64, 64+shift
-			for y := 0; y < 8; y++ {
+			for y := range 8 {
 				var row [8]byte
-				for x := 0; x < 8; x++ {
+				for x := range 8 {
 					row[x] = want[so+y*p[0]+x]
 				}
-				for x := 0; x < 8; x++ {
+				for x := range 8 {
 					want[do+y*p[1]+x] = row[x]
 				}
 			}

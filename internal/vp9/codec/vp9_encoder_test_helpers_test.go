@@ -67,6 +67,18 @@ func vp9ImageFromYCbCrForTest(img *image.YCbCr) Image {
 	}
 }
 
+func materializeVP9DecoderMiGridForTest(d *VP9Decoder) []vp9dec.NeighborMi {
+	out := make([]vp9dec.NeighborMi, len(d.miGrid))
+	if len(d.miIdx) == len(d.miGrid) {
+		for i, idx := range d.miIdx {
+			out[i] = d.miGrid[idx]
+		}
+		return out
+	}
+	copy(out, d.miGrid)
+	return out
+}
+
 func decodeVP9PacketMiGridForOracleTest(t *testing.T, packet []byte) []vp9dec.NeighborMi {
 	t.Helper()
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
@@ -76,9 +88,7 @@ func decodeVP9PacketMiGridForOracleTest(t *testing.T, packet []byte) []vp9dec.Ne
 	if err := d.Decode(packet); err != nil {
 		t.Fatalf("Decode packet: %v", err)
 	}
-	out := make([]vp9dec.NeighborMi, len(d.miGrid))
-	copy(out, d.miGrid)
-	return out
+	return materializeVP9DecoderMiGridForTest(d)
 }
 
 func decodeVP9TwoFrameInterMiGridForOracleTest(t *testing.T, key, inter []byte) []vp9dec.NeighborMi {
@@ -96,9 +106,7 @@ func decodeVP9TwoFrameInterMiGridForOracleTest(t *testing.T, key, inter []byte) 
 	if err := d.Decode(inter); err != nil {
 		t.Fatalf("Decode inter packet: %v", err)
 	}
-	out := make([]vp9dec.NeighborMi, len(d.miGrid))
-	copy(out, d.miGrid)
-	return out
+	return materializeVP9DecoderMiGridForTest(d)
 }
 
 func splitShiftedVP9ReferenceYCbCrForTest(ref Image, leftDx, rightDx int) *image.YCbCr {
@@ -420,7 +428,7 @@ func assertVP9DecoderSegmentIDForTest(t *testing.T, d *VP9Decoder, segID uint8) 
 	// undercuts spatial coding — accept either projection rather
 	// than insisting on the legacy intra-only "seg_id_predicted ==
 	// segID" shape.
-	for i, mi := range d.miGrid {
+	for i, mi := range materializeVP9DecoderMiGridForTest(d) {
 		if mi.SegmentID != segID {
 			t.Fatalf("miGrid[%d] SegmentID = %d, want %d",
 				i, mi.SegmentID, segID)

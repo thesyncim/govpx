@@ -13,7 +13,6 @@ const (
 	CodecVP8              = codecapi.CodecVP8
 	CodecVP9              = codecapi.CodecVP9
 	maxVP8Dimension       = codecapi.MaxVP8Dimension
-	maxVP9Dimension       = codecapi.MaxVP9Dimension
 	maxQuantizer          = codecapi.MaxQuantizer
 )
 
@@ -87,11 +86,8 @@ const (
 	PostProcessMFQE         = codecapi.PostProcessMFQE
 	allPostProcessFlags     = codecapi.AllPostProcessFlags
 
-	encoderCacheLineSize          = codecapi.EncoderCacheLineSize
-	rowWorkerIdleSpinBudget       = codecapi.RowWorkerIdleSpinBudget
-	vp9WorkerIdleSpinBudget       = codecapi.VP9WorkerIdleSpinBudget
-	rowWorkerIdleSchedulerBackoff = codecapi.RowWorkerIdleSchedulerBackoff
-	workerWakeShutdownEpoch       = codecapi.WorkerWakeShutdownEpoch
+	encoderCacheLineSize    = codecapi.EncoderCacheLineSize
+	rowWorkerIdleSpinBudget = codecapi.RowWorkerIdleSpinBudget
 )
 
 var (
@@ -113,10 +109,6 @@ func PeekVP8StreamInfo(packet []byte) (StreamInfo, error) {
 
 func peekVP8FrameHeader(packet []byte) (vp8dec.FrameHeader, StreamInfo, error) {
 	return codecapi.PeekVP8FrameHeader(packet)
-}
-
-func streamInfoFromInternal(info vp8dec.StreamInfo) StreamInfo {
-	return codecapi.StreamInfoFromInternal(info)
 }
 
 func publicImageFromVP8(src *vp8common.Image) Image {

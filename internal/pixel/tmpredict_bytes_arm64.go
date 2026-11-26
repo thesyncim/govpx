@@ -91,14 +91,14 @@ fast:
 		// two unsigned saturations equal clamp(above+left-top,0,255) exactly.
 		if w == 8 {
 			v := archsimd.Uint64x2{}.SetElem(0, binary.LittleEndian.Uint64(above)).ReshapeToUint8s()
-			for y := 0; y < 8; y++ {
+			for y := range 8 {
 				delta := int(left[y]) - int(top)
 				row := v.AddSaturated(archsimd.BroadcastUint8x16(byte(max(delta, 0)))).SubSaturated(archsimd.BroadcastUint8x16(byte(max(-delta, 0))))
 				binary.LittleEndian.PutUint64(dst[y*ds:], row.ReshapeToUint64s().GetElem(0))
 			}
 		} else {
 			v := archsimd.LoadUint8x16(above)
-			for y := 0; y < 16; y++ {
+			for y := range 16 {
 				delta := int(left[y]) - int(top)
 				row := v.AddSaturated(archsimd.BroadcastUint8x16(byte(max(delta, 0)))).SubSaturated(archsimd.BroadcastUint8x16(byte(max(-delta, 0))))
 				row.Store(dst[y*ds:])

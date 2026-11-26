@@ -223,10 +223,8 @@ type VP9Decoder struct {
 	miGrid      []vp9dec.NeighborMi
 	miIdx       []int32
 
-	segMap       []uint8
-	lastSegMap   []uint8
-	segMapMiRows int
-	segMapMiCols int
+	segMap     []uint8
+	lastSegMap []uint8
 
 	planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
 
@@ -261,7 +259,8 @@ type VP9Decoder struct {
 	// parseVP9InterModeTile call read / write against it so the wavefront
 	// primitive is fully exercised. Nil keeps the single-goroutine body
 	// byte-identical to libvpx. Mirrors the encoder's vp9RowMTSync field.
-	rowMTSync *vp9RowMTSync
+	rowMTSync   *vp9RowMTSync
+	fastCoefCtx vp9dec.FastCoefPlaneCtx
 
 	postSource      vp8common.FrameBuffer
 	post            vp8common.FrameBuffer
@@ -270,6 +269,8 @@ type VP9Decoder struct {
 	postprocState   vp8dec.PostProcessState
 
 	// --- Pure value / pointer-free tail (beyond Go GC PtrBytes: 0 scan cost) ---
+	segMapMiRows           int
+	segMapMiCols           int
 	frameYOrigin           int
 	frameUOrigin           int
 	frameVOrigin           int
@@ -298,7 +299,6 @@ type VP9Decoder struct {
 	dqcoeff         [1024]int16
 	coefTokenCache  [1024]uint8
 	coefProbsPacked vp9dec.PackedFrameCoefProbs
-	fastCoefCtx     vp9dec.FastCoefPlaneCtx
 	intraScratch    vp9dec.IntraPredictorScratch
 	convolveScratch dsp.Convolve8Scratch
 	counts          vp9dec.FrameCounts

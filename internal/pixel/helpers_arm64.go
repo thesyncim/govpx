@@ -88,7 +88,7 @@ func filterVertical8(src []byte, ss int, dst []byte, ds, w, h int, taps []int16)
 		p4 := widen8(load8(src[4*ss+x:]))
 		p5 := widen8(load8(src[5*ss+x:]))
 		p6 := widen8(load8(src[6*ss+x:]))
-		for y := 0; y < h; y++ {
+		for y := range h {
 			p7 := widen8(load8(src[(y+7)*ss+x:]))
 			lo, hi := bias, bias
 			lo, hi = mac(lo, hi, p0, c0)
@@ -138,7 +138,7 @@ func filterVerticalNarrow8(src []byte, ss int, dst []byte, ds, w, h int, taps []
 		p4 := widen8(load8(src[4*ss+x:]))
 		p5 := widen8(load8(src[5*ss+x:]))
 		p6 := widen8(load8(src[6*ss+x:]))
-		for y := 0; y < h; y++ {
+		for y := range h {
 			p7 := widen8(load8(src[(y+7)*ss+x:]))
 			acc := bias
 			if mode == 1 {
