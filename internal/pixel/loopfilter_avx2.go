@@ -13,6 +13,10 @@ func loopFilterWide(p []byte, q0, step, outer, n, blimit, limit, thresh, kind in
 	return loopFilterWide16(p, q0, step, outer, n, blimit, limit, thresh, kind)
 }
 func loopFilterWide16(p []byte, q0, step, outer, n, blimit, limit, thresh, kind int) bool {
+	if loopFilterFlat16Eligible(step, outer, n, kind) {
+		loopFilterFlatWide(p, q0, step, outer, n, blimit, limit, thresh, kind)
+		return true
+	}
 	if (kind != 2 && kind != 4 && kind != 6) || n < 16 || (step != 1 && outer != 1) {
 		return false
 	}
