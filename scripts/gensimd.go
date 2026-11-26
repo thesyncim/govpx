@@ -28,10 +28,22 @@ func raw(n ast.Node) string {
 	}
 	return b.String()
 }
+func isConstIdent(name string) bool {
+	return strings.HasPrefix(name, "fdctCospi") || strings.HasPrefix(name, "fdctSinpi") ||
+		strings.HasPrefix(name, "cospi") || strings.HasPrefix(name, "sinpi")
+}
+func transformVecLen(name string) int {
+	for _, n := range []int{32, 16, 8, 4} {
+		if strings.HasSuffix(name, fmt.Sprintf("%d", n)) {
+			return n
+		}
+	}
+	return 0
+}
 func vec(e ast.Expr) string {
 	switch v := e.(type) {
 	case *ast.Ident:
-		if strings.HasPrefix(v.Name, "fdctCospi") || strings.HasPrefix(v.Name, "fdctSinpi") || strings.HasPrefix(v.Name, "cospi") || strings.HasPrefix(v.Name, "sinpi") {
+		if isConstIdent(v.Name) {
 			return "archsimd.BroadcastInt32x4(" + v.Name + ")"
 		}
 		return v.Name
@@ -45,16 +57,36 @@ func vec(e ast.Expr) string {
 		return "(" + vec(v.X) + ")"
 	case *ast.UnaryExpr:
 		if v.Op == token.SUB {
+			if id, ok := v.X.(*ast.Ident); ok && isConstIdent(id.Name) {
+				return "archsimd.BroadcastInt32x4(-" + id.Name + ")"
+			}
+			if lit, ok := v.X.(*ast.BasicLit); ok {
+				return "archsimd.BroadcastInt32x4(-" + lit.Value + ")"
+			}
 			return "archsimd.Int32x4{}.Sub(" + vec(v.X) + ")"
 		}
 		panic("unary " + raw(v))
 	case *ast.BinaryExpr:
+		if v.Op == token.ADD {
+			if u, ok := v.X.(*ast.UnaryExpr); ok && u.Op == token.SUB {
+				return "(" + vec(v.Y) + ").Sub(" + vec(u.X) + ")"
+			}
+			if u, ok := v.Y.(*ast.UnaryExpr); ok && u.Op == token.SUB {
+				return "(" + vec(v.X) + ").Sub(" + vec(u.X) + ")"
+			}
+		}
 		if v.Op == token.ADD || v.Op == token.SUB {
 			if left, ok := v.X.(*ast.BinaryExpr); ok && left.Op == token.MUL {
 				other := vec(v.Y)
 				if v.Op == token.SUB {
 					if right, ok := v.Y.(*ast.BinaryExpr); ok && right.Op == token.MUL {
-						other = "(" + vec(right.X) + ").Mul(archsimd.Int32x4{}.Sub(" + vec(right.Y) + "))"
+						if id, ok := right.Y.(*ast.Ident); ok && isConstIdent(id.Name) {
+							other = "(" + vec(right.X) + ").Mul(archsimd.BroadcastInt32x4(-" + id.Name + "))"
+						} else if lit, ok := right.Y.(*ast.BasicLit); ok {
+							other = "(" + vec(right.X) + ").Mul(archsimd.BroadcastInt32x4(-" + lit.Value + "))"
+						} else {
+							other = "(" + vec(right.X) + ").Mul(archsimd.Int32x4{}.Sub(" + vec(right.Y) + "))"
+						}
 					} else {
 						other = "archsimd.Int32x4{}.Sub(" + other + ")"
 					}
@@ -176,7 +208,20 @@ func generate(pkg string, paths, names []string) {
 					}
 				}
 			}
-			out += "func " + fn.Name.Name + "Vec(" + strings.Join(args, ",") + ") " + block(fn.Body) + "\n"
+			body := block(fn.Body)
+			if n := transformVecLen(fn.Name.Name); n > 0 {
+				var bce string
+				for _, a := range fn.Type.Params.List {
+					if raw(a.Type) == "bool" {
+						continue
+					}
+					for _, p := range a.Names {
+						bce += fmt.Sprintf("_ = %s[%d]\n", p.Name, n-1)
+					}
+				}
+				body = "{\n" + bce + body[2:]
+			}
+			out += "func " + fn.Name.Name + "Vec(" + strings.Join(args, ",") + ") " + body + "\n"
 		}
 	}
 	if !strings.Contains(out, "pixel.") {

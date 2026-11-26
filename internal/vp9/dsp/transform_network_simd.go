@@ -11,6 +11,8 @@ import (
 )
 
 func idct4Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
+	_ = input[3]
+	_ = output[3]
 	var step [4]archsimd.Int32x4
 	in0 := input[0]
 	in1 := input[1]
@@ -20,7 +22,7 @@ func idct4Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	temp2 := ((in0).Sub(in2)).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	step[0] = vecRound(temp1)
 	step[1] = vecRound(temp2)
-	temp1 = pixel.MulAdd4(in1, archsimd.BroadcastInt32x4(cospi24_64), (in3).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi8_64))))
+	temp1 = pixel.MulAdd4(in1, archsimd.BroadcastInt32x4(cospi24_64), (in3).Mul(archsimd.BroadcastInt32x4(-cospi8_64)))
 	temp2 = pixel.MulAdd4(in1, archsimd.BroadcastInt32x4(cospi8_64), (in3).Mul(archsimd.BroadcastInt32x4(cospi24_64)))
 	step[2] = vecRound(temp1)
 	step[3] = vecRound(temp2)
@@ -31,6 +33,8 @@ func idct4Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 }
 
 func idct8Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
+	_ = input[7]
+	_ = output[7]
 	var step1, step2 [8]archsimd.Int32x4
 	in0 := input[0]
 	in1 := input[1]
@@ -44,11 +48,11 @@ func idct8Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	step1[2] = vecWrap(in4)
 	step1[1] = vecWrap(in2)
 	step1[3] = vecWrap(in6)
-	temp1 := pixel.MulAdd4(in1, archsimd.BroadcastInt32x4(cospi28_64), (in7).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi4_64))))
+	temp1 := pixel.MulAdd4(in1, archsimd.BroadcastInt32x4(cospi28_64), (in7).Mul(archsimd.BroadcastInt32x4(-cospi4_64)))
 	temp2 := pixel.MulAdd4(in1, archsimd.BroadcastInt32x4(cospi4_64), (in7).Mul(archsimd.BroadcastInt32x4(cospi28_64)))
 	step1[4] = vecWrap(vecRound(temp1))
 	step1[7] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(in5, archsimd.BroadcastInt32x4(cospi12_64), (in3).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi20_64))))
+	temp1 = pixel.MulAdd4(in5, archsimd.BroadcastInt32x4(cospi12_64), (in3).Mul(archsimd.BroadcastInt32x4(-cospi20_64)))
 	temp2 = pixel.MulAdd4(in5, archsimd.BroadcastInt32x4(cospi20_64), (in3).Mul(archsimd.BroadcastInt32x4(cospi12_64)))
 	step1[5] = vecWrap(vecRound(temp1))
 	step1[6] = vecWrap(vecRound(temp2))
@@ -56,13 +60,13 @@ func idct8Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	temp2 = ((step1[0]).Sub(step1[2])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	step2[0] = vecWrap(vecRound(temp1))
 	step2[1] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(step1[1], archsimd.BroadcastInt32x4(cospi24_64), (step1[3]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi8_64))))
+	temp1 = pixel.MulAdd4(step1[1], archsimd.BroadcastInt32x4(cospi24_64), (step1[3]).Mul(archsimd.BroadcastInt32x4(-cospi8_64)))
 	temp2 = pixel.MulAdd4(step1[1], archsimd.BroadcastInt32x4(cospi8_64), (step1[3]).Mul(archsimd.BroadcastInt32x4(cospi24_64)))
 	step2[2] = vecWrap(vecRound(temp1))
 	step2[3] = vecWrap(vecRound(temp2))
 	step2[4] = vecWrap((step1[4]).Add(step1[5]))
 	step2[5] = vecWrap((step1[4]).Sub(step1[5]))
-	step2[6] = vecWrap((archsimd.Int32x4{}.Sub(step1[6])).Add(step1[7]))
+	step2[6] = vecWrap((step1[7]).Sub(step1[6]))
 	step2[7] = vecWrap((step1[6]).Add(step1[7]))
 	step1[0] = vecWrap((step2[0]).Add(step2[3]))
 	step1[1] = vecWrap((step2[1]).Add(step2[2]))
@@ -85,6 +89,8 @@ func idct8Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 }
 
 func idct16Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
+	_ = input[15]
+	_ = output[15]
 	var step1, step2 [16]archsimd.Int32x4
 	step1[0] = input[0]
 	step1[1] = input[8]
@@ -110,19 +116,19 @@ func idct16Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	step2[5] = step1[5]
 	step2[6] = step1[6]
 	step2[7] = step1[7]
-	temp1 := pixel.MulAdd4(step1[8], archsimd.BroadcastInt32x4(cospi30_64), (step1[15]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi2_64))))
+	temp1 := pixel.MulAdd4(step1[8], archsimd.BroadcastInt32x4(cospi30_64), (step1[15]).Mul(archsimd.BroadcastInt32x4(-cospi2_64)))
 	temp2 := pixel.MulAdd4(step1[8], archsimd.BroadcastInt32x4(cospi2_64), (step1[15]).Mul(archsimd.BroadcastInt32x4(cospi30_64)))
 	step2[8] = vecWrap(vecRound(temp1))
 	step2[15] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(step1[9], archsimd.BroadcastInt32x4(cospi14_64), (step1[14]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi18_64))))
+	temp1 = pixel.MulAdd4(step1[9], archsimd.BroadcastInt32x4(cospi14_64), (step1[14]).Mul(archsimd.BroadcastInt32x4(-cospi18_64)))
 	temp2 = pixel.MulAdd4(step1[9], archsimd.BroadcastInt32x4(cospi18_64), (step1[14]).Mul(archsimd.BroadcastInt32x4(cospi14_64)))
 	step2[9] = vecWrap(vecRound(temp1))
 	step2[14] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(step1[10], archsimd.BroadcastInt32x4(cospi22_64), (step1[13]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi10_64))))
+	temp1 = pixel.MulAdd4(step1[10], archsimd.BroadcastInt32x4(cospi22_64), (step1[13]).Mul(archsimd.BroadcastInt32x4(-cospi10_64)))
 	temp2 = pixel.MulAdd4(step1[10], archsimd.BroadcastInt32x4(cospi10_64), (step1[13]).Mul(archsimd.BroadcastInt32x4(cospi22_64)))
 	step2[10] = vecWrap(vecRound(temp1))
 	step2[13] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(step1[11], archsimd.BroadcastInt32x4(cospi6_64), (step1[12]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi26_64))))
+	temp1 = pixel.MulAdd4(step1[11], archsimd.BroadcastInt32x4(cospi6_64), (step1[12]).Mul(archsimd.BroadcastInt32x4(-cospi26_64)))
 	temp2 = pixel.MulAdd4(step1[11], archsimd.BroadcastInt32x4(cospi26_64), (step1[12]).Mul(archsimd.BroadcastInt32x4(cospi6_64)))
 	step2[11] = vecWrap(vecRound(temp1))
 	step2[12] = vecWrap(vecRound(temp2))
@@ -130,33 +136,33 @@ func idct16Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	step1[1] = step2[1]
 	step1[2] = step2[2]
 	step1[3] = step2[3]
-	temp1 = pixel.MulAdd4(step2[4], archsimd.BroadcastInt32x4(cospi28_64), (step2[7]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi4_64))))
+	temp1 = pixel.MulAdd4(step2[4], archsimd.BroadcastInt32x4(cospi28_64), (step2[7]).Mul(archsimd.BroadcastInt32x4(-cospi4_64)))
 	temp2 = pixel.MulAdd4(step2[4], archsimd.BroadcastInt32x4(cospi4_64), (step2[7]).Mul(archsimd.BroadcastInt32x4(cospi28_64)))
 	step1[4] = vecWrap(vecRound(temp1))
 	step1[7] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(step2[5], archsimd.BroadcastInt32x4(cospi12_64), (step2[6]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi20_64))))
+	temp1 = pixel.MulAdd4(step2[5], archsimd.BroadcastInt32x4(cospi12_64), (step2[6]).Mul(archsimd.BroadcastInt32x4(-cospi20_64)))
 	temp2 = pixel.MulAdd4(step2[5], archsimd.BroadcastInt32x4(cospi20_64), (step2[6]).Mul(archsimd.BroadcastInt32x4(cospi12_64)))
 	step1[5] = vecWrap(vecRound(temp1))
 	step1[6] = vecWrap(vecRound(temp2))
 	step1[8] = vecWrap((step2[8]).Add(step2[9]))
 	step1[9] = vecWrap((step2[8]).Sub(step2[9]))
-	step1[10] = vecWrap((archsimd.Int32x4{}.Sub(step2[10])).Add(step2[11]))
+	step1[10] = vecWrap((step2[11]).Sub(step2[10]))
 	step1[11] = vecWrap((step2[10]).Add(step2[11]))
 	step1[12] = vecWrap((step2[12]).Add(step2[13]))
 	step1[13] = vecWrap((step2[12]).Sub(step2[13]))
-	step1[14] = vecWrap((archsimd.Int32x4{}.Sub(step2[14])).Add(step2[15]))
+	step1[14] = vecWrap((step2[15]).Sub(step2[14]))
 	step1[15] = vecWrap((step2[14]).Add(step2[15]))
 	temp1 = ((step1[0]).Add(step1[1])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	temp2 = ((step1[0]).Sub(step1[1])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	step2[0] = vecWrap(vecRound(temp1))
 	step2[1] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(step1[2], archsimd.BroadcastInt32x4(cospi24_64), (step1[3]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi8_64))))
+	temp1 = pixel.MulAdd4(step1[2], archsimd.BroadcastInt32x4(cospi24_64), (step1[3]).Mul(archsimd.BroadcastInt32x4(-cospi8_64)))
 	temp2 = pixel.MulAdd4(step1[2], archsimd.BroadcastInt32x4(cospi8_64), (step1[3]).Mul(archsimd.BroadcastInt32x4(cospi24_64)))
 	step2[2] = vecWrap(vecRound(temp1))
 	step2[3] = vecWrap(vecRound(temp2))
 	step2[4] = vecWrap((step1[4]).Add(step1[5]))
 	step2[5] = vecWrap((step1[4]).Sub(step1[5]))
-	step2[6] = vecWrap((archsimd.Int32x4{}.Sub(step1[6])).Add(step1[7]))
+	step2[6] = vecWrap((step1[7]).Sub(step1[6]))
 	step2[7] = vecWrap((step1[6]).Add(step1[7]))
 	step2[8] = step1[8]
 	step2[15] = step1[15]
@@ -164,7 +170,7 @@ func idct16Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	temp2 = pixel.MulAdd4(step1[9], archsimd.BroadcastInt32x4(cospi24_64), (step1[14]).Mul(archsimd.BroadcastInt32x4(cospi8_64)))
 	step2[9] = vecWrap(vecRound(temp1))
 	step2[14] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(step1[10]), archsimd.BroadcastInt32x4(cospi24_64), (step1[13]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi8_64))))
+	temp1 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(step1[10]), archsimd.BroadcastInt32x4(cospi24_64), (step1[13]).Mul(archsimd.BroadcastInt32x4(-cospi8_64)))
 	temp2 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(step1[10]), archsimd.BroadcastInt32x4(cospi8_64), (step1[13]).Mul(archsimd.BroadcastInt32x4(cospi24_64)))
 	step2[10] = vecWrap(vecRound(temp1))
 	step2[13] = vecWrap(vecRound(temp2))
@@ -184,8 +190,8 @@ func idct16Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	step1[9] = vecWrap((step2[9]).Add(step2[10]))
 	step1[10] = vecWrap((step2[9]).Sub(step2[10]))
 	step1[11] = vecWrap((step2[8]).Sub(step2[11]))
-	step1[12] = vecWrap((archsimd.Int32x4{}.Sub(step2[12])).Add(step2[15]))
-	step1[13] = vecWrap((archsimd.Int32x4{}.Sub(step2[13])).Add(step2[14]))
+	step1[12] = vecWrap((step2[15]).Sub(step2[12]))
+	step1[13] = vecWrap((step2[14]).Sub(step2[13]))
 	step1[14] = vecWrap((step2[13]).Add(step2[14]))
 	step1[15] = vecWrap((step2[12]).Add(step2[15]))
 	step2[0] = vecWrap((step1[0]).Add(step1[7]))
@@ -198,11 +204,11 @@ func idct16Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	step2[7] = vecWrap((step1[0]).Sub(step1[7]))
 	step2[8] = step1[8]
 	step2[9] = step1[9]
-	temp1 = ((archsimd.Int32x4{}.Sub(step1[10])).Add(step1[13])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
+	temp1 = ((step1[13]).Sub(step1[10])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	temp2 = ((step1[10]).Add(step1[13])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	step2[10] = vecWrap(vecRound(temp1))
 	step2[13] = vecWrap(vecRound(temp2))
-	temp1 = ((archsimd.Int32x4{}.Sub(step1[11])).Add(step1[12])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
+	temp1 = ((step1[12]).Sub(step1[11])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	temp2 = ((step1[11]).Add(step1[12])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	step2[11] = vecWrap(vecRound(temp1))
 	step2[12] = vecWrap(vecRound(temp2))
@@ -227,6 +233,8 @@ func idct16Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 }
 
 func idct32Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
+	_ = input[31]
+	_ = output[31]
 	var step1, step2 [32]archsimd.Int32x4
 	step1[0] = input[0]
 	step1[1] = input[16]
@@ -244,35 +252,35 @@ func idct32Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	step1[13] = input[22]
 	step1[14] = input[14]
 	step1[15] = input[30]
-	temp1 := pixel.MulAdd4(input[1], archsimd.BroadcastInt32x4(cospi31_64), (input[31]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi1_64))))
+	temp1 := pixel.MulAdd4(input[1], archsimd.BroadcastInt32x4(cospi31_64), (input[31]).Mul(archsimd.BroadcastInt32x4(-cospi1_64)))
 	temp2 := pixel.MulAdd4(input[1], archsimd.BroadcastInt32x4(cospi1_64), (input[31]).Mul(archsimd.BroadcastInt32x4(cospi31_64)))
 	step1[16] = vecWrap(vecRound(temp1))
 	step1[31] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(input[17], archsimd.BroadcastInt32x4(cospi15_64), (input[15]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi17_64))))
+	temp1 = pixel.MulAdd4(input[17], archsimd.BroadcastInt32x4(cospi15_64), (input[15]).Mul(archsimd.BroadcastInt32x4(-cospi17_64)))
 	temp2 = pixel.MulAdd4(input[17], archsimd.BroadcastInt32x4(cospi17_64), (input[15]).Mul(archsimd.BroadcastInt32x4(cospi15_64)))
 	step1[17] = vecWrap(vecRound(temp1))
 	step1[30] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(input[9], archsimd.BroadcastInt32x4(cospi23_64), (input[23]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi9_64))))
+	temp1 = pixel.MulAdd4(input[9], archsimd.BroadcastInt32x4(cospi23_64), (input[23]).Mul(archsimd.BroadcastInt32x4(-cospi9_64)))
 	temp2 = pixel.MulAdd4(input[9], archsimd.BroadcastInt32x4(cospi9_64), (input[23]).Mul(archsimd.BroadcastInt32x4(cospi23_64)))
 	step1[18] = vecWrap(vecRound(temp1))
 	step1[29] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(input[25], archsimd.BroadcastInt32x4(cospi7_64), (input[7]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi25_64))))
+	temp1 = pixel.MulAdd4(input[25], archsimd.BroadcastInt32x4(cospi7_64), (input[7]).Mul(archsimd.BroadcastInt32x4(-cospi25_64)))
 	temp2 = pixel.MulAdd4(input[25], archsimd.BroadcastInt32x4(cospi25_64), (input[7]).Mul(archsimd.BroadcastInt32x4(cospi7_64)))
 	step1[19] = vecWrap(vecRound(temp1))
 	step1[28] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(input[5], archsimd.BroadcastInt32x4(cospi27_64), (input[27]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi5_64))))
+	temp1 = pixel.MulAdd4(input[5], archsimd.BroadcastInt32x4(cospi27_64), (input[27]).Mul(archsimd.BroadcastInt32x4(-cospi5_64)))
 	temp2 = pixel.MulAdd4(input[5], archsimd.BroadcastInt32x4(cospi5_64), (input[27]).Mul(archsimd.BroadcastInt32x4(cospi27_64)))
 	step1[20] = vecWrap(vecRound(temp1))
 	step1[27] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(input[21], archsimd.BroadcastInt32x4(cospi11_64), (input[11]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi21_64))))
+	temp1 = pixel.MulAdd4(input[21], archsimd.BroadcastInt32x4(cospi11_64), (input[11]).Mul(archsimd.BroadcastInt32x4(-cospi21_64)))
 	temp2 = pixel.MulAdd4(input[21], archsimd.BroadcastInt32x4(cospi21_64), (input[11]).Mul(archsimd.BroadcastInt32x4(cospi11_64)))
 	step1[21] = vecWrap(vecRound(temp1))
 	step1[26] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(input[13], archsimd.BroadcastInt32x4(cospi19_64), (input[19]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi13_64))))
+	temp1 = pixel.MulAdd4(input[13], archsimd.BroadcastInt32x4(cospi19_64), (input[19]).Mul(archsimd.BroadcastInt32x4(-cospi13_64)))
 	temp2 = pixel.MulAdd4(input[13], archsimd.BroadcastInt32x4(cospi13_64), (input[19]).Mul(archsimd.BroadcastInt32x4(cospi19_64)))
 	step1[22] = vecWrap(vecRound(temp1))
 	step1[25] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(input[29], archsimd.BroadcastInt32x4(cospi3_64), (input[3]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi29_64))))
+	temp1 = pixel.MulAdd4(input[29], archsimd.BroadcastInt32x4(cospi3_64), (input[3]).Mul(archsimd.BroadcastInt32x4(-cospi29_64)))
 	temp2 = pixel.MulAdd4(input[29], archsimd.BroadcastInt32x4(cospi29_64), (input[3]).Mul(archsimd.BroadcastInt32x4(cospi3_64)))
 	step1[23] = vecWrap(vecRound(temp1))
 	step1[24] = vecWrap(vecRound(temp2))
@@ -284,57 +292,57 @@ func idct32Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	step2[5] = step1[5]
 	step2[6] = step1[6]
 	step2[7] = step1[7]
-	temp1 = pixel.MulAdd4(step1[8], archsimd.BroadcastInt32x4(cospi30_64), (step1[15]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi2_64))))
+	temp1 = pixel.MulAdd4(step1[8], archsimd.BroadcastInt32x4(cospi30_64), (step1[15]).Mul(archsimd.BroadcastInt32x4(-cospi2_64)))
 	temp2 = pixel.MulAdd4(step1[8], archsimd.BroadcastInt32x4(cospi2_64), (step1[15]).Mul(archsimd.BroadcastInt32x4(cospi30_64)))
 	step2[8] = vecWrap(vecRound(temp1))
 	step2[15] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(step1[9], archsimd.BroadcastInt32x4(cospi14_64), (step1[14]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi18_64))))
+	temp1 = pixel.MulAdd4(step1[9], archsimd.BroadcastInt32x4(cospi14_64), (step1[14]).Mul(archsimd.BroadcastInt32x4(-cospi18_64)))
 	temp2 = pixel.MulAdd4(step1[9], archsimd.BroadcastInt32x4(cospi18_64), (step1[14]).Mul(archsimd.BroadcastInt32x4(cospi14_64)))
 	step2[9] = vecWrap(vecRound(temp1))
 	step2[14] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(step1[10], archsimd.BroadcastInt32x4(cospi22_64), (step1[13]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi10_64))))
+	temp1 = pixel.MulAdd4(step1[10], archsimd.BroadcastInt32x4(cospi22_64), (step1[13]).Mul(archsimd.BroadcastInt32x4(-cospi10_64)))
 	temp2 = pixel.MulAdd4(step1[10], archsimd.BroadcastInt32x4(cospi10_64), (step1[13]).Mul(archsimd.BroadcastInt32x4(cospi22_64)))
 	step2[10] = vecWrap(vecRound(temp1))
 	step2[13] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(step1[11], archsimd.BroadcastInt32x4(cospi6_64), (step1[12]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi26_64))))
+	temp1 = pixel.MulAdd4(step1[11], archsimd.BroadcastInt32x4(cospi6_64), (step1[12]).Mul(archsimd.BroadcastInt32x4(-cospi26_64)))
 	temp2 = pixel.MulAdd4(step1[11], archsimd.BroadcastInt32x4(cospi26_64), (step1[12]).Mul(archsimd.BroadcastInt32x4(cospi6_64)))
 	step2[11] = vecWrap(vecRound(temp1))
 	step2[12] = vecWrap(vecRound(temp2))
 	step2[16] = vecWrap((step1[16]).Add(step1[17]))
 	step2[17] = vecWrap((step1[16]).Sub(step1[17]))
-	step2[18] = vecWrap((archsimd.Int32x4{}.Sub(step1[18])).Add(step1[19]))
+	step2[18] = vecWrap((step1[19]).Sub(step1[18]))
 	step2[19] = vecWrap((step1[18]).Add(step1[19]))
 	step2[20] = vecWrap((step1[20]).Add(step1[21]))
 	step2[21] = vecWrap((step1[20]).Sub(step1[21]))
-	step2[22] = vecWrap((archsimd.Int32x4{}.Sub(step1[22])).Add(step1[23]))
+	step2[22] = vecWrap((step1[23]).Sub(step1[22]))
 	step2[23] = vecWrap((step1[22]).Add(step1[23]))
 	step2[24] = vecWrap((step1[24]).Add(step1[25]))
 	step2[25] = vecWrap((step1[24]).Sub(step1[25]))
-	step2[26] = vecWrap((archsimd.Int32x4{}.Sub(step1[26])).Add(step1[27]))
+	step2[26] = vecWrap((step1[27]).Sub(step1[26]))
 	step2[27] = vecWrap((step1[26]).Add(step1[27]))
 	step2[28] = vecWrap((step1[28]).Add(step1[29]))
 	step2[29] = vecWrap((step1[28]).Sub(step1[29]))
-	step2[30] = vecWrap((archsimd.Int32x4{}.Sub(step1[30])).Add(step1[31]))
+	step2[30] = vecWrap((step1[31]).Sub(step1[30]))
 	step2[31] = vecWrap((step1[30]).Add(step1[31]))
 	step1[0] = step2[0]
 	step1[1] = step2[1]
 	step1[2] = step2[2]
 	step1[3] = step2[3]
-	temp1 = pixel.MulAdd4(step2[4], archsimd.BroadcastInt32x4(cospi28_64), (step2[7]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi4_64))))
+	temp1 = pixel.MulAdd4(step2[4], archsimd.BroadcastInt32x4(cospi28_64), (step2[7]).Mul(archsimd.BroadcastInt32x4(-cospi4_64)))
 	temp2 = pixel.MulAdd4(step2[4], archsimd.BroadcastInt32x4(cospi4_64), (step2[7]).Mul(archsimd.BroadcastInt32x4(cospi28_64)))
 	step1[4] = vecWrap(vecRound(temp1))
 	step1[7] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(step2[5], archsimd.BroadcastInt32x4(cospi12_64), (step2[6]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi20_64))))
+	temp1 = pixel.MulAdd4(step2[5], archsimd.BroadcastInt32x4(cospi12_64), (step2[6]).Mul(archsimd.BroadcastInt32x4(-cospi20_64)))
 	temp2 = pixel.MulAdd4(step2[5], archsimd.BroadcastInt32x4(cospi20_64), (step2[6]).Mul(archsimd.BroadcastInt32x4(cospi12_64)))
 	step1[5] = vecWrap(vecRound(temp1))
 	step1[6] = vecWrap(vecRound(temp2))
 	step1[8] = vecWrap((step2[8]).Add(step2[9]))
 	step1[9] = vecWrap((step2[8]).Sub(step2[9]))
-	step1[10] = vecWrap((archsimd.Int32x4{}.Sub(step2[10])).Add(step2[11]))
+	step1[10] = vecWrap((step2[11]).Sub(step2[10]))
 	step1[11] = vecWrap((step2[10]).Add(step2[11]))
 	step1[12] = vecWrap((step2[12]).Add(step2[13]))
 	step1[13] = vecWrap((step2[12]).Sub(step2[13]))
-	step1[14] = vecWrap((archsimd.Int32x4{}.Sub(step2[14])).Add(step2[15]))
+	step1[14] = vecWrap((step2[15]).Sub(step2[14]))
 	step1[15] = vecWrap((step2[14]).Add(step2[15]))
 	step1[16] = step2[16]
 	step1[31] = step2[31]
@@ -342,7 +350,7 @@ func idct32Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	temp2 = pixel.MulAdd4(step2[17], archsimd.BroadcastInt32x4(cospi28_64), (step2[30]).Mul(archsimd.BroadcastInt32x4(cospi4_64)))
 	step1[17] = vecWrap(vecRound(temp1))
 	step1[30] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(step2[18]), archsimd.BroadcastInt32x4(cospi28_64), (step2[29]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi4_64))))
+	temp1 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(step2[18]), archsimd.BroadcastInt32x4(cospi28_64), (step2[29]).Mul(archsimd.BroadcastInt32x4(-cospi4_64)))
 	temp2 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(step2[18]), archsimd.BroadcastInt32x4(cospi4_64), (step2[29]).Mul(archsimd.BroadcastInt32x4(cospi28_64)))
 	step1[18] = vecWrap(vecRound(temp1))
 	step1[29] = vecWrap(vecRound(temp2))
@@ -352,7 +360,7 @@ func idct32Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	temp2 = pixel.MulAdd4(step2[21], archsimd.BroadcastInt32x4(cospi12_64), (step2[26]).Mul(archsimd.BroadcastInt32x4(cospi20_64)))
 	step1[21] = vecWrap(vecRound(temp1))
 	step1[26] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(step2[22]), archsimd.BroadcastInt32x4(cospi12_64), (step2[25]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi20_64))))
+	temp1 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(step2[22]), archsimd.BroadcastInt32x4(cospi12_64), (step2[25]).Mul(archsimd.BroadcastInt32x4(-cospi20_64)))
 	temp2 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(step2[22]), archsimd.BroadcastInt32x4(cospi20_64), (step2[25]).Mul(archsimd.BroadcastInt32x4(cospi12_64)))
 	step1[22] = vecWrap(vecRound(temp1))
 	step1[25] = vecWrap(vecRound(temp2))
@@ -364,13 +372,13 @@ func idct32Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	temp2 = ((step1[0]).Sub(step1[1])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	step2[0] = vecWrap(vecRound(temp1))
 	step2[1] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(step1[2], archsimd.BroadcastInt32x4(cospi24_64), (step1[3]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi8_64))))
+	temp1 = pixel.MulAdd4(step1[2], archsimd.BroadcastInt32x4(cospi24_64), (step1[3]).Mul(archsimd.BroadcastInt32x4(-cospi8_64)))
 	temp2 = pixel.MulAdd4(step1[2], archsimd.BroadcastInt32x4(cospi8_64), (step1[3]).Mul(archsimd.BroadcastInt32x4(cospi24_64)))
 	step2[2] = vecWrap(vecRound(temp1))
 	step2[3] = vecWrap(vecRound(temp2))
 	step2[4] = vecWrap((step1[4]).Add(step1[5]))
 	step2[5] = vecWrap((step1[4]).Sub(step1[5]))
-	step2[6] = vecWrap((archsimd.Int32x4{}.Sub(step1[6])).Add(step1[7]))
+	step2[6] = vecWrap((step1[7]).Sub(step1[6]))
 	step2[7] = vecWrap((step1[6]).Add(step1[7]))
 	step2[8] = step1[8]
 	step2[15] = step1[15]
@@ -378,7 +386,7 @@ func idct32Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	temp2 = pixel.MulAdd4(step1[9], archsimd.BroadcastInt32x4(cospi24_64), (step1[14]).Mul(archsimd.BroadcastInt32x4(cospi8_64)))
 	step2[9] = vecWrap(vecRound(temp1))
 	step2[14] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(step1[10]), archsimd.BroadcastInt32x4(cospi24_64), (step1[13]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi8_64))))
+	temp1 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(step1[10]), archsimd.BroadcastInt32x4(cospi24_64), (step1[13]).Mul(archsimd.BroadcastInt32x4(-cospi8_64)))
 	temp2 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(step1[10]), archsimd.BroadcastInt32x4(cospi8_64), (step1[13]).Mul(archsimd.BroadcastInt32x4(cospi24_64)))
 	step2[10] = vecWrap(vecRound(temp1))
 	step2[13] = vecWrap(vecRound(temp2))
@@ -388,16 +396,16 @@ func idct32Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	step2[17] = vecWrap((step1[17]).Add(step1[18]))
 	step2[18] = vecWrap((step1[17]).Sub(step1[18]))
 	step2[19] = vecWrap((step1[16]).Sub(step1[19]))
-	step2[20] = vecWrap((archsimd.Int32x4{}.Sub(step1[20])).Add(step1[23]))
-	step2[21] = vecWrap((archsimd.Int32x4{}.Sub(step1[21])).Add(step1[22]))
+	step2[20] = vecWrap((step1[23]).Sub(step1[20]))
+	step2[21] = vecWrap((step1[22]).Sub(step1[21]))
 	step2[22] = vecWrap((step1[21]).Add(step1[22]))
 	step2[23] = vecWrap((step1[20]).Add(step1[23]))
 	step2[24] = vecWrap((step1[24]).Add(step1[27]))
 	step2[25] = vecWrap((step1[25]).Add(step1[26]))
 	step2[26] = vecWrap((step1[25]).Sub(step1[26]))
 	step2[27] = vecWrap((step1[24]).Sub(step1[27]))
-	step2[28] = vecWrap((archsimd.Int32x4{}.Sub(step1[28])).Add(step1[31]))
-	step2[29] = vecWrap((archsimd.Int32x4{}.Sub(step1[29])).Add(step1[30]))
+	step2[28] = vecWrap((step1[31]).Sub(step1[28]))
+	step2[29] = vecWrap((step1[30]).Sub(step1[29]))
 	step2[30] = vecWrap((step1[29]).Add(step1[30]))
 	step2[31] = vecWrap((step1[28]).Add(step1[31]))
 	step1[0] = vecWrap((step2[0]).Add(step2[3]))
@@ -414,8 +422,8 @@ func idct32Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	step1[9] = vecWrap((step2[9]).Add(step2[10]))
 	step1[10] = vecWrap((step2[9]).Sub(step2[10]))
 	step1[11] = vecWrap((step2[8]).Sub(step2[11]))
-	step1[12] = vecWrap((archsimd.Int32x4{}.Sub(step2[12])).Add(step2[15]))
-	step1[13] = vecWrap((archsimd.Int32x4{}.Sub(step2[13])).Add(step2[14]))
+	step1[12] = vecWrap((step2[15]).Sub(step2[12]))
+	step1[13] = vecWrap((step2[14]).Sub(step2[13]))
 	step1[14] = vecWrap((step2[13]).Add(step2[14]))
 	step1[15] = vecWrap((step2[12]).Add(step2[15]))
 	step1[16] = step2[16]
@@ -428,11 +436,11 @@ func idct32Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	temp2 = pixel.MulAdd4(step2[19], archsimd.BroadcastInt32x4(cospi24_64), (step2[28]).Mul(archsimd.BroadcastInt32x4(cospi8_64)))
 	step1[19] = vecWrap(vecRound(temp1))
 	step1[28] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(step2[20]), archsimd.BroadcastInt32x4(cospi24_64), (step2[27]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi8_64))))
+	temp1 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(step2[20]), archsimd.BroadcastInt32x4(cospi24_64), (step2[27]).Mul(archsimd.BroadcastInt32x4(-cospi8_64)))
 	temp2 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(step2[20]), archsimd.BroadcastInt32x4(cospi8_64), (step2[27]).Mul(archsimd.BroadcastInt32x4(cospi24_64)))
 	step1[20] = vecWrap(vecRound(temp1))
 	step1[27] = vecWrap(vecRound(temp2))
-	temp1 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(step2[21]), archsimd.BroadcastInt32x4(cospi24_64), (step2[26]).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi8_64))))
+	temp1 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(step2[21]), archsimd.BroadcastInt32x4(cospi24_64), (step2[26]).Mul(archsimd.BroadcastInt32x4(-cospi8_64)))
 	temp2 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(step2[21]), archsimd.BroadcastInt32x4(cospi8_64), (step2[26]).Mul(archsimd.BroadcastInt32x4(cospi24_64)))
 	step1[21] = vecWrap(vecRound(temp1))
 	step1[26] = vecWrap(vecRound(temp2))
@@ -452,11 +460,11 @@ func idct32Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	step2[7] = vecWrap((step1[0]).Sub(step1[7]))
 	step2[8] = step1[8]
 	step2[9] = step1[9]
-	temp1 = ((archsimd.Int32x4{}.Sub(step1[10])).Add(step1[13])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
+	temp1 = ((step1[13]).Sub(step1[10])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	temp2 = ((step1[10]).Add(step1[13])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	step2[10] = vecWrap(vecRound(temp1))
 	step2[13] = vecWrap(vecRound(temp2))
-	temp1 = ((archsimd.Int32x4{}.Sub(step1[11])).Add(step1[12])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
+	temp1 = ((step1[12]).Sub(step1[11])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	temp2 = ((step1[11]).Add(step1[12])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	step2[11] = vecWrap(vecRound(temp1))
 	step2[12] = vecWrap(vecRound(temp2))
@@ -470,10 +478,10 @@ func idct32Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	step2[21] = vecWrap((step1[18]).Sub(step1[21]))
 	step2[22] = vecWrap((step1[17]).Sub(step1[22]))
 	step2[23] = vecWrap((step1[16]).Sub(step1[23]))
-	step2[24] = vecWrap((archsimd.Int32x4{}.Sub(step1[24])).Add(step1[31]))
-	step2[25] = vecWrap((archsimd.Int32x4{}.Sub(step1[25])).Add(step1[30]))
-	step2[26] = vecWrap((archsimd.Int32x4{}.Sub(step1[26])).Add(step1[29]))
-	step2[27] = vecWrap((archsimd.Int32x4{}.Sub(step1[27])).Add(step1[28]))
+	step2[24] = vecWrap((step1[31]).Sub(step1[24]))
+	step2[25] = vecWrap((step1[30]).Sub(step1[25]))
+	step2[26] = vecWrap((step1[29]).Sub(step1[26]))
+	step2[27] = vecWrap((step1[28]).Sub(step1[27]))
 	step2[28] = vecWrap((step1[27]).Add(step1[28]))
 	step2[29] = vecWrap((step1[26]).Add(step1[29]))
 	step2[30] = vecWrap((step1[25]).Add(step1[30]))
@@ -498,19 +506,19 @@ func idct32Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	step1[17] = step2[17]
 	step1[18] = step2[18]
 	step1[19] = step2[19]
-	temp1 = ((archsimd.Int32x4{}.Sub(step2[20])).Add(step2[27])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
+	temp1 = ((step2[27]).Sub(step2[20])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	temp2 = ((step2[20]).Add(step2[27])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	step1[20] = vecWrap(vecRound(temp1))
 	step1[27] = vecWrap(vecRound(temp2))
-	temp1 = ((archsimd.Int32x4{}.Sub(step2[21])).Add(step2[26])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
+	temp1 = ((step2[26]).Sub(step2[21])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	temp2 = ((step2[21]).Add(step2[26])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	step1[21] = vecWrap(vecRound(temp1))
 	step1[26] = vecWrap(vecRound(temp2))
-	temp1 = ((archsimd.Int32x4{}.Sub(step2[22])).Add(step2[25])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
+	temp1 = ((step2[25]).Sub(step2[22])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	temp2 = ((step2[22]).Add(step2[25])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	step1[22] = vecWrap(vecRound(temp1))
 	step1[25] = vecWrap(vecRound(temp2))
-	temp1 = ((archsimd.Int32x4{}.Sub(step2[23])).Add(step2[24])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
+	temp1 = ((step2[24]).Sub(step2[23])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	temp2 = ((step2[23]).Add(step2[24])).Mul(archsimd.BroadcastInt32x4(cospi16_64))
 	step1[23] = vecWrap(vecRound(temp1))
 	step1[24] = vecWrap(vecRound(temp2))
@@ -553,6 +561,8 @@ func idct32Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 }
 
 func Iadst4Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
+	_ = input[3]
+	_ = output[3]
 	x0 := input[0]
 	x1 := input[1]
 	x2 := input[2]
@@ -576,6 +586,8 @@ func Iadst4Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 }
 
 func iadst8Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
+	_ = input[7]
+	_ = output[7]
 	x0 := input[7]
 	x1 := input[0]
 	x2 := input[5]
@@ -606,7 +618,7 @@ func iadst8Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	s3 = x3
 	s4 = pixel.MulAdd4(archsimd.BroadcastInt32x4(cospi8_64), x4, (archsimd.BroadcastInt32x4(cospi24_64)).Mul(x5))
 	s5 = pixel.MulAdd4(archsimd.BroadcastInt32x4(cospi24_64), x4, (archsimd.BroadcastInt32x4(cospi8_64)).Mul(archsimd.Int32x4{}.Sub(x5)))
-	s6 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi24_64)), x6, (archsimd.BroadcastInt32x4(cospi8_64)).Mul(x7))
+	s6 = pixel.MulAdd4(archsimd.BroadcastInt32x4(-cospi24_64), x6, (archsimd.BroadcastInt32x4(cospi8_64)).Mul(x7))
 	s7 = pixel.MulAdd4(archsimd.BroadcastInt32x4(cospi8_64), x6, (archsimd.BroadcastInt32x4(cospi24_64)).Mul(x7))
 	x0 = vecWrap((s0).Add(s2))
 	x1 = vecWrap((s1).Add(s3))
@@ -635,6 +647,8 @@ func iadst8Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 }
 
 func iadst16Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
+	_ = input[15]
+	_ = output[15]
 	x0 := input[15]
 	x1 := input[0]
 	x2 := input[13]
@@ -652,21 +666,21 @@ func iadst16Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	x14 := input[1]
 	x15 := input[14]
 	s0 := pixel.MulAdd4(x0, archsimd.BroadcastInt32x4(cospi1_64), (x1).Mul(archsimd.BroadcastInt32x4(cospi31_64)))
-	s1 := pixel.MulAdd4(x0, archsimd.BroadcastInt32x4(cospi31_64), (x1).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi1_64))))
+	s1 := pixel.MulAdd4(x0, archsimd.BroadcastInt32x4(cospi31_64), (x1).Mul(archsimd.BroadcastInt32x4(-cospi1_64)))
 	s2 := pixel.MulAdd4(x2, archsimd.BroadcastInt32x4(cospi5_64), (x3).Mul(archsimd.BroadcastInt32x4(cospi27_64)))
-	s3 := pixel.MulAdd4(x2, archsimd.BroadcastInt32x4(cospi27_64), (x3).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi5_64))))
+	s3 := pixel.MulAdd4(x2, archsimd.BroadcastInt32x4(cospi27_64), (x3).Mul(archsimd.BroadcastInt32x4(-cospi5_64)))
 	s4 := pixel.MulAdd4(x4, archsimd.BroadcastInt32x4(cospi9_64), (x5).Mul(archsimd.BroadcastInt32x4(cospi23_64)))
-	s5 := pixel.MulAdd4(x4, archsimd.BroadcastInt32x4(cospi23_64), (x5).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi9_64))))
+	s5 := pixel.MulAdd4(x4, archsimd.BroadcastInt32x4(cospi23_64), (x5).Mul(archsimd.BroadcastInt32x4(-cospi9_64)))
 	s6 := pixel.MulAdd4(x6, archsimd.BroadcastInt32x4(cospi13_64), (x7).Mul(archsimd.BroadcastInt32x4(cospi19_64)))
-	s7 := pixel.MulAdd4(x6, archsimd.BroadcastInt32x4(cospi19_64), (x7).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi13_64))))
+	s7 := pixel.MulAdd4(x6, archsimd.BroadcastInt32x4(cospi19_64), (x7).Mul(archsimd.BroadcastInt32x4(-cospi13_64)))
 	s8 := pixel.MulAdd4(x8, archsimd.BroadcastInt32x4(cospi17_64), (x9).Mul(archsimd.BroadcastInt32x4(cospi15_64)))
-	s9 := pixel.MulAdd4(x8, archsimd.BroadcastInt32x4(cospi15_64), (x9).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi17_64))))
+	s9 := pixel.MulAdd4(x8, archsimd.BroadcastInt32x4(cospi15_64), (x9).Mul(archsimd.BroadcastInt32x4(-cospi17_64)))
 	s10 := pixel.MulAdd4(x10, archsimd.BroadcastInt32x4(cospi21_64), (x11).Mul(archsimd.BroadcastInt32x4(cospi11_64)))
-	s11 := pixel.MulAdd4(x10, archsimd.BroadcastInt32x4(cospi11_64), (x11).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi21_64))))
+	s11 := pixel.MulAdd4(x10, archsimd.BroadcastInt32x4(cospi11_64), (x11).Mul(archsimd.BroadcastInt32x4(-cospi21_64)))
 	s12 := pixel.MulAdd4(x12, archsimd.BroadcastInt32x4(cospi25_64), (x13).Mul(archsimd.BroadcastInt32x4(cospi7_64)))
-	s13 := pixel.MulAdd4(x12, archsimd.BroadcastInt32x4(cospi7_64), (x13).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi25_64))))
+	s13 := pixel.MulAdd4(x12, archsimd.BroadcastInt32x4(cospi7_64), (x13).Mul(archsimd.BroadcastInt32x4(-cospi25_64)))
 	s14 := pixel.MulAdd4(x14, archsimd.BroadcastInt32x4(cospi29_64), (x15).Mul(archsimd.BroadcastInt32x4(cospi3_64)))
-	s15 := pixel.MulAdd4(x14, archsimd.BroadcastInt32x4(cospi3_64), (x15).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi29_64))))
+	s15 := pixel.MulAdd4(x14, archsimd.BroadcastInt32x4(cospi3_64), (x15).Mul(archsimd.BroadcastInt32x4(-cospi29_64)))
 	x0 = vecWrap(vecRound((s0).Add(s8)))
 	x1 = vecWrap(vecRound((s1).Add(s9)))
 	x2 = vecWrap(vecRound((s2).Add(s10)))
@@ -692,9 +706,9 @@ func iadst16Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	s6 = x6
 	s7 = x7
 	s8 = pixel.MulAdd4(x8, archsimd.BroadcastInt32x4(cospi4_64), (x9).Mul(archsimd.BroadcastInt32x4(cospi28_64)))
-	s9 = pixel.MulAdd4(x8, archsimd.BroadcastInt32x4(cospi28_64), (x9).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi4_64))))
+	s9 = pixel.MulAdd4(x8, archsimd.BroadcastInt32x4(cospi28_64), (x9).Mul(archsimd.BroadcastInt32x4(-cospi4_64)))
 	s10 = pixel.MulAdd4(x10, archsimd.BroadcastInt32x4(cospi20_64), (x11).Mul(archsimd.BroadcastInt32x4(cospi12_64)))
-	s11 = pixel.MulAdd4(x10, archsimd.BroadcastInt32x4(cospi12_64), (x11).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi20_64))))
+	s11 = pixel.MulAdd4(x10, archsimd.BroadcastInt32x4(cospi12_64), (x11).Mul(archsimd.BroadcastInt32x4(-cospi20_64)))
 	s12 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(x12), archsimd.BroadcastInt32x4(cospi28_64), (x13).Mul(archsimd.BroadcastInt32x4(cospi4_64)))
 	s13 = pixel.MulAdd4(x12, archsimd.BroadcastInt32x4(cospi4_64), (x13).Mul(archsimd.BroadcastInt32x4(cospi28_64)))
 	s14 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(x14), archsimd.BroadcastInt32x4(cospi12_64), (x15).Mul(archsimd.BroadcastInt32x4(cospi20_64)))
@@ -720,7 +734,7 @@ func iadst16Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	s2 = x2
 	s3 = x3
 	s4 = pixel.MulAdd4(x4, archsimd.BroadcastInt32x4(cospi8_64), (x5).Mul(archsimd.BroadcastInt32x4(cospi24_64)))
-	s5 = pixel.MulAdd4(x4, archsimd.BroadcastInt32x4(cospi24_64), (x5).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi8_64))))
+	s5 = pixel.MulAdd4(x4, archsimd.BroadcastInt32x4(cospi24_64), (x5).Mul(archsimd.BroadcastInt32x4(-cospi8_64)))
 	s6 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(x6), archsimd.BroadcastInt32x4(cospi24_64), (x7).Mul(archsimd.BroadcastInt32x4(cospi8_64)))
 	s7 = pixel.MulAdd4(x6, archsimd.BroadcastInt32x4(cospi8_64), (x7).Mul(archsimd.BroadcastInt32x4(cospi24_64)))
 	s8 = x8
@@ -728,7 +742,7 @@ func iadst16Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	s10 = x10
 	s11 = x11
 	s12 = pixel.MulAdd4(x12, archsimd.BroadcastInt32x4(cospi8_64), (x13).Mul(archsimd.BroadcastInt32x4(cospi24_64)))
-	s13 = pixel.MulAdd4(x12, archsimd.BroadcastInt32x4(cospi24_64), (x13).Mul(archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi8_64))))
+	s13 = pixel.MulAdd4(x12, archsimd.BroadcastInt32x4(cospi24_64), (x13).Mul(archsimd.BroadcastInt32x4(-cospi8_64)))
 	s14 = pixel.MulAdd4(archsimd.Int32x4{}.Sub(x14), archsimd.BroadcastInt32x4(cospi24_64), (x15).Mul(archsimd.BroadcastInt32x4(cospi8_64)))
 	s15 = pixel.MulAdd4(x14, archsimd.BroadcastInt32x4(cospi8_64), (x15).Mul(archsimd.BroadcastInt32x4(cospi24_64)))
 	x0 = vecWrap((s0).Add(s2))
@@ -747,13 +761,13 @@ func iadst16Vec(input []archsimd.Int32x4, output []archsimd.Int32x4) {
 	x13 = vecWrap(vecRound((s13).Add(s15)))
 	x14 = vecWrap(vecRound((s12).Sub(s14)))
 	x15 = vecWrap(vecRound((s13).Sub(s15)))
-	s2 = (archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi16_64))).Mul(((x2).Add(x3)))
+	s2 = (archsimd.BroadcastInt32x4(-cospi16_64)).Mul(((x2).Add(x3)))
 	s3 = (archsimd.BroadcastInt32x4(cospi16_64)).Mul(((x2).Sub(x3)))
 	s6 = (archsimd.BroadcastInt32x4(cospi16_64)).Mul(((x6).Add(x7)))
-	s7 = (archsimd.BroadcastInt32x4(cospi16_64)).Mul(((archsimd.Int32x4{}.Sub(x6)).Add(x7)))
+	s7 = (archsimd.BroadcastInt32x4(cospi16_64)).Mul(((x7).Sub(x6)))
 	s10 = (archsimd.BroadcastInt32x4(cospi16_64)).Mul(((x10).Add(x11)))
-	s11 = (archsimd.BroadcastInt32x4(cospi16_64)).Mul(((archsimd.Int32x4{}.Sub(x10)).Add(x11)))
-	s14 = (archsimd.Int32x4{}.Sub(archsimd.BroadcastInt32x4(cospi16_64))).Mul(((x14).Add(x15)))
+	s11 = (archsimd.BroadcastInt32x4(cospi16_64)).Mul(((x11).Sub(x10)))
+	s14 = (archsimd.BroadcastInt32x4(-cospi16_64)).Mul(((x14).Add(x15)))
 	s15 = (archsimd.BroadcastInt32x4(cospi16_64)).Mul(((x14).Sub(x15)))
 	x2 = vecWrap(vecRound(s2))
 	x3 = vecWrap(vecRound(s3))

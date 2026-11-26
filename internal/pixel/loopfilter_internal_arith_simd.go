@@ -77,36 +77,36 @@ func loopFilterInternalEdge(p []byte, off, step, outer, blimit, limit, thresh in
 
 	// The caller proves the complete 16x16 window. These stores touch exactly
 	// four filtered bytes at each position, including overlapping logical rows.
-	base := p[off-2*step:]
+	base := off - 2*step
 	if outer == 1 {
-		np1.Store(base)
-		np0.Store(base[step:])
-		nq0.Store(base[2*step:])
-		nq1.Store(base[3*step:])
+		np1.StoreArray((*[16]byte)(p[base : base+16]))
+		np0.StoreArray((*[16]byte)(p[base+step : base+step+16]))
+		nq0.StoreArray((*[16]byte)(p[base+2*step : base+2*step+16]))
+		nq1.StoreArray((*[16]byte)(p[base+3*step : base+3*step+16]))
 	} else {
 		{
 			ab, cd := zipBytesLo(np1, np0), zipBytesLo(nq0, nq1)
 			lo, hi := ab.InterleaveLo(cd).ReshapeToUint32s(), ab.InterleaveHi(cd).ReshapeToUint32s()
-			binary.LittleEndian.PutUint32(base[0*outer:], lo.GetElem(0))
-			binary.LittleEndian.PutUint32(base[1*outer:], lo.GetElem(1))
-			binary.LittleEndian.PutUint32(base[2*outer:], lo.GetElem(2))
-			binary.LittleEndian.PutUint32(base[3*outer:], lo.GetElem(3))
-			binary.LittleEndian.PutUint32(base[4*outer:], hi.GetElem(0))
-			binary.LittleEndian.PutUint32(base[5*outer:], hi.GetElem(1))
-			binary.LittleEndian.PutUint32(base[6*outer:], hi.GetElem(2))
-			binary.LittleEndian.PutUint32(base[7*outer:], hi.GetElem(3))
+			binary.LittleEndian.PutUint32(p[base+0*outer:], lo.GetElem(0))
+			binary.LittleEndian.PutUint32(p[base+1*outer:], lo.GetElem(1))
+			binary.LittleEndian.PutUint32(p[base+2*outer:], lo.GetElem(2))
+			binary.LittleEndian.PutUint32(p[base+3*outer:], lo.GetElem(3))
+			binary.LittleEndian.PutUint32(p[base+4*outer:], hi.GetElem(0))
+			binary.LittleEndian.PutUint32(p[base+5*outer:], hi.GetElem(1))
+			binary.LittleEndian.PutUint32(p[base+6*outer:], hi.GetElem(2))
+			binary.LittleEndian.PutUint32(p[base+7*outer:], hi.GetElem(3))
 		}
 		{
 			ab, cd := zipBytesLo(highBytes(np1), highBytes(np0)), zipBytesLo(highBytes(nq0), highBytes(nq1))
 			lo, hi := ab.InterleaveLo(cd).ReshapeToUint32s(), ab.InterleaveHi(cd).ReshapeToUint32s()
-			binary.LittleEndian.PutUint32(base[8*outer:], lo.GetElem(0))
-			binary.LittleEndian.PutUint32(base[9*outer:], lo.GetElem(1))
-			binary.LittleEndian.PutUint32(base[10*outer:], lo.GetElem(2))
-			binary.LittleEndian.PutUint32(base[11*outer:], lo.GetElem(3))
-			binary.LittleEndian.PutUint32(base[12*outer:], hi.GetElem(0))
-			binary.LittleEndian.PutUint32(base[13*outer:], hi.GetElem(1))
-			binary.LittleEndian.PutUint32(base[14*outer:], hi.GetElem(2))
-			binary.LittleEndian.PutUint32(base[15*outer:], hi.GetElem(3))
+			binary.LittleEndian.PutUint32(p[base+8*outer:], lo.GetElem(0))
+			binary.LittleEndian.PutUint32(p[base+9*outer:], lo.GetElem(1))
+			binary.LittleEndian.PutUint32(p[base+10*outer:], lo.GetElem(2))
+			binary.LittleEndian.PutUint32(p[base+11*outer:], lo.GetElem(3))
+			binary.LittleEndian.PutUint32(p[base+12*outer:], hi.GetElem(0))
+			binary.LittleEndian.PutUint32(p[base+13*outer:], hi.GetElem(1))
+			binary.LittleEndian.PutUint32(p[base+14*outer:], hi.GetElem(2))
+			binary.LittleEndian.PutUint32(p[base+15*outer:], hi.GetElem(3))
 		}
 	}
 
