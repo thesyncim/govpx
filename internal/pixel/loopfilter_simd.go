@@ -170,9 +170,54 @@ func storeEdgeTile(p []byte, off, pitch, tileFirst, width, first, last int, b *[
 		}
 	}
 }
+func loadFarEdgeTiles(p []byte, off, pitch int, a *[16]archsimd.Int16x8) {
+	// Pack both 4-column far strips (p7..p4 at off-8, q4..q7 at off+4) into
+	// one 8-byte row per scanline so a single 8x8 transpose produces all eight
+	// far columns in registers instead of two separate transposes.
+	row := func(y int) archsimd.Uint8x16 {
+		base := off + y*pitch
+		lo := uint64(binary.LittleEndian.Uint32(p[base-8 : base-4]))
+		hi := uint64(binary.LittleEndian.Uint32(p[base+4 : base+8]))
+		return archsimd.Uint64x2{}.SetElem(0, lo|(hi<<32)).ReshapeToUint8s()
+	}
+	c0, c1, c2, c3, c4, c5, c6, c7 := transposeBytes8(row(0), row(1), row(2), row(3), row(4), row(5), row(6), row(7))
+	a[0], a[1], a[2], a[3] = widen8(c0), widen8(c1), widen8(c2), widen8(c3)
+	a[12], a[13], a[14], a[15] = widen8(c4), widen8(c5), widen8(c6), widen8(c7)
+}
+func storeEdgeTile14(p []byte, off, pitch int, b *[16]archsimd.Int16x8) {
+	// The 15-tap vertical filter writes 14 contiguous columns p6..q6 (indices
+	// 1..14) per row without touching p7 or q7. Two overlapping 8-byte stores
+	// cover [off-7, off+7) per row in 2 stores instead of 6.
+	z := archsimd.Uint8x16{}
+	l0, l1, l2, l3, l4, l5, l6, l7 := transposeBytes8(
+		z, packBytes(b[1]), packBytes(b[2]), packBytes(b[3]),
+		packBytes(b[4]), packBytes(b[5]), packBytes(b[6]), packBytes(b[7]),
+	)
+	r0, r1, r2, r3, r4, r5, r6, r7 := transposeBytes8(
+		packBytes(b[8]), packBytes(b[9]), packBytes(b[10]), packBytes(b[11]),
+		packBytes(b[12]), packBytes(b[13]), packBytes(b[14]), z,
+	)
+	left := [8]archsimd.Uint8x16{l0, l1, l2, l3, l4, l5, l6, l7}
+	right := [8]archsimd.Uint8x16{r0, r1, r2, r3, r4, r5, r6, r7}
+	for y := range 8 {
+		L := left[y].ReshapeToUint64s().GetElem(0)
+		R := right[y].ReshapeToUint64s().GetElem(0)
+		out := p[off-7+y*pitch : off+7+y*pitch]
+		binary.LittleEndian.PutUint64(out[0:8], (L>>8)|(R<<56))
+		binary.LittleEndian.PutUint64(out[6:14], (L>>56)|(R<<8))
+	}
+}
 func any16(m archsimd.Mask16x8) bool {
 	v := m.ToInt16x8().ToBits().ReshapeToUint64s()
 	return v.GetElem(0)|v.GetElem(1) != 0
+}
+func all16(m archsimd.Mask16x8) bool {
+	v := m.ToInt16x8().ToBits().ReshapeToUint64s()
+	return v.GetElem(0)&v.GetElem(1) == ^uint64(0)
+}
+func maskDiff16(a, b archsimd.Mask16x8) bool {
+	x := a.ToInt16x8().Xor(b.ToInt16x8()).ToBits().ReshapeToUint64s()
+	return x.GetElem(0)|x.GetElem(1) != 0
 }
 func lfClamp(v archsimd.Int16x8) archsimd.Int16x8 {
 	return v.Max(archsimd.BroadcastInt16x8(-128)).Min(archsimd.BroadcastInt16x8(127))
@@ -216,84 +261,104 @@ func loopFilter8(p []byte, off, step, outer, blimit, limit, thresh, kind int) {
 	if !any16(need) {
 		return
 	}
-	hev := p1.Sub(p0).Abs().Max(q1.Sub(q0).Abs()).Greater(archsimd.BroadcastInt16x8(int16(thresh)))
-	center := archsimd.BroadcastInt16x8(128)
-	three := archsimd.BroadcastInt16x8(3)
-	four := archsimd.BroadcastInt16x8(4)
 	one := archsimd.BroadcastInt16x8(1)
-	f := lfClamp(p1.Sub(q1))
-	if kind != 2 && kind != 6 {
-		f = f.Masked(hev)
-	}
-	f = lfClamp(f.Add(q0.Sub(p0).Mul(three))).Masked(need)
-	if kind == 6 {
-		fh := f.Masked(hev)
-		f1 := lfClamp(fh.Add(four)).ShiftAllRight(3)
-		f2 := lfClamp(fh.Add(three)).ShiftAllRight(3)
-		ps0 := lfClamp(p0.Sub(center).Add(f2))
-		qs0 := lfClamp(q0.Sub(center).Sub(f1))
-		ff := f.Masked(hev.ToInt16x8().Equal(archsimd.Int16x8{}))
-		bias := archsimd.BroadcastInt16x8(63)
-		u := ff.Mul(archsimd.BroadcastInt16x8(27)).Add(bias).ShiftAllRight(7)
-		b[7] = lfClamp(ps0.Add(u)).Add(center)
-		b[8] = lfClamp(qs0.Sub(u)).Add(center)
-		u = ff.Mul(archsimd.BroadcastInt16x8(18)).Add(bias).ShiftAllRight(7)
-		b[6] = lfClamp(p1.Sub(center).Add(u)).Add(center)
-		b[9] = lfClamp(q1.Sub(center).Sub(u)).Add(center)
-		u = ff.Mul(archsimd.BroadcastInt16x8(9)).Add(bias).ShiftAllRight(7)
-		b[5] = lfClamp(a[5].Sub(center).Add(u)).Add(center)
-		b[10] = lfClamp(a[10].Sub(center).Sub(u)).Add(center)
-		first, last = 5, 11
-	} else {
-		f1 := lfClamp(f.Add(four)).ShiftAllRight(3)
-		f2 := lfClamp(f.Add(three)).ShiftAllRight(3)
-		b[7] = lfClamp(p0.Sub(center).Add(f2)).Add(center)
-		b[8] = lfClamp(q0.Sub(center).Sub(f1)).Add(center)
-		first, last = 7, 9
-		if kind != 2 {
-			u := f1.Add(one).ShiftAllRight(1).Masked(hev.ToInt16x8().Equal(archsimd.Int16x8{}))
-			b[6] = lfClamp(p1.Sub(center).Add(u)).Add(center)
-			b[9] = lfClamp(q1.Sub(center).Sub(u)).Add(center)
-			first, last = 6, 10
-		}
-	}
 	if kind == 8 || kind == 16 {
 		flat := a[4].Sub(p0).Abs().Max(a[5].Sub(p0).Abs()).Max(p1.Sub(p0).Abs()).Max(q1.Sub(q0).Abs()).Max(a[10].Sub(q0).Abs()).Max(a[11].Sub(q0).Abs()).LessEqual(one).And(need)
-		if any16(flat) {
-			flatFilter(&a, &b, 4, 12, 3, flat)
-			first, last = 5, 11
-		}
-		if kind == 16 && any16(flat) {
+		hasFlat := any16(flat)
+		var flat2 archsimd.Mask16x8
+		hasFlat2 := false
+		if kind == 16 && hasFlat {
 			far := archsimd.Int16x8{}
 			if tiled {
-				// Vertical edge: the two far four-column strips transpose
-				// in registers instead of eight scalar byte loads per row.
-				loadEdgeTile(p, off-8, outer, 4, &a, 0)
-				loadEdgeTile(p, off+4, outer, 4, &a, 12)
-			}
-			for i := range 4 {
-				if !tiled {
+				loadFarEdgeTiles(p, off, outer, &a)
+			} else {
+				for i := range 4 {
 					a[i] = edgeLoad(p, off+(i-8)*step, outer)
 					a[12+i] = edgeLoad(p, off+(i+4)*step, outer)
 				}
-				b[i] = a[i]
-				b[12+i] = a[12+i]
+			}
+			for i := range 4 {
 				far = far.Max(a[i].Sub(p0).Abs()).Max(a[12+i].Sub(q0).Abs())
 			}
-			flat2 := flat.And(far.LessEqual(one))
-			if any16(flat2) {
-				flatFilter(&a, &b, 0, 16, 7, flat2)
+			flat2 = flat.And(far.LessEqual(one))
+			hasFlat2 = any16(flat2)
+			if hasFlat2 && !all16(flat2) {
+				b[1], b[2], b[3] = a[1], a[2], a[3]
+				b[12], b[13], b[14] = a[12], a[13], a[14]
+			}
+		}
+		if !hasFlat || maskDiff16(need, flat) {
+			hev := p1.Sub(p0).Abs().Max(q1.Sub(q0).Abs()).Greater(archsimd.BroadcastInt16x8(int16(thresh)))
+			center := archsimd.BroadcastInt16x8(128)
+			three := archsimd.BroadcastInt16x8(3)
+			four := archsimd.BroadcastInt16x8(4)
+			f := lfClamp(p1.Sub(q1)).Masked(hev)
+			f = lfClamp(f.Add(q0.Sub(p0).Mul(three))).Masked(need)
+			f1 := lfClamp(f.Add(four)).ShiftAllRight(3)
+			f2 := lfClamp(f.Add(three)).ShiftAllRight(3)
+			b[7] = lfClamp(p0.Sub(center).Add(f2)).Add(center)
+			b[8] = lfClamp(q0.Sub(center).Sub(f1)).Add(center)
+			u := f1.Add(one).ShiftAllRight(1).Masked(hev.ToInt16x8().Equal(archsimd.Int16x8{}))
+			b[6] = lfClamp(p1.Sub(center).Add(u)).Add(center)
+			b[9] = lfClamp(q1.Sub(center).Sub(u)).Add(center)
+		}
+		first, last = 6, 10
+		if hasFlat {
+			if !hasFlat2 || maskDiff16(flat, flat2) {
+				flatFilter7(&a, &b, flat)
+			}
+			first, last = 5, 11
+			if hasFlat2 {
+				flatFilter15(&a, &b, flat2)
 				first, last = 1, 15
+			}
+		}
+	} else {
+		hev := p1.Sub(p0).Abs().Max(q1.Sub(q0).Abs()).Greater(archsimd.BroadcastInt16x8(int16(thresh)))
+		center := archsimd.BroadcastInt16x8(128)
+		three := archsimd.BroadcastInt16x8(3)
+		four := archsimd.BroadcastInt16x8(4)
+		f := lfClamp(p1.Sub(q1))
+		if kind != 2 && kind != 6 {
+			f = f.Masked(hev)
+		}
+		f = lfClamp(f.Add(q0.Sub(p0).Mul(three))).Masked(need)
+		if kind == 6 {
+			fh := f.Masked(hev)
+			f1 := lfClamp(fh.Add(four)).ShiftAllRight(3)
+			f2 := lfClamp(fh.Add(three)).ShiftAllRight(3)
+			ps0 := lfClamp(p0.Sub(center).Add(f2))
+			qs0 := lfClamp(q0.Sub(center).Sub(f1))
+			ff := f.Masked(hev.ToInt16x8().Equal(archsimd.Int16x8{}))
+			bias := archsimd.BroadcastInt16x8(63)
+			u := ff.Mul(archsimd.BroadcastInt16x8(27)).Add(bias).ShiftAllRight(7)
+			b[7] = lfClamp(ps0.Add(u)).Add(center)
+			b[8] = lfClamp(qs0.Sub(u)).Add(center)
+			u = ff.Mul(archsimd.BroadcastInt16x8(18)).Add(bias).ShiftAllRight(7)
+			b[6] = lfClamp(p1.Sub(center).Add(u)).Add(center)
+			b[9] = lfClamp(q1.Sub(center).Sub(u)).Add(center)
+			u = ff.Mul(archsimd.BroadcastInt16x8(9)).Add(bias).ShiftAllRight(7)
+			b[5] = lfClamp(a[5].Sub(center).Add(u)).Add(center)
+			b[10] = lfClamp(a[10].Sub(center).Sub(u)).Add(center)
+			first, last = 5, 11
+		} else {
+			f1 := lfClamp(f.Add(four)).ShiftAllRight(3)
+			f2 := lfClamp(f.Add(three)).ShiftAllRight(3)
+			b[7] = lfClamp(p0.Sub(center).Add(f2)).Add(center)
+			b[8] = lfClamp(q0.Sub(center).Sub(f1)).Add(center)
+			first, last = 7, 9
+			if kind != 2 {
+				u := f1.Add(one).ShiftAllRight(1).Masked(hev.ToInt16x8().Equal(archsimd.Int16x8{}))
+				b[6] = lfClamp(p1.Sub(center).Add(u)).Add(center)
+				b[9] = lfClamp(q1.Sub(center).Sub(u)).Add(center)
+				first, last = 6, 10
 			}
 		}
 	}
 	if tiled && first >= tileFirst && last <= tileFirst+tileWidth {
 		storeEdgeTile(p, off+tileFirst-8, outer, tileFirst, tileWidth, first, last, &b)
 	} else if tiled && first == 1 && last == 15 {
-		// The 15-tap filter rewrites columns p6..q6. Two eight-column tiles
-		// cover them; columns p7 and q7 stay untouched.
-		storeEdgeTile(p, off-8, outer, 0, 8, 1, 8, &b)
-		storeEdgeTile(p, off, outer, 8, 8, 8, 15, &b)
+		storeEdgeTile14(p, off, outer, &b)
 	} else {
 		for i := first; i < last; i++ {
 			edgeStore(p, off+(i-8)*step, outer, b[i])
@@ -301,23 +366,115 @@ func loopFilter8(p []byte, off, step, outer, blimit, limit, thresh, kind int) {
 	}
 }
 
-// Flat filters have a doubled center and repeated endpoint samples. A
-// sliding vector sum computes the 7/15 tap windows with two updates each.
 func flatFilter(a, b *[16]archsimd.Int16x8, start, end, radius int, mask archsimd.Mask16x8) {
-	sum := archsimd.Int16x8{}
-	for j := start + 1 - radius; j <= start+1+radius; j++ {
-		sum = sum.Add(a[min(max(j, start), end-1)])
+	if radius == 3 {
+		flatFilter7(a, b, mask)
+		return
 	}
-	shift := uint64(3)
-	if radius == 7 {
-		shift = 4
+	flatFilter15(a, b, mask)
+}
+
+// flatFilter7 computes the 7-tap flat filter over columns 5..10 using
+// constant-indexed sliding sums (zero bounds checks or min/max branches).
+func flatFilter7(a, b *[16]archsimd.Int16x8, mask archsimd.Mask16x8) {
+	a4, a5, a6, a7 := a[4], a[5], a[6], a[7]
+	a8, a9, a10, a11 := a[8], a[9], a[10], a[11]
+	round := archsimd.BroadcastInt16x8(4)
+	sum := a4.ShiftAllLeft(1).Add(a4).Add(a5).Add(a6).Add(a7).Add(a8)
+	if all16(mask) {
+		b[5] = sum.Add(a5).Add(round).ShiftAllRight(3)
+		sum = sum.Sub(a4).Add(a9)
+		b[6] = sum.Add(a6).Add(round).ShiftAllRight(3)
+		sum = sum.Sub(a4).Add(a10)
+		b[7] = sum.Add(a7).Add(round).ShiftAllRight(3)
+		sum = sum.Sub(a4).Add(a11)
+		b[8] = sum.Add(a8).Add(round).ShiftAllRight(3)
+		sum = sum.Sub(a5).Add(a11)
+		b[9] = sum.Add(a9).Add(round).ShiftAllRight(3)
+		sum = sum.Sub(a6).Add(a11)
+		b[10] = sum.Add(a10).Add(round).ShiftAllRight(3)
+		return
 	}
-	round := archsimd.BroadcastInt16x8(int16(1 << (shift - 1)))
-	for i := start + 1; i < end-1; i++ {
-		v := sum.Add(a[i]).Add(round).ShiftAllRight(shift)
-		b[i] = v.IfElse(mask, b[i])
-		sum = sum.Sub(a[max(i-radius, start)]).Add(a[min(i+radius+1, end-1)])
+	b[5] = sum.Add(a5).Add(round).ShiftAllRight(3).IfElse(mask, b[5])
+	sum = sum.Sub(a4).Add(a9)
+	b[6] = sum.Add(a6).Add(round).ShiftAllRight(3).IfElse(mask, b[6])
+	sum = sum.Sub(a4).Add(a10)
+	b[7] = sum.Add(a7).Add(round).ShiftAllRight(3).IfElse(mask, b[7])
+	sum = sum.Sub(a4).Add(a11)
+	b[8] = sum.Add(a8).Add(round).ShiftAllRight(3).IfElse(mask, b[8])
+	sum = sum.Sub(a5).Add(a11)
+	b[9] = sum.Add(a9).Add(round).ShiftAllRight(3).IfElse(mask, b[9])
+	sum = sum.Sub(a6).Add(a11)
+	b[10] = sum.Add(a10).Add(round).ShiftAllRight(3).IfElse(mask, b[10])
+}
+
+// flatFilter15 computes the 15-tap flat2 filter over columns 1..14 using
+// constant-indexed sliding sums with a fast path when all 8 lanes take flat2.
+func flatFilter15(a, b *[16]archsimd.Int16x8, mask archsimd.Mask16x8) {
+	a0, a1, a2, a3 := a[0], a[1], a[2], a[3]
+	a4, a5, a6, a7 := a[4], a[5], a[6], a[7]
+	a8, a9, a10, a11 := a[8], a[9], a[10], a[11]
+	a12, a13, a14, a15 := a[12], a[13], a[14], a[15]
+	round := archsimd.BroadcastInt16x8(8)
+	// Initial sum for i=1: 7*a[0] + a[1] + ... + a[8].
+	sum := a0.ShiftAllLeft(3).Sub(a0).Add(a1).Add(a2).Add(a3).Add(a4).Add(a5).Add(a6).Add(a7).Add(a8)
+	if all16(mask) {
+		b[1] = sum.Add(a1).Add(round).ShiftAllRight(4)
+		sum = sum.Sub(a0).Add(a9)
+		b[2] = sum.Add(a2).Add(round).ShiftAllRight(4)
+		sum = sum.Sub(a0).Add(a10)
+		b[3] = sum.Add(a3).Add(round).ShiftAllRight(4)
+		sum = sum.Sub(a0).Add(a11)
+		b[4] = sum.Add(a4).Add(round).ShiftAllRight(4)
+		sum = sum.Sub(a0).Add(a12)
+		b[5] = sum.Add(a5).Add(round).ShiftAllRight(4)
+		sum = sum.Sub(a0).Add(a13)
+		b[6] = sum.Add(a6).Add(round).ShiftAllRight(4)
+		sum = sum.Sub(a0).Add(a14)
+		b[7] = sum.Add(a7).Add(round).ShiftAllRight(4)
+		sum = sum.Sub(a0).Add(a15)
+		b[8] = sum.Add(a8).Add(round).ShiftAllRight(4)
+		sum = sum.Sub(a1).Add(a15)
+		b[9] = sum.Add(a9).Add(round).ShiftAllRight(4)
+		sum = sum.Sub(a2).Add(a15)
+		b[10] = sum.Add(a10).Add(round).ShiftAllRight(4)
+		sum = sum.Sub(a3).Add(a15)
+		b[11] = sum.Add(a11).Add(round).ShiftAllRight(4)
+		sum = sum.Sub(a4).Add(a15)
+		b[12] = sum.Add(a12).Add(round).ShiftAllRight(4)
+		sum = sum.Sub(a5).Add(a15)
+		b[13] = sum.Add(a13).Add(round).ShiftAllRight(4)
+		sum = sum.Sub(a6).Add(a15)
+		b[14] = sum.Add(a14).Add(round).ShiftAllRight(4)
+		return
 	}
+	b[1] = sum.Add(a1).Add(round).ShiftAllRight(4).IfElse(mask, b[1])
+	sum = sum.Sub(a0).Add(a9)
+	b[2] = sum.Add(a2).Add(round).ShiftAllRight(4).IfElse(mask, b[2])
+	sum = sum.Sub(a0).Add(a10)
+	b[3] = sum.Add(a3).Add(round).ShiftAllRight(4).IfElse(mask, b[3])
+	sum = sum.Sub(a0).Add(a11)
+	b[4] = sum.Add(a4).Add(round).ShiftAllRight(4).IfElse(mask, b[4])
+	sum = sum.Sub(a0).Add(a12)
+	b[5] = sum.Add(a5).Add(round).ShiftAllRight(4).IfElse(mask, b[5])
+	sum = sum.Sub(a0).Add(a13)
+	b[6] = sum.Add(a6).Add(round).ShiftAllRight(4).IfElse(mask, b[6])
+	sum = sum.Sub(a0).Add(a14)
+	b[7] = sum.Add(a7).Add(round).ShiftAllRight(4).IfElse(mask, b[7])
+	sum = sum.Sub(a0).Add(a15)
+	b[8] = sum.Add(a8).Add(round).ShiftAllRight(4).IfElse(mask, b[8])
+	sum = sum.Sub(a1).Add(a15)
+	b[9] = sum.Add(a9).Add(round).ShiftAllRight(4).IfElse(mask, b[9])
+	sum = sum.Sub(a2).Add(a15)
+	b[10] = sum.Add(a10).Add(round).ShiftAllRight(4).IfElse(mask, b[10])
+	sum = sum.Sub(a3).Add(a15)
+	b[11] = sum.Add(a11).Add(round).ShiftAllRight(4).IfElse(mask, b[11])
+	sum = sum.Sub(a4).Add(a15)
+	b[12] = sum.Add(a12).Add(round).ShiftAllRight(4).IfElse(mask, b[12])
+	sum = sum.Sub(a5).Add(a15)
+	b[13] = sum.Add(a13).Add(round).ShiftAllRight(4).IfElse(mask, b[13])
+	sum = sum.Sub(a6).Add(a15)
+	b[14] = sum.Add(a14).Add(round).ShiftAllRight(4).IfElse(mask, b[14])
 }
 
 // LoopFilterUV8 joins two disjoint eight-position chroma edges into one
