@@ -159,48 +159,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	e.vp9SceneDetectionOnePass(img, showFrame, miRows, miCols)
 	e.vp9UpdateNoiseEstimate(img, miRows, miCols, isKey || intraOnly)
 	if !isKey && !intraOnly && showFrame && !e.rc.highSourceSAD {
-		dropReason, dropFrame := e.rc.testDropInterFrame()
-		if dropFrame {
-			if vp9PhaseStatsEnabled {
-				e.vp9PhaseCountPreEncodeDrop(dropReason)
-			}
-			droppedFrameIndex := e.frameIndex
-			e.rc.postDropFrame()
-			e.lastFrameDropped = true
-			e.temporal.finishDroppedFrame(temporalFrame, e.vp9TemporalBufferConfig())
-			firstPassStats := e.twoPass.statsForFrame()
-			e.twoPass.finishFrame()
-			if vp9OracleTraceBuild {
-				e.emitVP9OracleDroppedFrameTrace(flags, width, height, temporalFrame, dropReason)
-			}
-			e.vp9FinishKeyFrameDistance(false)
-			e.frameIndex++
-			e.vp9LatchDeadlineModePreviousFrame()
-			spatialLayerID, spatialLayerCount, interLayerDependency,
-				notRefForUpperSpatialLayer, scalabilityStructurePresent,
-				spatialScalabilityStructure := e.vp9SpatialResultFields()
-			return VP9EncodeResult{
-				Dropped:                     true,
-				ShowFrame:                   true,
-				InterPicturePredicted:       false,
-				TargetBitrateKbps:           e.rc.targetBitrateKbps,
-				FrameTargetBits:             e.rc.frameTargetBits,
-				BufferLevelBits:             e.rc.bufferLevelBits,
-				FirstPassStats:              firstPassStats,
-				TemporalLayerID:             temporalFrame.LayerID,
-				TemporalLayerCount:          temporalFrame.LayerCount,
-				TemporalLayerSync:           temporalFrame.LayerSync,
-				TemporalLayeringMode:        e.temporal.config.Mode,
-				TL0PICIDX:                   temporalFrame.TL0PICIDX,
-				SpatialLayerID:              spatialLayerID,
-				SpatialLayerCount:           spatialLayerCount,
-				InterLayerDependency:        interLayerDependency,
-				NotRefForUpperSpatialLayer:  notRefForUpperSpatialLayer,
-				ScalabilityStructurePresent: scalabilityStructurePresent,
-				SpatialScalabilityStructure: spatialScalabilityStructure,
-				vp9FrameIndex:               droppedFrameIndex,
-				interPicturePredictedKnown:  true,
-			}, nil
+		if dropReason, dropFrame := e.rc.testDropInterFrame(); dropFrame {
+			return e.finishVP9PreEncodeDrop(flags, width, height, temporalFrame, dropReason), nil
 		}
 	}
 	e.prepareVP9EncoderOutputFrame(int(width), int(height))
@@ -762,6 +722,53 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		firstPassStats, twoPassTargetBits, txMode, referenceMode,
 		compoundAllowed, interRefMask, qindex, n, isKey, intraOnly,
 		forceInterLayerRefresh, postDrop), nil
+}
+
+// finishVP9PreEncodeDrop commits rate-control, temporal, two-pass, and oracle
+// trace bookkeeping for an inter frame dropped prior to encoding.
+func (e *VP9Encoder) finishVP9PreEncodeDrop(flags EncodeFlags,
+	width, height uint32, temporalFrame temporalFrame, dropReason vp9DropReason,
+) VP9EncodeResult {
+	if vp9PhaseStatsEnabled {
+		e.vp9PhaseCountPreEncodeDrop(dropReason)
+	}
+	droppedFrameIndex := e.frameIndex
+	e.rc.postDropFrame()
+	e.lastFrameDropped = true
+	e.temporal.finishDroppedFrame(temporalFrame, e.vp9TemporalBufferConfig())
+	firstPassStats := e.twoPass.statsForFrame()
+	e.twoPass.finishFrame()
+	if vp9OracleTraceBuild {
+		e.emitVP9OracleDroppedFrameTrace(flags, width, height, temporalFrame, dropReason)
+	}
+	e.vp9FinishKeyFrameDistance(false)
+	e.frameIndex++
+	e.vp9LatchDeadlineModePreviousFrame()
+	spatialLayerID, spatialLayerCount, interLayerDependency,
+		notRefForUpperSpatialLayer, scalabilityStructurePresent,
+		spatialScalabilityStructure := e.vp9SpatialResultFields()
+	return VP9EncodeResult{
+		Dropped:                     true,
+		ShowFrame:                   true,
+		InterPicturePredicted:       false,
+		TargetBitrateKbps:           e.rc.targetBitrateKbps,
+		FrameTargetBits:             e.rc.frameTargetBits,
+		BufferLevelBits:             e.rc.bufferLevelBits,
+		FirstPassStats:              firstPassStats,
+		TemporalLayerID:             temporalFrame.LayerID,
+		TemporalLayerCount:          temporalFrame.LayerCount,
+		TemporalLayerSync:           temporalFrame.LayerSync,
+		TemporalLayeringMode:        e.temporal.config.Mode,
+		TL0PICIDX:                   temporalFrame.TL0PICIDX,
+		SpatialLayerID:              spatialLayerID,
+		SpatialLayerCount:           spatialLayerCount,
+		InterLayerDependency:        interLayerDependency,
+		NotRefForUpperSpatialLayer:  notRefForUpperSpatialLayer,
+		ScalabilityStructurePresent: scalabilityStructurePresent,
+		SpatialScalabilityStructure: spatialScalabilityStructure,
+		vp9FrameIndex:               droppedFrameIndex,
+		interPicturePredictedKnown:  true,
+	}
 }
 
 // finalizeVP9EncodeResult finishes per-frame bookkeeping (two-pass, temporal

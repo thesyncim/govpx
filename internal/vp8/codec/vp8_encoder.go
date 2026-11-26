@@ -284,101 +284,8 @@ type EncodeResult struct {
 // is internal to a single encode call.
 type VP8Encoder struct {
 	opts EncoderOptions
-
-	timing   timingState
-	sourceTS encoderSourceTimestampState
 	oracleTraceHolder
 
-	closed        bool
-	forceKeyFrame bool
-	// controlFrameFlags mirrors libvpx's control_frame_flags set by
-	// VP8E_SET_FRAME_FLAGS. It is consumed by the next EncodeInto call that
-	// passes zero per-call flags, and cleared by any accepted EncodeInto call.
-	controlFrameFlags EncodeFlags
-	frameCount        uint64
-
-	// lastChangeConfigWidth / lastChangeConfigHeight snapshot the dimensions
-	// last observed by the libvpx vp8_change_config tail. applyVP8Change
-	// ConfigRuntimeSideEffects compares them against e.opts.Width/Height to
-	// mirror libvpx's force_next_frame_intra resolution-change trigger
-	// (vp8/encoder/onyx_if.c:1689-1691):
-	//
-	//   if (last_w != cpi->oxcf.Width || last_h != cpi->oxcf.Height) {
-	//     cpi->force_next_frame_intra = 1;
-	//   }
-	//
-	// libvpx captures last_w / last_h at the entry of vp8_change_config and
-	// evaluates the comparison at the function's tail; govpx stores the
-	// most recent snapshot on the encoder so any path that mutates the
-	// configured Width / Height and then runs the shared side-effect tail
-	// is caught, not just applyResolutionChange.
-	lastChangeConfigWidth  int
-	lastChangeConfigHeight int
-
-	// horizScale and vertScale carry the libvpx pc->horiz_scale /
-	// pc->vert_scale pair set by VP8E_SET_SCALEMODE (vp8_set_internal_size
-	// in vp8/encoder/onyx_if.c:5416-5430). They flow into the keyframe
-	// uncompressed-data chunk as the 2-bit scale field per axis. Default
-	// zero == VP8E_NORMAL.
-	horizScale uint8
-	vertScale  uint8
-	// keyFrameFrequency mirrors cpi->key_frame_frequency. libvpx seeds it
-	// from oxcf.key_freq during compressor creation and does not rewrite it
-	// on runtime vpx_codec_enc_config_set updates; adaptive auto-key forcing
-	// must therefore not read the live EncoderOptions.KeyFrameInterval.
-	keyFrameFrequency int
-	// keyFramesDisabled mirrors libvpx cfg.kf_mode == VPX_KF_DISABLED for
-	// runtime controls. The cold-start default keeps fixed key-frame cadence
-	// active even when AdaptiveKeyFrames is false.
-	keyFramesDisabled bool
-	// fixedKeyFrameCounter mirrors libvpx's wrapper-level fixed_kf_cntr for
-	// kf_min_dist == kf_max_dist. It is intentionally not reset by runtime
-	// config changes.
-	fixedKeyFrameCounter int
-
-	lastQuantizerPublic   int
-	lastQuantizerInternal int
-	lastQuantizerValid    bool
-
-	// libvpx vp8_auto_select_speed (rdopt.c:261) state. Mirrored exactly:
-	// at realtime+positive-cpu_used, at the start of each encode_mb_row
-	// libvpx runs vp8_auto_select_speed, which evolves cpi->Speed in
-	// [4,16] based on avg_pick_mode_time and avg_encode_time vs the
-	// (1e6/framerate)*(16-cpu_used)/16 budget. After each frame's encode
-	// the timers IIR-update (7*avg + duration)>>3. Cold start: Speed=4,
-	// timers=0. Govpx tracks the same state and feeds e.autoSpeed to
-	// libvpxCPUUsed for realtime+positive-cpu_used branches.
-	autoSpeed             int // current adaptive Speed (libvpx cpi->Speed)
-	avgPickModeTime       int // microseconds (libvpx cpi->avg_pick_mode_time, signed int per onyx_int.h)
-	avgEncodeTime         int // microseconds (libvpx cpi->avg_encode_time, signed int per onyx_int.h)
-	autoSpeedFrameStartNS int64
-	// configuredCPUUsed mirrors the wrapper-level vp8_extracfg.cpu_used.
-	// libvpx stores the unclamped VP8E_SET_CPUUSED value there and only
-	// clamps the compressor copy when vp8_change_config applies the active
-	// deadline mode. Keeping this separate prevents good-quality's [-5,5]
-	// clamp from leaking into a later realtime deadline switch.
-	configuredCPUUsed      int
-	configuredCPUUsedValid bool
-	// Runtime VP8E_SET_CPUUSED follows a slightly different temporal RD
-	// frame-context path from cold-start cpu_used config when it pins
-	// realtime speed. Track that control call so temporal GF refresh scoring
-	// can mirror libvpx without changing cold-start pinned-speed streams.
-	runtimePinnedCPUUsed bool
-
-	// libvpx vp8/encoder/onyx_if.c forced-key bookkeeping. this_key_frame_forced
-	// is set when the encoder is producing a key frame whose timing was
-	// dictated by the fixed-interval scheduler (rather than a content scene
-	// cut); the recode loop uses it to drive the SS-error feedback Q
-	// adjustment (encode_frame_to_data_rate around line 4065). ambient_err
-	// stores the just-encoded SS error (Y plane vs source) of the frame
-	// preceding a forced key, set by the next_key_frame_forced branch at the
-	// tail of the previous frame's encode (line 4282); the forced KF recode
-	// branch compares the new attempt's kf_err against this baseline.
-	thisKeyFrameForced bool
-	ambientErr         int
-
-	cyclicRefreshIndex                int
-	cyclicRefreshConfigured           bool
 	cyclicRefreshMap                  []int8
 	cyclicRefreshAttemptMap           []int8
 	segmentationHeaderEnabled         bool
@@ -699,6 +606,33 @@ type VP8Encoder struct {
 	interCoefTokenRecords      vp8enc.InterCoefficientTokenRecords
 	interCoefTokenRecordsValid bool
 	// Pointer-free threshold / histogram tables grouped below PtrBytes.
+	timing                          timingState
+	sourceTS                        encoderSourceTimestampState
+	closed                          bool
+	forceKeyFrame                   bool
+	controlFrameFlags               EncodeFlags
+	frameCount                      uint64
+	lastChangeConfigWidth           int
+	lastChangeConfigHeight          int
+	horizScale                      uint8
+	vertScale                       uint8
+	keyFrameFrequency               int
+	keyFramesDisabled               bool
+	fixedKeyFrameCounter            int
+	lastQuantizerPublic             int
+	lastQuantizerInternal           int
+	lastQuantizerValid              bool
+	autoSpeed                       int
+	avgPickModeTime                 int
+	avgEncodeTime                   int
+	autoSpeedFrameStartNS           int64
+	configuredCPUUsed               int
+	configuredCPUUsedValid          bool
+	runtimePinnedCPUUsed            bool
+	thisKeyFrameForced              bool
+	ambientErr                      int
+	cyclicRefreshIndex              int
+	cyclicRefreshConfigured         bool
 	rc                              rateControlState
 	temporal                        temporalState
 	savedContext                    savedCodingContext
