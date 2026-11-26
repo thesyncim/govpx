@@ -1,4 +1,4 @@
-//go:build !goexperiment.simd || !arm64 || purego || govpx_oracle_trace
+//go:build govpx_oracle_trace
 
 package encoder
 

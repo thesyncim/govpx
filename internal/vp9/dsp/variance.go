@@ -1,5 +1,7 @@
 package dsp
 
+import "github.com/thesyncim/govpx/internal/pixel"
+
 // VP9 variance kernels. Ported from libvpx v1.16.0 vpx_dsp/variance.c.
 // variance(W, H) returns sse - (sum*sum) / (W*H) along with the raw
 // sse via a pointer; MSE returns just the sse. The subpel variance
@@ -11,16 +13,11 @@ package dsp
 func computeVariance(src []uint8, srcOff, srcStride int,
 	ref []uint8, refOff, refStride, w, h int,
 ) (sse uint32, sum int) {
-	for y := range h {
-		srcRow := srcOff + y*srcStride
-		refRow := refOff + y*refStride
-		for x := range w {
-			diff := int(src[srcRow+x]) - int(ref[refRow+x])
-			sum += diff
-			sse += uint32(diff * diff)
-		}
+	if w <= 0 || h <= 0 {
+		return 0, 0
 	}
-	return
+	sum, sse = pixel.Stats(src[srcOff:], srcStride, ref[refOff:], refStride, w, h)
+	return sse, sum
 }
 
 func varianceScalar(w, h int, src []uint8, srcOff, srcStride int,

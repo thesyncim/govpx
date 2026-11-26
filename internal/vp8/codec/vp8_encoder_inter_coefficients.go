@@ -2,6 +2,9 @@
 package codec
 
 import (
+	"math/bits"
+
+	"github.com/thesyncim/govpx/internal/pixel"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
@@ -456,6 +459,9 @@ func buildFastRealtimeMacroblockCoefficientsDirect(
 	src vp8enc.SourceImage, mbRow, mbCol int, pred *vp8common.Image,
 	quant *vp8enc.MacroblockQuant, is4x4 bool, coeffs *vp8enc.MacroblockCoefficients,
 ) {
+	if !pixel.Enabled && buildFastRealtimeMacroblockCoefficientsScalar(src, mbRow, mbCol, pred, quant, is4x4, coeffs) {
+		return
+	}
 	residuals := scratch.residuals[:]
 	dcts := scratch.dcts[:]
 	qBuf := scratch.qBuf[:]
@@ -497,6 +503,333 @@ func buildFastRealtimeMacroblockCoefficientsDirect(
 		if coeffs.EOB[16+block] != 0 {
 			copy(coeffs.QCoeff[16+block][:], qBuf[block*16:])
 		}
+	}
+}
+
+func isUniformACBlockQuant(q *vp8enc.BlockQuant) bool {
+	r1, q1 := q.Round[1], q.QuantFast[1]
+	for i := 2; i < 16; i++ {
+		if q.Round[i] != r1 || q.QuantFast[i] != q1 {
+			return false
+		}
+	}
+	return true
+}
+
+type vp8FusedQuantParams struct {
+	r0, q0, r1, q1 int
+	off            int32
+	lim            uint64
+	skipDC         bool
+}
+
+func buildFastRealtimeMacroblockCoefficientsScalar(
+	src vp8enc.SourceImage, mbRow, mbCol int, pred *vp8common.Image,
+	quant *vp8enc.MacroblockQuant, is4x4 bool, coeffs *vp8enc.MacroblockCoefficients,
+) bool {
+	baseX, baseY := mbCol*16, mbRow*16
+	if uint(baseY) > uint(src.Height-16) || uint(baseX) > uint(src.Width-16) ||
+		src.YStride <= 0 || pred.YStride <= 0 ||
+		(baseY+15)*src.YStride+baseX+15 >= len(src.Y) ||
+		(baseY+15)*pred.YStride+baseX+15 >= len(pred.Y) {
+		return false
+	}
+	uvWidth, uvHeight := vp8enc.SourceImageUVDimensions(src)
+	uvX, uvY := mbCol*8, mbRow*8
+	if uint(uvY) > uint(uvHeight-8) || uint(uvX) > uint(uvWidth-8) ||
+		src.UStride <= 0 || pred.UStride <= 0 || src.VStride <= 0 || pred.VStride <= 0 ||
+		(uvY+7)*src.UStride+uvX+7 >= len(src.U) || (uvY+7)*pred.UStride+uvX+7 >= len(pred.U) ||
+		(uvY+7)*src.VStride+uvX+7 >= len(src.V) || (uvY+7)*pred.VStride+uvX+7 >= len(pred.V) {
+		return false
+	}
+
+	yQuant := &quant.Y1DC
+	if is4x4 {
+		yQuant = &quant.Y1
+	}
+	uvQuant := &quant.UV
+	if !isUniformACBlockQuant(yQuant) || !isUniformACBlockQuant(uvQuant) {
+		return false
+	}
+	yr0, yq0, yr1, yq1 := int(yQuant.Round[0]), int(yQuant.QuantFast[0]), int(yQuant.Round[1]), int(yQuant.QuantFast[1])
+	uvr0, uvq0, uvr1, uvq1 := int(uvQuant.Round[0]), int(uvQuant.QuantFast[0]), int(uvQuant.Round[1]), int(uvQuant.QuantFast[1])
+	if yq1 <= 0 || yr1 < 0 || uvq1 <= 0 || uvr1 < 0 {
+		return false
+	}
+	ylim1 := 65535/yq1 - yr1
+	uvlim1 := 65535/uvq1 - uvr1
+	if ylim1 < 0 || ylim1 > 32767 || uvlim1 < 0 || uvlim1 > 32767 {
+		return false
+	}
+	yQP := vp8FusedQuantParams{
+		r0: yr0, q0: yq0, r1: yr1, q1: yq1,
+		off: int32(ylim1), lim: uint64(uint32(2*ylim1)) + 1,
+		skipDC: !is4x4,
+	}
+	uvQP := vp8FusedQuantParams{
+		r0: uvr0, q0: uvq0, r1: uvr1, q1: uvq1,
+		off: int32(uvlim1), lim: uint64(uint32(2*uvlim1)) + 1,
+		skipDC: false,
+	}
+
+	var y2Input [16]int16
+	syBase := baseY*src.YStride + baseX
+	pyBase := baseY*pred.YStride + baseX
+	ss, ps := src.YStride, pred.YStride
+	for by := range 4 {
+		syRow := syBase + by*4*ss
+		pyRow := pyBase + by*4*ps
+		fusedRow4x4DCTQuantScalar(
+			src.Y[syRow:], ss, pred.Y[pyRow:], ps,
+			&yQP, coeffs.QCoeff[by*4:by*4+4], y2Input[by*4:by*4+4], coeffs.EOB[by*4:by*4+4],
+		)
+	}
+
+	if !is4x4 {
+		var y2Coeff [16]int16
+		vp8enc.ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
+		vp8enc.FastQuantizeBlockBatchOnly(y2Coeff[:], &quant.Y2, coeffs.QCoeff[24][:], coeffs.EOB[24:25], 1)
+	} else {
+		coeffs.EOB[24] = 0
+	}
+
+	suBase := uvY*src.UStride + uvX
+	puBase := uvY*pred.UStride + uvX
+	uss, ups := src.UStride, pred.UStride
+	var discardDC [2]int16
+	for by := range 2 {
+		suRow := suBase + by*4*uss
+		puRow := puBase + by*4*ups
+		fusedRow4x4DCTQuantScalar(
+			src.U[suRow:], uss, pred.U[puRow:], ups,
+			&uvQP, coeffs.QCoeff[16+by*2:16+by*2+2], discardDC[:], coeffs.EOB[16+by*2:16+by*2+2],
+		)
+	}
+
+	svBase := uvY*src.VStride + uvX
+	pvBase := uvY*pred.VStride + uvX
+	vss, vps := src.VStride, pred.VStride
+	for by := range 2 {
+		svRow := svBase + by*4*vss
+		pvRow := pvBase + by*4*vps
+		fusedRow4x4DCTQuantScalar(
+			src.V[svRow:], vss, pred.V[pvRow:], vps,
+			&uvQP, coeffs.QCoeff[20+by*2:20+by*2+2], discardDC[:], coeffs.EOB[20+by*2:20+by*2+2],
+		)
+	}
+	return true
+}
+
+func fusedRow4x4DCTQuantScalar(
+	src []byte, ss int, pred []byte, ps int,
+	qp *vp8FusedQuantParams, qbs [][16]int16, dcs []int16, eobs []uint8,
+) {
+	blocks := len(qbs)
+	w := blocks * 4
+	sr0 := src[0:w]
+	sr1 := src[ss : ss+w]
+	sr2 := src[2*ss : 2*ss+w]
+	sr3 := src[3*ss : 3*ss+w]
+	pr0 := pred[0:w]
+	pr1 := pred[ps : ps+w]
+	pr2 := pred[2*ps : 2*ps+w]
+	pr3 := pred[3*ps : 3*ps+w]
+	_ = dcs[blocks-1]
+	_ = eobs[blocks-1]
+
+	r0, q0, r1, q1 := qp.r0, qp.q0, qp.r1, qp.q1
+	off := qp.off
+	lim := qp.lim
+	skipDC := qp.skipDC
+	const signShift = bits.UintSize - 1
+
+	for bx := range blocks {
+		col := bx * 4
+		s0 := (*[4]byte)(sr0[col : col+4])
+		p0 := (*[4]byte)(pr0[col : col+4])
+		r00, r01, r02, r03 := int(s0[0])-int(p0[0]), int(s0[1])-int(p0[1]), int(s0[2])-int(p0[2]), int(s0[3])-int(p0[3])
+		a0, b0, c0, d0 := r00+r03, r01+r02, r01-r02, r00-r03
+		t0, t2 := (a0+b0)<<3, (a0-b0)<<3
+		t1 := (c0*17736 + d0*42816 + 14500) >> 12
+		t3 := (d0*17736 - c0*42816 + 7500) >> 12
+
+		s1 := (*[4]byte)(sr1[col : col+4])
+		p1 := (*[4]byte)(pr1[col : col+4])
+		r10, r11, r12, r13 := int(s1[0])-int(p1[0]), int(s1[1])-int(p1[1]), int(s1[2])-int(p1[2]), int(s1[3])-int(p1[3])
+		a1, b1, c1, d1 := r10+r13, r11+r12, r11-r12, r10-r13
+		t4, t6 := (a1+b1)<<3, (a1-b1)<<3
+		t5 := (c1*17736 + d1*42816 + 14500) >> 12
+		t7 := (d1*17736 - c1*42816 + 7500) >> 12
+
+		s2 := (*[4]byte)(sr2[col : col+4])
+		p2 := (*[4]byte)(pr2[col : col+4])
+		r20, r21, r22, r23 := int(s2[0])-int(p2[0]), int(s2[1])-int(p2[1]), int(s2[2])-int(p2[2]), int(s2[3])-int(p2[3])
+		a2, b2, c2, d2 := r20+r23, r21+r22, r21-r22, r20-r23
+		t8, t10 := (a2+b2)<<3, (a2-b2)<<3
+		t9 := (c2*17736 + d2*42816 + 14500) >> 12
+		t11 := (d2*17736 - c2*42816 + 7500) >> 12
+
+		s3 := (*[4]byte)(sr3[col : col+4])
+		p3 := (*[4]byte)(pr3[col : col+4])
+		r30, r31, r32, r33 := int(s3[0])-int(p3[0]), int(s3[1])-int(p3[1]), int(s3[2])-int(p3[2]), int(s3[3])-int(p3[3])
+		a3, b3, c3, d3 := r30+r33, r31+r32, r31-r32, r30-r33
+		t12, t14 := (a3+b3)<<3, (a3-b3)<<3
+		t13 := (c3*17736 + d3*42816 + 14500) >> 12
+		t15 := (d3*17736 - c3*42816 + 7500) >> 12
+
+		// col 0
+		ca, cb, cc, cd := t0+t12, t4+t8, t4-t8, t0-t12
+		o0 := int16((ca + cb + 7) >> 4)
+		o8 := int16((ca - cb + 7) >> 4)
+		o4 := int16(((cc*2217 + cd*5352 + 12000) >> 16) + int(uint64(int64(cd)|-int64(cd))>>63))
+		o12 := int16((cd*2217 - cc*5352 + 51000) >> 16)
+
+		// col 1
+		ca, cb, cc, cd = t1+t13, t5+t9, t5-t9, t1-t13
+		o1 := int16((ca + cb + 7) >> 4)
+		o9 := int16((ca - cb + 7) >> 4)
+		o5 := int16(((cc*2217 + cd*5352 + 12000) >> 16) + int(uint64(int64(cd)|-int64(cd))>>63))
+		o13 := int16((cd*2217 - cc*5352 + 51000) >> 16)
+
+		// col 2
+		ca, cb, cc, cd = t2+t14, t6+t10, t6-t10, t2-t14
+		o2 := int16((ca + cb + 7) >> 4)
+		o10 := int16((ca - cb + 7) >> 4)
+		o6 := int16(((cc*2217 + cd*5352 + 12000) >> 16) + int(uint64(int64(cd)|-int64(cd))>>63))
+		o14 := int16((cd*2217 - cc*5352 + 51000) >> 16)
+
+		// col 3
+		ca, cb, cc, cd = t3+t15, t7+t11, t7-t11, t3-t15
+		o3 := int16((ca + cb + 7) >> 4)
+		o11 := int16((ca - cb + 7) >> 4)
+		o7 := int16(((cc*2217 + cd*5352 + 12000) >> 16) + int(uint64(int64(cd)|-int64(cd))>>63))
+		o15 := int16((cd*2217 - cc*5352 + 51000) >> 16)
+
+		dcs[bx] = o0
+		var nz uint16
+		var q0Val int16
+		if !skipDC && o0 != 0 {
+			z := int(o0)
+			s := z >> signShift
+			y := ((((z ^ s) - s) + r0) * q0) >> 16
+			if y != 0 {
+				q0Val = int16((y ^ s) - s)
+				nz = 1
+			}
+		}
+
+		g0 := (uint64(uint32(int32(o1)+off)) - lim) & (uint64(uint32(int32(o2)+off)) - lim) & (uint64(uint32(int32(o3)+off)) - lim)
+		g1 := (uint64(uint32(int32(o4)+off)) - lim) & (uint64(uint32(int32(o5)+off)) - lim) & (uint64(uint32(int32(o6)+off)) - lim) & (uint64(uint32(int32(o7)+off)) - lim)
+		g2 := (uint64(uint32(int32(o8)+off)) - lim) & (uint64(uint32(int32(o9)+off)) - lim) & (uint64(uint32(int32(o10)+off)) - lim) & (uint64(uint32(int32(o11)+off)) - lim)
+		g3 := (uint64(uint32(int32(o12)+off)) - lim) & (uint64(uint32(int32(o13)+off)) - lim) & (uint64(uint32(int32(o14)+off)) - lim) & (uint64(uint32(int32(o15)+off)) - lim)
+
+		if nz == 0 && (g0&g1&g2&g3)>>63 != 0 {
+			eobs[bx] = 0
+			continue
+		}
+
+		qb := &qbs[bx]
+		*qb = [16]int16{}
+		qb[0] = q0Val
+		if g0>>63 == 0 {
+			if z := int(o1); uint(int32(z)+off) >= uint(lim) {
+				s := z >> signShift
+				y := ((((z ^ s) - s) + r1) * q1) >> 16
+				qb[1] = int16((y ^ s) - s)
+				nz |= uint16(uint(-y)>>63) << 1
+			}
+			if z := int(o2); uint(int32(z)+off) >= uint(lim) {
+				s := z >> signShift
+				y := ((((z ^ s) - s) + r1) * q1) >> 16
+				qb[2] = int16((y ^ s) - s)
+				nz |= uint16(uint(-y)>>63) << 5
+			}
+			if z := int(o3); uint(int32(z)+off) >= uint(lim) {
+				s := z >> signShift
+				y := ((((z ^ s) - s) + r1) * q1) >> 16
+				qb[3] = int16((y ^ s) - s)
+				nz |= uint16(uint(-y)>>63) << 6
+			}
+		}
+		if g1>>63 == 0 {
+			if z := int(o4); uint(int32(z)+off) >= uint(lim) {
+				s := z >> signShift
+				y := ((((z ^ s) - s) + r1) * q1) >> 16
+				qb[4] = int16((y ^ s) - s)
+				nz |= uint16(uint(-y)>>63) << 2
+			}
+			if z := int(o5); uint(int32(z)+off) >= uint(lim) {
+				s := z >> signShift
+				y := ((((z ^ s) - s) + r1) * q1) >> 16
+				qb[5] = int16((y ^ s) - s)
+				nz |= uint16(uint(-y)>>63) << 4
+			}
+			if z := int(o6); uint(int32(z)+off) >= uint(lim) {
+				s := z >> signShift
+				y := ((((z ^ s) - s) + r1) * q1) >> 16
+				qb[6] = int16((y ^ s) - s)
+				nz |= uint16(uint(-y)>>63) << 7
+			}
+			if z := int(o7); uint(int32(z)+off) >= uint(lim) {
+				s := z >> signShift
+				y := ((((z ^ s) - s) + r1) * q1) >> 16
+				qb[7] = int16((y ^ s) - s)
+				nz |= uint16(uint(-y)>>63) << 12
+			}
+		}
+		if g2>>63 == 0 {
+			if z := int(o8); uint(int32(z)+off) >= uint(lim) {
+				s := z >> signShift
+				y := ((((z ^ s) - s) + r1) * q1) >> 16
+				qb[8] = int16((y ^ s) - s)
+				nz |= uint16(uint(-y)>>63) << 3
+			}
+			if z := int(o9); uint(int32(z)+off) >= uint(lim) {
+				s := z >> signShift
+				y := ((((z ^ s) - s) + r1) * q1) >> 16
+				qb[9] = int16((y ^ s) - s)
+				nz |= uint16(uint(-y)>>63) << 8
+			}
+			if z := int(o10); uint(int32(z)+off) >= uint(lim) {
+				s := z >> signShift
+				y := ((((z ^ s) - s) + r1) * q1) >> 16
+				qb[10] = int16((y ^ s) - s)
+				nz |= uint16(uint(-y)>>63) << 11
+			}
+			if z := int(o11); uint(int32(z)+off) >= uint(lim) {
+				s := z >> signShift
+				y := ((((z ^ s) - s) + r1) * q1) >> 16
+				qb[11] = int16((y ^ s) - s)
+				nz |= uint16(uint(-y)>>63) << 13
+			}
+		}
+		if g3>>63 == 0 {
+			if z := int(o12); uint(int32(z)+off) >= uint(lim) {
+				s := z >> signShift
+				y := ((((z ^ s) - s) + r1) * q1) >> 16
+				qb[12] = int16((y ^ s) - s)
+				nz |= uint16(uint(-y)>>63) << 9
+			}
+			if z := int(o13); uint(int32(z)+off) >= uint(lim) {
+				s := z >> signShift
+				y := ((((z ^ s) - s) + r1) * q1) >> 16
+				qb[13] = int16((y ^ s) - s)
+				nz |= uint16(uint(-y)>>63) << 10
+			}
+			if z := int(o14); uint(int32(z)+off) >= uint(lim) {
+				s := z >> signShift
+				y := ((((z ^ s) - s) + r1) * q1) >> 16
+				qb[14] = int16((y ^ s) - s)
+				nz |= uint16(uint(-y)>>63) << 14
+			}
+			if z := int(o15); uint(int32(z)+off) >= uint(lim) {
+				s := z >> signShift
+				y := ((((z ^ s) - s) + r1) * q1) >> 16
+				qb[15] = int16((y ^ s) - s)
+				nz |= uint16(uint(-y)>>63) << 15
+			}
+		}
+		eobs[bx] = uint8(bits.Len16(nz))
 	}
 }
 

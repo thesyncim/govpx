@@ -1,6 +1,7 @@
 package encoder
 
 import (
+	"encoding/binary"
 	"math/bits"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -66,46 +67,48 @@ func ForwardDCT4x4Into(input []int16, stride int, output []int16) {
 // v1.16.0 vpx_fdct4x4_c. SIMD implementations must produce byte-identical
 // output for the encoder's residual range.
 func forwardDCT4x4Scalar(input []int16, stride int, output []int16) {
-	var intermediate [16]int
-	var final [16]int
+	_ = input[3*stride+3]
+	_ = output[15]
 
-	for pass := range 2 {
-		out := intermediate[:]
-		if pass == 1 {
-			out = final[:]
+	var t [16]int
+	r0 := input[:4]
+	r1 := input[stride : stride+4]
+	r2 := input[2*stride : 2*stride+4]
+	r3 := input[3*stride : 3*stride+4]
+
+	for i := range 4 {
+		in0 := int(r0[i]) * 16
+		in1 := int(r1[i]) * 16
+		in2 := int(r2[i]) * 16
+		in3 := int(r3[i]) * 16
+		if i == 0 && in0 != 0 {
+			in0++
 		}
-		for i := range 4 {
-			var in0, in1, in2, in3 int
-			if pass == 0 {
-				in0 = int(input[0*stride+i]) * 16
-				in1 = int(input[1*stride+i]) * 16
-				in2 = int(input[2*stride+i]) * 16
-				in3 = int(input[3*stride+i]) * 16
-				if i == 0 && in0 != 0 {
-					in0++
-				}
-			} else {
-				in0 = intermediate[0*4+i]
-				in1 = intermediate[1*4+i]
-				in2 = intermediate[2*4+i]
-				in3 = intermediate[3*4+i]
-			}
-
-			step0 := in0 + in3
-			step1 := in1 + in2
-			step2 := in1 - in2
-			step3 := in0 - in3
-			out[0] = fdctRoundShift((step0 + step1) * fdctCospi16_64)
-			out[2] = fdctRoundShift((step0 - step1) * fdctCospi16_64)
-			out[1] = fdctRoundShift(step2*fdctCospi24_64 + step3*fdctCospi8_64)
-			out[3] = fdctRoundShift(-step2*fdctCospi8_64 + step3*fdctCospi24_64)
-
-			out = out[4:]
-		}
+		step0 := in0 + in3
+		step1 := in1 + in2
+		step2 := in1 - in2
+		step3 := in0 - in3
+		b := i * 4
+		t[b+0] = fdctRoundShift((step0 + step1) * fdctCospi16_64)
+		t[b+2] = fdctRoundShift((step0 - step1) * fdctCospi16_64)
+		t[b+1] = fdctRoundShift(step2*fdctCospi24_64 + step3*fdctCospi8_64)
+		t[b+3] = fdctRoundShift(-step2*fdctCospi8_64 + step3*fdctCospi24_64)
 	}
 
-	for i := range 16 {
-		output[i] = int16((final[i] + 1) >> 2)
+	for i := range 4 {
+		in0 := t[0*4+i]
+		in1 := t[1*4+i]
+		in2 := t[2*4+i]
+		in3 := t[3*4+i]
+		step0 := in0 + in3
+		step1 := in1 + in2
+		step2 := in1 - in2
+		step3 := in0 - in3
+		out := output[i*4 : i*4+4]
+		out[0] = int16((fdctRoundShift((step0+step1)*fdctCospi16_64) + 1) >> 2)
+		out[2] = int16((fdctRoundShift((step0-step1)*fdctCospi16_64) + 1) >> 2)
+		out[1] = int16((fdctRoundShift(step2*fdctCospi24_64+step3*fdctCospi8_64) + 1) >> 2)
+		out[3] = int16((fdctRoundShift(-step2*fdctCospi8_64+step3*fdctCospi24_64) + 1) >> 2)
 	}
 }
 
@@ -189,67 +192,513 @@ func ForwardDCT8x8Into(input []int16, stride int, output []int16) {
 // v1.16.0 vpx_fdct8x8_c. SIMD implementations must produce byte-identical
 // output for the encoder's residual range.
 func forwardDCT8x8Scalar(input []int16, stride int, output []int16) {
-	var intermediate [64]int
-	var final [64]int
+	var intermediate [64]int32
+	outArr := (*[64]int16)(output[:64])
 
-	for pass := range 2 {
+	if stride == 8 {
+		in := (*[64]int16)(input[:64])
 		for i := range 8 {
-			var s0, s1, s2, s3, s4, s5, s6, s7 int
-			if pass == 0 {
-				s0 = (int(input[0*stride+i]) + int(input[7*stride+i])) * 4
-				s1 = (int(input[1*stride+i]) + int(input[6*stride+i])) * 4
-				s2 = (int(input[2*stride+i]) + int(input[5*stride+i])) * 4
-				s3 = (int(input[3*stride+i]) + int(input[4*stride+i])) * 4
-				s4 = (int(input[3*stride+i]) - int(input[4*stride+i])) * 4
-				s5 = (int(input[2*stride+i]) - int(input[5*stride+i])) * 4
-				s6 = (int(input[1*stride+i]) - int(input[6*stride+i])) * 4
-				s7 = (int(input[0*stride+i]) - int(input[7*stride+i])) * 4
-			} else {
-				s0 = intermediate[0*8+i] + intermediate[7*8+i]
-				s1 = intermediate[1*8+i] + intermediate[6*8+i]
-				s2 = intermediate[2*8+i] + intermediate[5*8+i]
-				s3 = intermediate[3*8+i] + intermediate[4*8+i]
-				s4 = intermediate[3*8+i] - intermediate[4*8+i]
-				s5 = intermediate[2*8+i] - intermediate[5*8+i]
-				s6 = intermediate[1*8+i] - intermediate[6*8+i]
-				s7 = intermediate[0*8+i] - intermediate[7*8+i]
+			v0, v1, v2, v3 := int(in[0*8+i]), int(in[1*8+i]), int(in[2*8+i]), int(in[3*8+i])
+			v4, v5, v6, v7 := int(in[4*8+i]), int(in[5*8+i]), int(in[6*8+i]), int(in[7*8+i])
+			if v0|v1|v2|v3|v4|v5|v6|v7 == 0 {
+				continue
 			}
+			s0 := (v0 + v7) * 4
+			s1 := (v1 + v6) * 4
+			s2 := (v2 + v5) * 4
+			s3 := (v3 + v4) * 4
+			s4 := (v3 - v4) * 4
+			s5 := (v2 - v5) * 4
+			s6 := (v1 - v6) * 4
+			s7 := (v0 - v7) * 4
 
 			x0 := s0 + s3
 			x1 := s1 + s2
 			x2 := s1 - s2
 			x3 := s0 - s3
 
-			base := i * 8
-			out := intermediate[:]
-			if pass == 1 {
-				out = final[:]
-			}
-			out[base+0] = fdctRoundShift((x0 + x1) * fdctCospi16_64)
-			out[base+2] = fdctRoundShift(x2*fdctCospi24_64 + x3*fdctCospi8_64)
-			out[base+4] = fdctRoundShift((x0 - x1) * fdctCospi16_64)
-			out[base+6] = fdctRoundShift(-x2*fdctCospi8_64 + x3*fdctCospi24_64)
+			b := i * 8
+			intermediate[b+0] = int32(fdctRoundShift((x0 + x1) * fdctCospi16_64))
+			intermediate[b+2] = int32(fdctRoundShift(x2*fdctCospi24_64 + x3*fdctCospi8_64))
+			intermediate[b+4] = int32(fdctRoundShift((x0 - x1) * fdctCospi16_64))
+			intermediate[b+6] = int32(fdctRoundShift(-x2*fdctCospi8_64 + x3*fdctCospi24_64))
 
-			t0 := (s6 - s5) * fdctCospi16_64
-			t1 := (s6 + s5) * fdctCospi16_64
-			t2 := fdctRoundShift(t0)
-			t3 := fdctRoundShift(t1)
+			t2 := fdctRoundShift((s6 - s5) * fdctCospi16_64)
+			t3 := fdctRoundShift((s6 + s5) * fdctCospi16_64)
 
 			x0 = s4 + t2
 			x1 = s4 - t2
 			x2 = s7 - t3
 			x3 = s7 + t3
 
-			out[base+1] = fdctRoundShift(x0*fdctCospi28_64 + x3*fdctCospi4_64)
-			out[base+3] = fdctRoundShift(x2*fdctCospi12_64 - x1*fdctCospi20_64)
-			out[base+5] = fdctRoundShift(x1*fdctCospi12_64 + x2*fdctCospi20_64)
-			out[base+7] = fdctRoundShift(x3*fdctCospi28_64 - x0*fdctCospi4_64)
+			intermediate[b+1] = int32(fdctRoundShift(x0*fdctCospi28_64 + x3*fdctCospi4_64))
+			intermediate[b+3] = int32(fdctRoundShift(x2*fdctCospi12_64 - x1*fdctCospi20_64))
+			intermediate[b+5] = int32(fdctRoundShift(x1*fdctCospi12_64 + x2*fdctCospi20_64))
+			intermediate[b+7] = int32(fdctRoundShift(x3*fdctCospi28_64 - x0*fdctCospi4_64))
+		}
+	} else {
+		_ = input[7*stride+7]
+		for i := range 8 {
+			v0, v1, v2, v3 := int(input[0*stride+i]), int(input[1*stride+i]), int(input[2*stride+i]), int(input[3*stride+i])
+			v4, v5, v6, v7 := int(input[4*stride+i]), int(input[5*stride+i]), int(input[6*stride+i]), int(input[7*stride+i])
+			if v0|v1|v2|v3|v4|v5|v6|v7 == 0 {
+				continue
+			}
+			s0 := (v0 + v7) * 4
+			s1 := (v1 + v6) * 4
+			s2 := (v2 + v5) * 4
+			s3 := (v3 + v4) * 4
+			s4 := (v3 - v4) * 4
+			s5 := (v2 - v5) * 4
+			s6 := (v1 - v6) * 4
+			s7 := (v0 - v7) * 4
+
+			x0 := s0 + s3
+			x1 := s1 + s2
+			x2 := s1 - s2
+			x3 := s0 - s3
+
+			b := i * 8
+			intermediate[b+0] = int32(fdctRoundShift((x0 + x1) * fdctCospi16_64))
+			intermediate[b+2] = int32(fdctRoundShift(x2*fdctCospi24_64 + x3*fdctCospi8_64))
+			intermediate[b+4] = int32(fdctRoundShift((x0 - x1) * fdctCospi16_64))
+			intermediate[b+6] = int32(fdctRoundShift(-x2*fdctCospi8_64 + x3*fdctCospi24_64))
+
+			t2 := fdctRoundShift((s6 - s5) * fdctCospi16_64)
+			t3 := fdctRoundShift((s6 + s5) * fdctCospi16_64)
+
+			x0 = s4 + t2
+			x1 = s4 - t2
+			x2 = s7 - t3
+			x3 = s7 + t3
+
+			intermediate[b+1] = int32(fdctRoundShift(x0*fdctCospi28_64 + x3*fdctCospi4_64))
+			intermediate[b+3] = int32(fdctRoundShift(x2*fdctCospi12_64 - x1*fdctCospi20_64))
+			intermediate[b+5] = int32(fdctRoundShift(x1*fdctCospi12_64 + x2*fdctCospi20_64))
+			intermediate[b+7] = int32(fdctRoundShift(x3*fdctCospi28_64 - x0*fdctCospi4_64))
 		}
 	}
 
-	for i := range 64 {
-		output[i] = int16(final[i] / 2)
+	for i := range 8 {
+		v0, v1, v2, v3 := int(intermediate[0*8+i]), int(intermediate[1*8+i]), int(intermediate[2*8+i]), int(intermediate[3*8+i])
+		v4, v5, v6, v7 := int(intermediate[4*8+i]), int(intermediate[5*8+i]), int(intermediate[6*8+i]), int(intermediate[7*8+i])
+		b := i * 8
+		if v0|v1|v2|v3|v4|v5|v6|v7 == 0 {
+			outArr[b+0], outArr[b+1], outArr[b+2], outArr[b+3] = 0, 0, 0, 0
+			outArr[b+4], outArr[b+5], outArr[b+6], outArr[b+7] = 0, 0, 0, 0
+			continue
+		}
+		s0 := v0 + v7
+		s1 := v1 + v6
+		s2 := v2 + v5
+		s3 := v3 + v4
+		s4 := v3 - v4
+		s5 := v2 - v5
+		s6 := v1 - v6
+		s7 := v0 - v7
+
+		x0 := s0 + s3
+		x1 := s1 + s2
+		x2 := s1 - s2
+		x3 := s0 - s3
+
+		outArr[b+0] = int16(fdctRoundShift((x0+x1)*fdctCospi16_64) / 2)
+		outArr[b+2] = int16(fdctRoundShift(x2*fdctCospi24_64+x3*fdctCospi8_64) / 2)
+		outArr[b+4] = int16(fdctRoundShift((x0-x1)*fdctCospi16_64) / 2)
+		outArr[b+6] = int16(fdctRoundShift(-x2*fdctCospi8_64+x3*fdctCospi24_64) / 2)
+
+		t2 := fdctRoundShift((s6 - s5) * fdctCospi16_64)
+		t3 := fdctRoundShift((s6 + s5) * fdctCospi16_64)
+
+		x0 = s4 + t2
+		x1 = s4 - t2
+		x2 = s7 - t3
+		x3 = s7 + t3
+
+		outArr[b+1] = int16(fdctRoundShift(x0*fdctCospi28_64+x3*fdctCospi4_64) / 2)
+		outArr[b+3] = int16(fdctRoundShift(x2*fdctCospi12_64-x1*fdctCospi20_64) / 2)
+		outArr[b+5] = int16(fdctRoundShift(x1*fdctCospi12_64+x2*fdctCospi20_64) / 2)
+		outArr[b+7] = int16(fdctRoundShift(x3*fdctCospi28_64-x0*fdctCospi4_64) / 2)
 	}
+}
+
+// ForwardDCT8x8SubtractInto fuses 8x8 byte residual subtraction (src - pred)
+// with the scalar 8x8 forward DCT. Returns false when all 64 residuals are zero.
+func ForwardDCT8x8SubtractInto(src []byte, srcStride int, pred []byte, predStride int, output []int16) bool {
+	s0 := (*[8]byte)(src[0:8])
+	s1 := (*[8]byte)(src[srcStride : srcStride+8])
+	s2 := (*[8]byte)(src[2*srcStride : 2*srcStride+8])
+	s3 := (*[8]byte)(src[3*srcStride : 3*srcStride+8])
+	s4 := (*[8]byte)(src[4*srcStride : 4*srcStride+8])
+	s5 := (*[8]byte)(src[5*srcStride : 5*srcStride+8])
+	s6 := (*[8]byte)(src[6*srcStride : 6*srcStride+8])
+	s7 := (*[8]byte)(src[7*srcStride : 7*srcStride+8])
+
+	p0 := (*[8]byte)(pred[0:8])
+	p1 := (*[8]byte)(pred[predStride : predStride+8])
+	p2 := (*[8]byte)(pred[2*predStride : 2*predStride+8])
+	p3 := (*[8]byte)(pred[3*predStride : 3*predStride+8])
+	p4 := (*[8]byte)(pred[4*predStride : 4*predStride+8])
+	p5 := (*[8]byte)(pred[5*predStride : 5*predStride+8])
+	p6 := (*[8]byte)(pred[6*predStride : 6*predStride+8])
+	p7 := (*[8]byte)(pred[7*predStride : 7*predStride+8])
+
+	diff := (binary.LittleEndian.Uint64(s0[:]) ^ binary.LittleEndian.Uint64(p0[:])) |
+		(binary.LittleEndian.Uint64(s1[:]) ^ binary.LittleEndian.Uint64(p1[:])) |
+		(binary.LittleEndian.Uint64(s2[:]) ^ binary.LittleEndian.Uint64(p2[:])) |
+		(binary.LittleEndian.Uint64(s3[:]) ^ binary.LittleEndian.Uint64(p3[:])) |
+		(binary.LittleEndian.Uint64(s4[:]) ^ binary.LittleEndian.Uint64(p4[:])) |
+		(binary.LittleEndian.Uint64(s5[:]) ^ binary.LittleEndian.Uint64(p5[:])) |
+		(binary.LittleEndian.Uint64(s6[:]) ^ binary.LittleEndian.Uint64(p6[:])) |
+		(binary.LittleEndian.Uint64(s7[:]) ^ binary.LittleEndian.Uint64(p7[:]))
+	if diff == 0 {
+		return false
+	}
+
+	var intermediate [64]int32
+	for i := range 8 {
+		v0 := int(s0[i]) - int(p0[i])
+		v1 := int(s1[i]) - int(p1[i])
+		v2 := int(s2[i]) - int(p2[i])
+		v3 := int(s3[i]) - int(p3[i])
+		v4 := int(s4[i]) - int(p4[i])
+		v5 := int(s5[i]) - int(p5[i])
+		v6 := int(s6[i]) - int(p6[i])
+		v7 := int(s7[i]) - int(p7[i])
+		if v0|v1|v2|v3|v4|v5|v6|v7 == 0 {
+			continue
+		}
+		a0 := v0 + v7
+		a1 := v1 + v6
+		a2 := v2 + v5
+		a3 := v3 + v4
+		a4 := (v3 - v4) * 4
+		a5 := v2 - v5
+		a6 := v1 - v6
+		a7 := (v0 - v7) * 4
+
+		x0 := a0 + a3
+		x1 := a1 + a2
+		x2 := a1 - a2
+		x3 := a0 - a3
+
+		b := i * 8
+		intermediate[b+0] = int32(fdctRoundShift((x0 + x1) * (fdctCospi16_64 * 4)))
+		intermediate[b+2] = int32(fdctRoundShift(x2*(fdctCospi24_64*4) + x3*(fdctCospi8_64*4)))
+		intermediate[b+4] = int32(fdctRoundShift((x0 - x1) * (fdctCospi16_64 * 4)))
+		intermediate[b+6] = int32(fdctRoundShift(-x2*(fdctCospi8_64*4) + x3*(fdctCospi24_64*4)))
+
+		t2 := fdctRoundShift((a6 - a5) * (fdctCospi16_64 * 4))
+		t3 := fdctRoundShift((a6 + a5) * (fdctCospi16_64 * 4))
+
+		x0 = a4 + t2
+		x1 = a4 - t2
+		x2 = a7 - t3
+		x3 = a7 + t3
+
+		intermediate[b+1] = int32(fdctRoundShift(x0*fdctCospi28_64 + x3*fdctCospi4_64))
+		intermediate[b+3] = int32(fdctRoundShift(x2*fdctCospi12_64 - x1*fdctCospi20_64))
+		intermediate[b+5] = int32(fdctRoundShift(x1*fdctCospi12_64 + x2*fdctCospi20_64))
+		intermediate[b+7] = int32(fdctRoundShift(x3*fdctCospi28_64 - x0*fdctCospi4_64))
+	}
+
+	outArr := (*[64]int16)(output[:64])
+	for i := range 8 {
+		v0, v1, v2, v3 := int(intermediate[0*8+i]), int(intermediate[1*8+i]), int(intermediate[2*8+i]), int(intermediate[3*8+i])
+		v4, v5, v6, v7 := int(intermediate[4*8+i]), int(intermediate[5*8+i]), int(intermediate[6*8+i]), int(intermediate[7*8+i])
+		b := i * 8
+		if v0|v1|v2|v3|v4|v5|v6|v7 == 0 {
+			outArr[b+0], outArr[b+1], outArr[b+2], outArr[b+3] = 0, 0, 0, 0
+			outArr[b+4], outArr[b+5], outArr[b+6], outArr[b+7] = 0, 0, 0, 0
+			continue
+		}
+		a0 := v0 + v7
+		a1 := v1 + v6
+		a2 := v2 + v5
+		a3 := v3 + v4
+		a4 := v3 - v4
+		a5 := v2 - v5
+		a6 := v1 - v6
+		a7 := v0 - v7
+
+		x0 := a0 + a3
+		x1 := a1 + a2
+		x2 := a1 - a2
+		x3 := a0 - a3
+
+		outArr[b+0] = int16(fdctRoundShift((x0+x1)*fdctCospi16_64) / 2)
+		outArr[b+2] = int16(fdctRoundShift(x2*fdctCospi24_64+x3*fdctCospi8_64) / 2)
+		outArr[b+4] = int16(fdctRoundShift((x0-x1)*fdctCospi16_64) / 2)
+		outArr[b+6] = int16(fdctRoundShift(-x2*fdctCospi8_64+x3*fdctCospi24_64) / 2)
+
+		t2 := fdctRoundShift((a6 - a5) * fdctCospi16_64)
+		t3 := fdctRoundShift((a6 + a5) * fdctCospi16_64)
+
+		x0 = a4 + t2
+		x1 = a4 - t2
+		x2 = a7 - t3
+		x3 = a7 + t3
+
+		outArr[b+1] = int16(fdctRoundShift(x0*fdctCospi28_64+x3*fdctCospi4_64) / 2)
+		outArr[b+3] = int16(fdctRoundShift(x2*fdctCospi12_64-x1*fdctCospi20_64) / 2)
+		outArr[b+5] = int16(fdctRoundShift(x1*fdctCospi12_64+x2*fdctCospi20_64) / 2)
+		outArr[b+7] = int16(fdctRoundShift(x3*fdctCospi28_64-x0*fdctCospi4_64) / 2)
+	}
+	return true
+}
+
+func vp9TokenClassScalar(a int) uint8 {
+	if a == 1 {
+		return 1
+	}
+	if a == 2 {
+		return 2
+	}
+	if a <= 4 {
+		return 3
+	}
+	if a <= 10 {
+		return 4
+	}
+	return 5
+}
+
+// ForwardDCT8x8SubtractQuantizeFPClasses fuses 8x8 byte residual subtraction,
+// scalar 8x8 forward DCT, and FP quantization + optional token classes into a
+// single pass without staging coefficients through txCoeffScratch.
+// When eob == 0, qcoeff/dqcoeff/classes are left untouched and classesProduced is false.
+func ForwardDCT8x8SubtractQuantizeFPClasses(
+	src []byte, srcStride int, pred []byte, predStride int,
+	dequant [2]int16, fp QuantizeFPTables, iscan []int16,
+	qcoeff, dqcoeff []int16, classes []uint8,
+) (eob int, classesProduced bool) {
+	s0 := (*[8]byte)(src[0:8])
+	s1 := (*[8]byte)(src[srcStride : srcStride+8])
+	s2 := (*[8]byte)(src[2*srcStride : 2*srcStride+8])
+	s3 := (*[8]byte)(src[3*srcStride : 3*srcStride+8])
+	s4 := (*[8]byte)(src[4*srcStride : 4*srcStride+8])
+	s5 := (*[8]byte)(src[5*srcStride : 5*srcStride+8])
+	s6 := (*[8]byte)(src[6*srcStride : 6*srcStride+8])
+	s7 := (*[8]byte)(src[7*srcStride : 7*srcStride+8])
+
+	p0 := (*[8]byte)(pred[0:8])
+	p1 := (*[8]byte)(pred[predStride : predStride+8])
+	p2 := (*[8]byte)(pred[2*predStride : 2*predStride+8])
+	p3 := (*[8]byte)(pred[3*predStride : 3*predStride+8])
+	p4 := (*[8]byte)(pred[4*predStride : 4*predStride+8])
+	p5 := (*[8]byte)(pred[5*predStride : 5*predStride+8])
+	p6 := (*[8]byte)(pred[6*predStride : 6*predStride+8])
+	p7 := (*[8]byte)(pred[7*predStride : 7*predStride+8])
+
+	var intermediate [64]int32
+	anyCol := false
+	for i := range 8 {
+		v0 := int(s0[i]) - int(p0[i])
+		v1 := int(s1[i]) - int(p1[i])
+		v2 := int(s2[i]) - int(p2[i])
+		v3 := int(s3[i]) - int(p3[i])
+		v4 := int(s4[i]) - int(p4[i])
+		v5 := int(s5[i]) - int(p5[i])
+		v6 := int(s6[i]) - int(p6[i])
+		v7 := int(s7[i]) - int(p7[i])
+		if v0|v1|v2|v3|v4|v5|v6|v7 == 0 {
+			continue
+		}
+		anyCol = true
+		a0 := v0 + v7
+		a1 := v1 + v6
+		a2 := v2 + v5
+		a3 := v3 + v4
+		a4 := (v3 - v4) * 4
+		a5 := v2 - v5
+		a6 := v1 - v6
+		a7 := (v0 - v7) * 4
+
+		x0 := a0 + a3
+		x1 := a1 + a2
+		x2 := a1 - a2
+		x3 := a0 - a3
+
+		b := i * 8
+		intermediate[b+0] = int32(fdctRoundShift((x0 + x1) * (fdctCospi16_64 * 4)))
+		intermediate[b+2] = int32(fdctRoundShift(x2*(fdctCospi24_64*4) + x3*(fdctCospi8_64*4)))
+		intermediate[b+4] = int32(fdctRoundShift((x0 - x1) * (fdctCospi16_64 * 4)))
+		intermediate[b+6] = int32(fdctRoundShift(-x2*(fdctCospi8_64*4) + x3*(fdctCospi24_64*4)))
+
+		t2 := fdctRoundShift((a6 - a5) * (fdctCospi16_64 * 4))
+		t3 := fdctRoundShift((a6 + a5) * (fdctCospi16_64 * 4))
+
+		x0 = a4 + t2
+		x1 = a4 - t2
+		x2 = a7 - t3
+		x3 = a7 + t3
+
+		intermediate[b+1] = int32(fdctRoundShift(x0*fdctCospi28_64 + x3*fdctCospi4_64))
+		intermediate[b+3] = int32(fdctRoundShift(x2*fdctCospi12_64 - x1*fdctCospi20_64))
+		intermediate[b+5] = int32(fdctRoundShift(x1*fdctCospi12_64 + x2*fdctCospi20_64))
+		intermediate[b+7] = int32(fdctRoundShift(x3*fdctCospi28_64 - x0*fdctCospi4_64))
+	}
+	if !anyCol {
+		return 0, false
+	}
+
+	r0, q0, d0 := int(fp.RoundFP[0]), int(fp.QuantFP[0]), int(dequant[0])
+	r1, q1, d1 := int(fp.RoundFP[1]), int(fp.QuantFP[1]), int(dequant[1])
+	thresh := d1 - r1
+	off := int32(thresh - 1)
+	lim := uint64(uint32(2*off)) + 1
+	hasC := len(classes) >= 64
+	cleared := false
+
+	qArr := (*[64]int16)(qcoeff[:64])
+	dqArr := (*[64]int16)(dqcoeff[:64])
+	isc := (*[64]int16)(iscan[:64])
+	var cArr *[64]uint8
+	if hasC {
+		cArr = (*[64]uint8)(classes[:64])
+	}
+
+	for i := range 8 {
+		v0, v1, v2, v3 := int(intermediate[0*8+i]), int(intermediate[1*8+i]), int(intermediate[2*8+i]), int(intermediate[3*8+i])
+		v4, v5, v6, v7 := int(intermediate[4*8+i]), int(intermediate[5*8+i]), int(intermediate[6*8+i]), int(intermediate[7*8+i])
+		if v0|v1|v2|v3|v4|v5|v6|v7 == 0 {
+			continue
+		}
+		a0 := v0 + v7
+		a1 := v1 + v6
+		a2 := v2 + v5
+		a3 := v3 + v4
+		a4 := v3 - v4
+		a5 := v2 - v5
+		a6 := v1 - v6
+		a7 := v0 - v7
+
+		x0 := a0 + a3
+		x1 := a1 + a2
+		x2 := a1 - a2
+		x3 := a0 - a3
+
+		o0 := int16(fdctRoundShift((x0+x1)*fdctCospi16_64) / 2)
+		o2 := int16(fdctRoundShift(x2*fdctCospi24_64+x3*fdctCospi8_64) / 2)
+		o4 := int16(fdctRoundShift((x0-x1)*fdctCospi16_64) / 2)
+		o6 := int16(fdctRoundShift(-x2*fdctCospi8_64+x3*fdctCospi24_64) / 2)
+
+		t2 := fdctRoundShift((a6 - a5) * fdctCospi16_64)
+		t3 := fdctRoundShift((a6 + a5) * fdctCospi16_64)
+
+		x0 = a4 + t2
+		x1 = a4 - t2
+		x2 = a7 - t3
+		x3 = a7 + t3
+
+		o1 := int16(fdctRoundShift(x0*fdctCospi28_64+x3*fdctCospi4_64) / 2)
+		o3 := int16(fdctRoundShift(x2*fdctCospi12_64-x1*fdctCospi20_64) / 2)
+		o5 := int16(fdctRoundShift(x1*fdctCospi12_64+x2*fdctCospi20_64) / 2)
+		o7 := int16(fdctRoundShift(x3*fdctCospi28_64-x0*fdctCospi4_64) / 2)
+
+		b := i * 8
+		if i == 0 {
+			if c := int(o0); c != 0 {
+				a := max(c, -c)
+				if a+r0 >= d0 {
+					v := min(a+r0, 32767) * q0 >> 16
+					if v != 0 {
+						if !cleared {
+							*qArr = [64]int16{}
+							*dqArr = [64]int16{}
+							if hasC {
+								*cArr = [64]uint8{}
+							}
+							cleared = true
+						}
+						qv := v
+						if c < 0 {
+							qv = -qv
+						}
+						qArr[0] = int16(qv)
+						dqArr[0] = int16(qv * d0)
+						if int(isc[0]) > eob {
+							eob = int(isc[0])
+						}
+						if hasC {
+							cArr[0] = vp9TokenClassScalar(v)
+						}
+					}
+				}
+			}
+		} else if uint(int32(o0)+off) >= uint(lim) {
+			c := int(o0)
+			a := max(c, -c)
+			v := min(a+r1, 32767) * q1 >> 16
+			if v != 0 {
+				if !cleared {
+					*qArr = [64]int16{}
+					*dqArr = [64]int16{}
+					if hasC {
+						*cArr = [64]uint8{}
+					}
+					cleared = true
+				}
+				qv := v
+				if c < 0 {
+					qv = -qv
+				}
+				qArr[b] = int16(qv)
+				dqArr[b] = int16(qv * d1)
+				if int(isc[b]) > eob {
+					eob = int(isc[b])
+				}
+				if hasC {
+					cArr[b] = vp9TokenClassScalar(v)
+				}
+			}
+		}
+
+		if ((uint64(uint32(int32(o1)+off))-lim)&
+			(uint64(uint32(int32(o2)+off))-lim)&
+			(uint64(uint32(int32(o3)+off))-lim)&
+			(uint64(uint32(int32(o4)+off))-lim)&
+			(uint64(uint32(int32(o5)+off))-lim)&
+			(uint64(uint32(int32(o6)+off))-lim)&
+			(uint64(uint32(int32(o7)+off))-lim))>>63 != 0 {
+			continue
+		}
+
+		if !cleared {
+			*qArr = [64]int16{}
+			*dqArr = [64]int16{}
+			if hasC {
+				*cArr = [64]uint8{}
+			}
+			cleared = true
+		}
+		row := [7]int16{o1, o2, o3, o4, o5, o6, o7}
+		for k, cv := range row {
+			if uint(int32(cv)+off) >= uint(lim) {
+				c := int(cv)
+				v := min(max(c, -c)+r1, 32767) * q1 >> 16
+				if v != 0 {
+					idx := b + k + 1
+					qv := v
+					if c < 0 {
+						qv = -qv
+					}
+					qArr[idx] = int16(qv)
+					dqArr[idx] = int16(qv * d1)
+					if int(isc[idx]) > eob {
+						eob = int(isc[idx])
+					}
+					if hasC {
+						cArr[idx] = vp9TokenClassScalar(v)
+					}
+				}
+			}
+		}
+	}
+	if eob == 0 {
+		return 0, false
+	}
+	return eob, hasC
 }
 
 // ForwardDCT16x16 mirrors libvpx v1.16.0 vpx_fdct16x16_c. Input is a
@@ -2182,48 +2631,88 @@ func quantizeFPLibvpxScalar(coeff []int16, nCoeffs int, roundFP, quantFP, dequan
 	quantDC, quantAC := int(quantFP[0]), int(quantFP[1])
 	deqDC, deqAC := int(dequant[0]), int(dequant[1])
 	if len(iscan) >= nCoeffs {
-		// Match libvpx's SIMD shape: quantize raster-order coefficients and
-		// max-reduce iscan for EOB. Valid VP9 scan orders make this equivalent
-		// to the C path's scan-order loop.
+		if nCoeffs <= 0 {
+			return 0
+		}
+		coeff = coeff[:nCoeffs]
+		iscan = iscan[:nCoeffs]
+		qcoeff = qcoeff[:nCoeffs]
+		dqcoeff = dqcoeff[:nCoeffs]
 		eob := 0
-		if nCoeffs > 0 {
-			c := int(coeff[0])
-			absCoeff := c
-			if absCoeff < 0 {
-				absCoeff = -absCoeff
+		c0 := int(coeff[0])
+		abs0 := max(c0, -c0)
+		if sum0 := abs0 + roundDC; sum0 >= deqDC {
+			tmp := (clampInt16(sum0) * quantDC) >> 16
+			q := tmp
+			if c0 < 0 {
+				q = -q
 			}
-			sum := absCoeff + roundDC
-			if sum >= deqDC {
-				tmp := clampInt16(sum)
-				tmp = (tmp * quantDC) >> 16
-				q := tmp
-				if c < 0 {
-					q = -q
-				}
-				qcoeff[0] = int16(q)
-				dqcoeff[0] = int16(q * deqDC)
-				if tmp != 0 {
-					eob = int(iscan[0])
-				}
-			} else {
-				qcoeff[0] = 0
-				dqcoeff[0] = 0
+			qcoeff[0] = int16(q)
+			dqcoeff[0] = int16(q * deqDC)
+			if tmp != 0 {
+				eob = int(iscan[0])
 			}
+		} else {
+			qcoeff[0] = 0
+			dqcoeff[0] = 0
+		}
+		threshAC := deqAC - roundAC
+		if threshAC > 1 && threshAC <= 32768 {
+			clear(qcoeff[1:nCoeffs])
+			clear(dqcoeff[1:nCoeffs])
+			off := int32(threshAC - 1)
+			lim := uint64(uint32(2*off)) + 1
+			rc := 1
+			for ; rc+3 < nCoeffs; rc += 4 {
+				c0, c1, c2, c3 := int32(coeff[rc]), int32(coeff[rc+1]), int32(coeff[rc+2]), int32(coeff[rc+3])
+				if ((uint64(uint32(c0+off))-lim)&(uint64(uint32(c1+off))-lim)&(uint64(uint32(c2+off))-lim)&(uint64(uint32(c3+off))-lim))>>63 != 0 {
+					continue
+				}
+				for k := range 4 {
+					idx := rc + k
+					c := int(coeff[idx])
+					if uint(int32(c)+off) >= uint(lim) {
+						absCoeff := max(c, -c)
+						tmp := (clampInt16(absCoeff+roundAC) * quantAC) >> 16
+						q := tmp
+						if c < 0 {
+							q = -q
+						}
+						qcoeff[idx] = int16(q)
+						dqcoeff[idx] = int16(q * deqAC)
+						if tmp != 0 && int(iscan[idx]) > eob {
+							eob = int(iscan[idx])
+						}
+					}
+				}
+			}
+			for ; rc < nCoeffs; rc++ {
+				c := int(coeff[rc])
+				if uint(int32(c)+off) >= uint(lim) {
+					absCoeff := max(c, -c)
+					tmp := (clampInt16(absCoeff+roundAC) * quantAC) >> 16
+					q := tmp
+					if c < 0 {
+						q = -q
+					}
+					qcoeff[rc] = int16(q)
+					dqcoeff[rc] = int16(q * deqAC)
+					if tmp != 0 && int(iscan[rc]) > eob {
+						eob = int(iscan[rc])
+					}
+				}
+			}
+			return eob
 		}
 		for rc := 1; rc < nCoeffs; rc++ {
 			c := int(coeff[rc])
-			absCoeff := c
-			if absCoeff < 0 {
-				absCoeff = -absCoeff
-			}
-			sum := absCoeff + roundAC
-			if sum < deqAC {
+			absCoeff := max(c, -c)
+			if absCoeff < threshAC {
 				qcoeff[rc] = 0
 				dqcoeff[rc] = 0
 				continue
 			}
-			tmp := clampInt16(sum)
-			tmp = (tmp * quantAC) >> 16
+			tmp := (clampInt16(absCoeff+roundAC) * quantAC) >> 16
 			q := tmp
 			if c < 0 {
 				q = -q

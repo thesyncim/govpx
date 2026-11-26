@@ -1,9 +1,6 @@
 package encoder
 
-import (
-	"github.com/thesyncim/govpx/internal/pixel"
-	vp9dsp "github.com/thesyncim/govpx/internal/vp9/dsp"
-)
+import "github.com/thesyncim/govpx/internal/pixel"
 
 // SourceSADSceneSamplesResult reports the sampled 64x64 source-SAD summary
 // used by one-pass scene detection.
@@ -154,20 +151,10 @@ func avgSourceSAD64(args AvgSourceSADArgs, x0, y0 int) (sad, variance, sse uint6
 	if x0+64 <= args.Width && y0+64 <= args.Height {
 		srcOff := y0*args.SourceYStride + x0
 		refOff := y0*args.LastSourceYStride + x0
-		if pixel.Enabled {
-			total, signed, squares := pixel.DiffMetrics(args.SourceY[srcOff:], args.SourceYStride, args.LastSourceY[refOff:], args.LastSourceYStride, 64, 64)
-			sad, sse = uint64(total), uint64(squares)
-			sum := int64(signed)
-			return sad, sse - uint64(sum*sum>>12), sse
-		}
-		sad = BlockSADOffsets(args.SourceY, srcOff, args.SourceYStride,
-			args.LastSourceY, refOff, args.LastSourceYStride, 64, 64, ^uint64(0))
-		var sse32 uint32
-		variance = uint64(vp9dsp.VpxVariance64x64(args.SourceY, srcOff,
-			args.SourceYStride, args.LastSourceY, refOff, args.LastSourceYStride,
-			&sse32))
-		sse = uint64(sse32)
-		return sad, variance, sse
+		total, signed, squares := pixel.DiffMetrics(args.SourceY[srcOff:], args.SourceYStride, args.LastSourceY[refOff:], args.LastSourceYStride, 64, 64)
+		sad, sse = uint64(total), uint64(squares)
+		sum := int64(signed)
+		return sad, sse - uint64(sum*sum>>12), sse
 	}
 
 	visibleRows := min(args.Height-y0, 64)

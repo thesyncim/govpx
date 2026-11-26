@@ -95,6 +95,16 @@ func StageCoefBlock(dst []TokenExtra, a WriteCoefBlockArgs) (n int, eob int, ok 
 }
 
 func stageCoefBlockFullWindow(tokens []TokenExtra, a WriteCoefBlockArgs, maxEob int) (n int, eob int, ok bool) {
+	if a.KnownEOBValid && a.KnownEOB == 0 {
+		if a.EOB != nil {
+			*a.EOB = 0
+		}
+		baseOff := coefProbsBaseOff(a.TxSize, a.PlaneType, a.IsInter)
+		branchStatsRows := coefBranchStatsRowsFor(a.CoefBranchStats, a.TxSize, a.PlaneType, a.IsInter)
+		recordCoefBranch00(coefBranchStatsSlot(branchStatsRows, 0, a.InitCtx))
+		tokens[0] = TokenExtra{Token: EobToken, ProbOff: uint16(baseOff + a.InitCtx*UnconstrainedNodes)}
+		return 1, 0, true
+	}
 	bandTrans := vp9dec.BandTranslateForTxSize(a.TxSize)
 	scan := a.Scan
 	_ = tokens[maxEob-1]

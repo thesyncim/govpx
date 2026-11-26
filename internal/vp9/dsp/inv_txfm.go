@@ -69,14 +69,7 @@ func dctConstRoundShift(input int64) int32 {
 // clipPixelAdd mirrors clip_pixel_add: add the residual to the existing
 // 8-bit pixel and clamp to [0, 255].
 func clipPixelAdd(dest uint8, trans int32) uint8 {
-	v := int32(dest) + trans
-	if v < 0 {
-		return 0
-	}
-	if v > 255 {
-		return 255
-	}
-	return uint8(v)
+	return uint8(min(max(int32(dest)+trans, 0), 255))
 }
 
 // roundPowerOfTwo mirrors ROUND_POWER_OF_TWO: signed right shift with
