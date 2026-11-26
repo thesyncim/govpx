@@ -20,7 +20,7 @@ FIXTURES = ("internal/pixel/fp32_optional_native_test.go",
             "internal/pixel/quantize_fp_packets_test.go")
 SOURCES = ("internal/pixel/quantize_fp_amd64.go", "internal/pixel/quantize_fp32_avx512_amd64.go",
            "internal/pixel/quantize_fp_simd.go")
-IGNORED = {"ns_per_frame", "encode_fps", "macroblocks_per_second", "latency_ns", "allocs_per_frame"}
+IGNORED = {"ns_per_frame", "encoded_ns_per_frame", "encode_fps", "macroblocks_per_second", "latency_ns", "allocs_per_frame"}
 sha = lambda data: hashlib.sha256(data).hexdigest()
 
 

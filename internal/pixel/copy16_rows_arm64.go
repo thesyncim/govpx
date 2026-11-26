@@ -10,17 +10,18 @@ func Copy16Rows(src []byte, ss int, dst []byte, ds int) bool {
 	if !Enabled || (uint(ss)|uint(ds))>>30 != 0 || 15*ss+16 > len(src) || 15*ds+16 > len(dst) {
 		return false
 	}
-	if len(src) >= 16*ss && len(dst) >= 16*ds {
-		for range 16 {
-			archsimd.LoadUint8x16Array((*[16]byte)(src[:16])).StoreArray((*[16]byte)(dst[:16]))
-			src = src[ss:]
-			dst = dst[ds:]
-		}
-		return true
-	}
-	for row := range 16 {
-		v := archsimd.LoadUint8x16Array((*[16]byte)(src[row*ss : row*ss+16]))
-		v.StoreArray((*[16]byte)(dst[row*ds : row*ds+16]))
+	_ = src[15*ss+15]
+	_ = dst[15*ds+15]
+	so, do := 0, 0
+	ss2, ss3, ss4 := 2*ss, 3*ss, 4*ss
+	ds2, ds3, ds4 := 2*ds, 3*ds, 4*ds
+	for range 4 {
+		archsimd.LoadUint8x16Array((*[16]byte)(src[so : so+16])).StoreArray((*[16]byte)(dst[do : do+16]))
+		archsimd.LoadUint8x16Array((*[16]byte)(src[so+ss : so+ss+16])).StoreArray((*[16]byte)(dst[do+ds : do+ds+16]))
+		archsimd.LoadUint8x16Array((*[16]byte)(src[so+ss2 : so+ss2+16])).StoreArray((*[16]byte)(dst[do+ds2 : do+ds2+16]))
+		archsimd.LoadUint8x16Array((*[16]byte)(src[so+ss3 : so+ss3+16])).StoreArray((*[16]byte)(dst[do+ds3 : do+ds3+16]))
+		so += ss4
+		do += ds4
 	}
 	return true
 }

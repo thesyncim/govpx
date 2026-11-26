@@ -37,6 +37,10 @@ func VP9DenoisePlane(
 		return false, false
 	}
 
+	_ = sig[(blockH-1)*sigStride+blockW-1]
+	_ = mcAvg[(blockH-1)*mcAvgStride+blockW-1]
+	_ = avg[(blockH-1)*avgStride+blockW-1]
+
 	l1 := archsimd.BroadcastUint8x16(byte(adj0))
 	l2 := archsimd.BroadcastUint8x16(byte(adj1))
 	l3 := archsimd.BroadcastUint8x16(byte(adj2))
@@ -46,11 +50,43 @@ func VP9DenoisePlane(
 
 	totalAdj := 0
 	if blockW >= 16 {
+		smallAdj := adj0 >= 0 && adj0 <= 15 && adj1 >= 0 && adj1 <= 15 && adj2 >= 0 && adj2 <= 15 && absdiffThresh >= 0 && absdiffThresh <= 15
 		for x := 0; x < blockW; x += 16 {
 			var accLo, accHi archsimd.Int16x8
-			for y := range blockH {
-				m := archsimd.LoadUint8x16(mcAvg[y*mcAvgStride+x:])
-				s := archsimd.LoadUint8x16(sig[y*sigStride+x:])
+			mo, so, ao := x, x, x
+			y := 0
+			if smallAdj {
+				// Each lane of plus-minus is in [-15, +15], so 8 rows fit in int8 ([-120, +120]).
+				for ; y+8 <= blockH; y += 8 {
+					var b0, b1 archsimd.Int8x16
+					for range 4 {
+						m0 := archsimd.LoadUint8x16Array((*[16]byte)(mcAvg[mo : mo+16]))
+						s0 := archsimd.LoadUint8x16Array((*[16]byte)(sig[so : so+16]))
+						m1 := archsimd.LoadUint8x16Array((*[16]byte)(mcAvg[mo+mcAvgStride : mo+mcAvgStride+16]))
+						s1 := archsimd.LoadUint8x16Array((*[16]byte)(sig[so+sigStride : so+sigStride+16]))
+						a0 := m0.Max(s0).Sub(m0.Min(s0))
+						a1 := m1.Max(s1).Sub(m1.Min(s1))
+						mag0 := a0.IfElse(a0.LessEqual(thresh), l1.IfElse(a0.LessEqual(seven), l2.IfElse(a0.LessEqual(fifteen), l3)))
+						mag1 := a1.IfElse(a1.LessEqual(thresh), l1.IfElse(a1.LessEqual(seven), l2.IfElse(a1.LessEqual(fifteen), l3)))
+						neg0, neg1 := m0.Less(s0), m1.Less(s1)
+						plus0, minus0 := mag0.Masked(neg0.Not()), mag0.Masked(neg0)
+						plus1, minus1 := mag1.Masked(neg1.Not()), mag1.Masked(neg1)
+						s0.AddSaturated(plus0).SubSaturated(minus0).StoreArray((*[16]byte)(avg[ao : ao+16]))
+						s1.AddSaturated(plus1).SubSaturated(minus1).StoreArray((*[16]byte)(avg[ao+avgStride : ao+avgStride+16]))
+						b0 = b0.Add(plus0.BitsToInt8().Sub(minus0.BitsToInt8()))
+						b1 = b1.Add(plus1.BitsToInt8().Sub(minus1.BitsToInt8()))
+						mo += 2 * mcAvgStride
+						so += 2 * sigStride
+						ao += 2 * avgStride
+					}
+					sum8 := b0.Add(b1)
+					accLo = accLo.Add(sum8.ExtendLo8ToInt16())
+					accHi = accHi.Add(sum8.HiToLo().ExtendLo8ToInt16())
+				}
+			}
+			for ; y < blockH; y++ {
+				m := archsimd.LoadUint8x16Array((*[16]byte)(mcAvg[mo : mo+16]))
+				s := archsimd.LoadUint8x16Array((*[16]byte)(sig[so : so+16]))
 				a := m.Max(s).Sub(m.Min(s))
 				mag := l2.IfElse(a.LessEqual(fifteen), l3)
 				mag = l1.IfElse(a.LessEqual(seven), mag)
@@ -58,12 +94,13 @@ func VP9DenoisePlane(
 				neg := m.Less(s)
 				plus := mag.Masked(neg.Not())
 				minus := mag.Masked(neg)
-				s.AddSaturated(plus).SubSaturated(minus).Store(avg[y*avgStride+x:])
-				// Each lane of plus-minus is in [-8, +8]; summing up to 64
-				// rows fits comfortably in int16 ([-512, +512]).
+				s.AddSaturated(plus).SubSaturated(minus).StoreArray((*[16]byte)(avg[ao : ao+16]))
 				diff8 := plus.BitsToInt8().Sub(minus.BitsToInt8())
 				accLo = accLo.Add(diff8.ExtendLo8ToInt16())
 				accHi = accHi.Add(diff8.HiToLo().ExtendLo8ToInt16())
+				mo += mcAvgStride
+				so += sigStride
+				ao += avgStride
 			}
 			totalAdj += int(accLo.Add(accHi).ReduceSum())
 		}

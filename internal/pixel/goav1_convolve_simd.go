@@ -67,8 +67,8 @@ func pixelStatsRows16(src []byte, srcStride int, ref []byte, refStride int, w, h
 	if (uint(srcStride)|uint(refStride))>>57 == 0 && h > 0 && w == 32 && h <= 64 {
 		_ = src[(h-1)*srcStride+31]
 		_ = ref[(h-1)*refStride+31]
-		var s0, s1, sumAcc archsimd.Int32x4
-		var sum16 archsimd.Int16x8
+		var s0, s1, s2, s3, sumAcc archsimd.Int32x4
+		var sum16a, sum16b archsimd.Int16x8
 		for r := range h {
 			a0 := archsimd.LoadUint8x16Array((*[16]byte)(src[0:16]))
 			b0 := archsimd.LoadUint8x16Array((*[16]byte)(ref[0:16]))
@@ -78,30 +78,34 @@ func pixelStatsRows16(src []byte, srcStride int, ref []byte, refStride int, w, h
 			b1 := archsimd.LoadUint8x16Array((*[16]byte)(ref[16:32]))
 			lo1 := a1.ExtendLo8ToUint16().BitsToInt16().Sub(b1.ExtendLo8ToUint16().BitsToInt16())
 			hi1 := widenHi8(a1).BitsToInt16().Sub(widenHi8(b1).BitsToInt16())
-			// Max per-lane abs after 16 rows: 16 * 4 * 255 = 16320 < 32767.
-			sum16 = sum16.Add(lo0).Add(hi0).Add(lo1).Add(hi1)
-			s0 = s0.Add(square8(lo0)).Add(square8(lo1))
-			s1 = s1.Add(square8(hi0)).Add(square8(hi1))
-			if r&15 == 15 {
-				sumAcc = sumAcc.Add(sumDiff16(sum16))
-				sum16 = archsimd.Int16x8{}
+			// Max per-lane abs after 32 rows per accumulator: 32 * 2 * 255 = 16320 < 32767.
+			sum16a = sum16a.Add(lo0).Add(hi0)
+			sum16b = sum16b.Add(lo1).Add(hi1)
+			s0 = s0.Add(square8(lo0))
+			s1 = s1.Add(square8(hi0))
+			s2 = s2.Add(square8(lo1))
+			s3 = s3.Add(square8(hi1))
+			if r&31 == 31 {
+				sumAcc = sumAcc.Add(sumDiff16(sum16a)).Add(sumDiff16(sum16b))
+				sum16a = archsimd.Int16x8{}
+				sum16b = archsimd.Int16x8{}
 			}
 			if r+1 < h {
 				src = src[srcStride:]
 				ref = ref[refStride:]
 			}
 		}
-		if h&15 != 0 {
-			sumAcc = sumAcc.Add(sumDiff16(sum16))
+		if h&31 != 0 {
+			sumAcc = sumAcc.Add(sumDiff16(sum16a)).Add(sumDiff16(sum16b))
 		}
-		total, signed := reducePixelAcc(s0.Add(s1), sumAcc)
+		total, signed := reducePixelAcc(s0.Add(s1).Add(s2.Add(s3)), sumAcc)
 		return uint32(total), int32(signed)
 	}
 	if (uint(srcStride)|uint(refStride))>>57 == 0 && h > 0 && w == 64 && h <= 64 {
 		_ = src[(h-1)*srcStride+63]
 		_ = ref[(h-1)*refStride+63]
-		var s0, s1, sumAcc archsimd.Int32x4
-		var sum16 archsimd.Int16x8
+		var s0, s1, s2, s3, sumAcc archsimd.Int32x4
+		var sum16a, sum16b archsimd.Int16x8
 		for r := range h {
 			a0 := archsimd.LoadUint8x16Array((*[16]byte)(src[0:16]))
 			b0 := archsimd.LoadUint8x16Array((*[16]byte)(ref[0:16]))
@@ -119,23 +123,27 @@ func pixelStatsRows16(src []byte, srcStride int, ref []byte, refStride int, w, h
 			b3 := archsimd.LoadUint8x16Array((*[16]byte)(ref[48:64]))
 			lo3 := a3.ExtendLo8ToUint16().BitsToInt16().Sub(b3.ExtendLo8ToUint16().BitsToInt16())
 			hi3 := widenHi8(a3).BitsToInt16().Sub(widenHi8(b3).BitsToInt16())
-			// Max per-lane abs after 8 rows: 8 * 8 * 255 = 16320 < 32767.
-			sum16 = sum16.Add(lo0).Add(hi0).Add(lo1).Add(hi1).Add(lo2).Add(hi2).Add(lo3).Add(hi3)
-			s0 = s0.Add(square8(lo0)).Add(square8(lo1)).Add(square8(lo2)).Add(square8(lo3))
-			s1 = s1.Add(square8(hi0)).Add(square8(hi1)).Add(square8(hi2)).Add(square8(hi3))
-			if r&7 == 7 {
-				sumAcc = sumAcc.Add(sumDiff16(sum16))
-				sum16 = archsimd.Int16x8{}
+			// Max per-lane abs after 16 rows per accumulator: 16 * 4 * 255 = 16320 < 32767.
+			sum16a = sum16a.Add(lo0).Add(hi0).Add(lo1).Add(hi1)
+			sum16b = sum16b.Add(lo2).Add(hi2).Add(lo3).Add(hi3)
+			s0 = s0.Add(square8(lo0)).Add(square8(lo2))
+			s1 = s1.Add(square8(hi0)).Add(square8(hi2))
+			s2 = s2.Add(square8(lo1)).Add(square8(lo3))
+			s3 = s3.Add(square8(hi1)).Add(square8(hi3))
+			if r&15 == 15 {
+				sumAcc = sumAcc.Add(sumDiff16(sum16a)).Add(sumDiff16(sum16b))
+				sum16a = archsimd.Int16x8{}
+				sum16b = archsimd.Int16x8{}
 			}
 			if r+1 < h {
 				src = src[srcStride:]
 				ref = ref[refStride:]
 			}
 		}
-		if h&7 != 0 {
-			sumAcc = sumAcc.Add(sumDiff16(sum16))
+		if h&15 != 0 {
+			sumAcc = sumAcc.Add(sumDiff16(sum16a)).Add(sumDiff16(sum16b))
 		}
-		total, signed := reducePixelAcc(s0.Add(s1), sumAcc)
+		total, signed := reducePixelAcc(s0.Add(s1).Add(s2.Add(s3)), sumAcc)
 		return uint32(total), int32(signed)
 	}
 	sseAcc := archsimd.BroadcastInt32x4(0)
