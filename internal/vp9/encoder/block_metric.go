@@ -1,6 +1,9 @@
 package encoder
 
-import vp9dsp "github.com/thesyncim/govpx/internal/vp9/dsp"
+import (
+	"github.com/thesyncim/govpx/internal/pixel"
+	vp9dsp "github.com/thesyncim/govpx/internal/vp9/dsp"
+)
 
 // BlockDiffStats is the raw per-pixel error accumulation for a prediction
 // block.
@@ -56,6 +59,54 @@ func BlockSSE(src []byte, srcStride int, ref []byte, refStride int,
 ) uint64 {
 	srcOff := srcY*srcStride + srcX
 	refOff := refY*refStride + refX
+	if !pixel.Enabled && w > 0 && h > 0 && w&15 == 0 && srcStride >= 0 && refStride >= 0 &&
+		srcOff >= 0 && refOff >= 0 && (h-1)*srcStride+srcOff+w <= len(src) && (h-1)*refStride+refOff+w <= len(ref) {
+		var sse0, sse1, sse2, sse3 int
+		si, ri := srcOff, refOff
+		for range h {
+			sRow := src[si : si+w]
+			rRow := ref[ri : ri+w]
+			for x := 0; x < w; x += 16 {
+				s := (*[16]byte)(sRow[x : x+16])
+				r := (*[16]byte)(rRow[x : x+16])
+				d0 := int(s[0]) - int(r[0])
+				d1 := int(s[1]) - int(r[1])
+				d2 := int(s[2]) - int(r[2])
+				d3 := int(s[3]) - int(r[3])
+				sse0 += d0 * d0
+				sse1 += d1 * d1
+				sse2 += d2 * d2
+				sse3 += d3 * d3
+				d4 := int(s[4]) - int(r[4])
+				d5 := int(s[5]) - int(r[5])
+				d6 := int(s[6]) - int(r[6])
+				d7 := int(s[7]) - int(r[7])
+				sse0 += d4 * d4
+				sse1 += d5 * d5
+				sse2 += d6 * d6
+				sse3 += d7 * d7
+				d8 := int(s[8]) - int(r[8])
+				d9 := int(s[9]) - int(r[9])
+				d10 := int(s[10]) - int(r[10])
+				d11 := int(s[11]) - int(r[11])
+				sse0 += d8 * d8
+				sse1 += d9 * d9
+				sse2 += d10 * d10
+				sse3 += d11 * d11
+				d12 := int(s[12]) - int(r[12])
+				d13 := int(s[13]) - int(r[13])
+				d14 := int(s[14]) - int(r[14])
+				d15 := int(s[15]) - int(r[15])
+				sse0 += d12 * d12
+				sse1 += d13 * d13
+				sse2 += d14 * d14
+				sse3 += d15 * d15
+			}
+			si += srcStride
+			ri += refStride
+		}
+		return uint64(sse0 + sse1 + sse2 + sse3)
+	}
 	if w == 8 || w == 32 || w == 64 {
 		if sse, ok := blockSSEOnlyR2(src, srcOff, srcStride, ref, refOff, refStride, w, h); ok {
 			return sse
@@ -233,6 +284,64 @@ var blockSourceVariance128Ref = func() [64 * 64]byte {
 
 // BlockSourceVariance128 returns the variance of source samples around 128.
 func BlockSourceVariance128(src []byte, srcStride int, srcX, srcY, w, h int) uint64 {
+	if !pixel.Enabled && w > 0 && h > 0 && w&15 == 0 && srcStride >= 0 {
+		srcOff := srcY*srcStride + srcX
+		if srcOff >= 0 && (h-1)*srcStride+srcOff+w <= len(src) {
+			var sum0, sum1, sse0, sse1, sse2, sse3 int
+			si := srcOff
+			for range h {
+				sRow := src[si : si+w]
+				for x := 0; x < w; x += 16 {
+					s := (*[16]byte)(sRow[x : x+16])
+					d0 := int(s[0]) - 128
+					d1 := int(s[1]) - 128
+					d2 := int(s[2]) - 128
+					d3 := int(s[3]) - 128
+					sum0 += d0 + d1 + d2 + d3
+					sse0 += d0 * d0
+					sse1 += d1 * d1
+					sse2 += d2 * d2
+					sse3 += d3 * d3
+					d4 := int(s[4]) - 128
+					d5 := int(s[5]) - 128
+					d6 := int(s[6]) - 128
+					d7 := int(s[7]) - 128
+					sum1 += d4 + d5 + d6 + d7
+					sse0 += d4 * d4
+					sse1 += d5 * d5
+					sse2 += d6 * d6
+					sse3 += d7 * d7
+					d8 := int(s[8]) - 128
+					d9 := int(s[9]) - 128
+					d10 := int(s[10]) - 128
+					d11 := int(s[11]) - 128
+					sum0 += d8 + d9 + d10 + d11
+					sse0 += d8 * d8
+					sse1 += d9 * d9
+					sse2 += d10 * d10
+					sse3 += d11 * d11
+					d12 := int(s[12]) - 128
+					d13 := int(s[13]) - 128
+					d14 := int(s[14]) - 128
+					d15 := int(s[15]) - 128
+					sum1 += d12 + d13 + d14 + d15
+					sse0 += d12 * d12
+					sse1 += d13 * d13
+					sse2 += d14 * d14
+					sse3 += d15 * d15
+				}
+				si += srcStride
+			}
+			sum := int64(sum0 + sum1)
+			sse := uint64(sse0 + sse1 + sse2 + sse3)
+			n := int64(w * h)
+			meanSquares := uint64((sum * sum) / n)
+			if sse <= meanSquares {
+				return 0
+			}
+			return sse - meanSquares
+		}
+	}
 	if stats, ok := vp9dsp.VpxVarianceStats(src, srcY*srcStride+srcX, srcStride,
 		blockSourceVariance128Ref[:], 0, 64, w, h); ok {
 		return uint64(stats.Variance)
@@ -334,6 +443,9 @@ func BlockSADSkipRowsNoLimitOffsets(src []byte, srcOff, srcStride int,
 	if sad, ok := BlockSADNoLimitOffsets(src, srcOff, srcStride*2,
 		ref, refOff, refStride*2, w, halfH); ok {
 		return sad * 2, true
+	}
+	if srcOff >= 0 && refOff >= 0 && srcOff <= len(src) && refOff <= len(ref) {
+		return uint32(pixel.SAD(src[srcOff:], srcStride*2, ref[refOff:], refStride*2, w, halfH)) * 2, true
 	}
 	var sad uint32
 	for y := range halfH {

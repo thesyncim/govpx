@@ -512,6 +512,11 @@ func copyMacroblockY(dst []byte, dstStride int, src []byte, srcStride int) {
 	if pixel.Copy16Rows(src, srcStride, dst, dstStride) {
 		return
 	}
+	if !pixel.Enabled && srcStride >= 0 && dstStride >= 0 && len(src) >= 16 && len(dst) >= 16 &&
+		srcStride <= (len(src)-16)/15 && dstStride <= (len(dst)-16)/15 {
+		pixel.CopyBlock(src, srcStride, dst, dstStride, 16, 16)
+		return
+	}
 	for r := range 16 {
 		copy(dst[r*dstStride:r*dstStride+16], src[r*srcStride:r*srcStride+16])
 	}
@@ -519,6 +524,11 @@ func copyMacroblockY(dst []byte, dstStride int, src []byte, srcStride int) {
 
 func copyMacroblock8x8(dst []byte, dstStride int, src []byte, srcStride int) {
 	if pixel.Copy8Rows(src, srcStride, dst, dstStride) {
+		return
+	}
+	if !pixel.Enabled && srcStride >= 0 && dstStride >= 0 && len(src) >= 8 && len(dst) >= 8 &&
+		srcStride <= (len(src)-8)/7 && dstStride <= (len(dst)-8)/7 {
+		pixel.CopyBlock(src, srcStride, dst, dstStride, 8, 8)
 		return
 	}
 	for r := range 8 {

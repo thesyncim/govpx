@@ -3,6 +3,7 @@ package codec
 import (
 	"image"
 
+	"github.com/thesyncim/govpx/internal/pixel"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	vp9dsp "github.com/thesyncim/govpx/internal/vp9/dsp"
@@ -873,6 +874,30 @@ func (e *VP9Encoder) prepareVP9InterTxResidueDCTFPPrecheckedClasses(inter *vp9In
 		return false, 0, false
 	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, plane)
+	if !pixel.Enabled && !inter.lossless && txSize == common.Tx8x8 &&
+		uint(y0) <= uint(srcH-8) && uint(x0) <= uint(srcW-8) &&
+		srcStride > 0 && (y0+7)*srcStride+x0+8 <= len(src) &&
+		fpTables.RoundFP[0] >= 0 && fpTables.RoundFP[1] >= 0 &&
+		fpTables.QuantFP[0] >= 0 && fpTables.QuantFP[1] >= 0 &&
+		dequant[0] > 0 && dequant[1] > 0 &&
+		int(dequant[1])-int(fpTables.RoundFP[1]) > 1 &&
+		int(dequant[1])-int(fpTables.RoundFP[1]) <= 32768 {
+		qBuf := qOut
+		if qBuf == nil {
+			qBuf = e.qCoeffScratch[:64]
+		} else {
+			qBuf = qBuf[:64]
+		}
+		dqBuf := out[:64]
+		eob, classesProduced := encoder.ForwardDCT8x8SubtractQuantizeFPClasses(
+			src[y0*srcStride+x0:], srcStride, dst, stride,
+			dequant, fpTables, scanOrder.IScan[:64], qBuf, dqBuf, classes)
+		if eob == 0 {
+			return false, 0, false
+		}
+		vp9dec.InverseTransformBlock(dqBuf, dst, stride, common.Tx8x8, common.DctDct, eob, false)
+		return true, eob, classesProduced
+	}
 	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
 		return false, 0, false
 	}

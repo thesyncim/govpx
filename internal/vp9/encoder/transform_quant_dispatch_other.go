@@ -85,7 +85,7 @@ func quantizeFPLibvpxValidated(coeff []int16, nCoeffs int, roundFP, quantFP, deq
 
 // Quantization and token-class generation share one SIMD block walk.
 func quantizeFPLibvpxValidatedClasses(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]int16, scan, iscan []int16, qcoeff, dqcoeff []int16, classes []uint8) (int, bool) {
-	if pixel.Enabled && nCoeffs > 0 && len(classes) >= nCoeffs && len(iscan) >= nCoeffs && roundFP[0] >= 0 && roundFP[1] >= 0 && quantFP[0] >= 0 && quantFP[1] >= 0 && dequant[0] > 0 && dequant[1] > 0 {
+	if nCoeffs > 0 && len(classes) >= nCoeffs && len(iscan) >= nCoeffs && roundFP[0] >= 0 && roundFP[1] >= 0 && quantFP[0] >= 0 && quantFP[1] >= 0 && dequant[0] > 0 && dequant[1] > 0 {
 		return pixel.QuantizeFPBlock(coeff, iscan, qcoeff, dqcoeff, nCoeffs, roundFP, quantFP, dequant, classes), true
 	}
 	return quantizeFPLibvpxValidated(coeff, nCoeffs, roundFP, quantFP, dequant, scan, iscan, qcoeff, dqcoeff), false

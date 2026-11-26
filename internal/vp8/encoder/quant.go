@@ -151,26 +151,101 @@ func FastQuantizeBlock(coeff *[16]int16, quant *BlockQuant, qcoeff *[16]int16, d
 // SIMD ports must produce byte-identical qcoeff/dqcoeff and the same EOB
 // count for any input that occurs in the encoder's coefficient range.
 func fastQuantizeBlockScalar(coeff *[16]int16, quant *BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
-	eob := -1
-	for i := range 16 {
-		rc := int(tables.DefaultZigZag1D[i])
+	eob := 0
+	round := &quant.Round
+	qfast := &quant.QuantFast
+	deq := &quant.Dequant
+	iscan := &tables.DefaultInvZigZag
+	for rc := range 16 {
 		z := int(coeff[rc])
-		// Branchless |z| via sign mask: sign is -1 when z<0, 0 otherwise.
-		// Quantize the magnitude then fold the sign back in. The zero-z
-		// case naturally produces y==0 with the same writes as the
-		// previous early-return, so the conditional skip vanishes.
 		sign := z >> intSignShift
 		x := (z ^ sign) - sign
-		y := ((x + int(quant.Round[rc])) * int(quant.QuantFast[rc])) >> 16
+		y := ((x + int(round[rc])) * int(qfast[rc])) >> 16
 		y = (y ^ sign) - sign
 		q := int16(y)
 		qcoeff[rc] = q
-		dqcoeff[rc] = q * quant.Dequant[rc]
+		dqcoeff[rc] = q * deq[rc]
 		if y != 0 {
-			eob = i
+			if s := int(iscan[rc]); s > eob {
+				eob = s
+			}
 		}
 	}
-	return eob + 1
+	return eob
+}
+
+func fastQuantizeBlockOnlyScalar(coeff *[16]int16, quant *BlockQuant, qcoeff *[16]int16) int {
+	eob := 0
+	round := &quant.Round
+	qfast := &quant.QuantFast
+	iscan := &tables.DefaultInvZigZag
+	for rc := range 16 {
+		z := int(coeff[rc])
+		sign := z >> intSignShift
+		x := (z ^ sign) - sign
+		y := ((x + int(round[rc])) * int(qfast[rc])) >> 16
+		y = (y ^ sign) - sign
+		qcoeff[rc] = int16(y)
+		if y != 0 {
+			if s := int(iscan[rc]); s > eob {
+				eob = s
+			}
+		}
+	}
+	return eob
+}
+
+func isUniformACQuant(quant *BlockQuant) bool {
+	r1, q1 := quant.Round[1], quant.QuantFast[1]
+	if q1 <= 0 || r1 < 0 {
+		return false
+	}
+	for i := 2; i < 16; i++ {
+		if quant.Round[i] != r1 || quant.QuantFast[i] != q1 {
+			return false
+		}
+	}
+	return true
+}
+
+// fastQuantizeBlockOnlyUniformACScalar exploits uniform AC quantizer parameters
+// and zero-skipping for VP8 fast-quantize batches when SIMD is disabled.
+func fastQuantizeBlockOnlyUniformACScalar(coeff *[16]int16, r0, q0, r1, q1, off int, lim uint, qcoeff *[16]int16) int {
+	eob := 0
+	z0 := int(coeff[0])
+	if z0 == 0 {
+		qcoeff[0] = 0
+	} else {
+		sign := z0 >> intSignShift
+		x := (z0 ^ sign) - sign
+		y := ((x + r0) * q0) >> 16
+		if y != 0 {
+			qcoeff[0] = int16((y ^ sign) - sign)
+			eob = 1
+		} else {
+			qcoeff[0] = 0
+		}
+	}
+	iscan := &tables.DefaultInvZigZag
+	for rc := 1; rc < 16; rc++ {
+		z := int(coeff[rc])
+		if uint(z+off) <= lim {
+			qcoeff[rc] = 0
+			continue
+		}
+		sign := z >> intSignShift
+		x := (z ^ sign) - sign
+		y := ((x + r1) * q1) >> 16
+		if y != 0 {
+			qcoeff[rc] = int16((y ^ sign) - sign)
+			if s := int(iscan[rc]); s > eob {
+				eob = s
+			}
+		} else {
+			qcoeff[rc] = 0
+		}
+	}
+	return eob
 }
 
 // Whole-MB batched fast-quantize entry point. Mirrors libvpx v1.16.0

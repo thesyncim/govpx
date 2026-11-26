@@ -18,33 +18,103 @@ func ForwardDCT4x4(input []int16, stride int, output *[16]int16) {
 // vp8/encoder/dct.c vp8_short_fdct4x4_c. SIMD ports must produce
 // byte-identical output for the encoder's input range.
 func forwardDCT4x4Scalar(input []int16, stride int, output *[16]int16) {
-	var tmp [16]int
+	_ = input[3*stride+3]
 
-	for row := range 4 {
-		ip := row * stride
-		op := row * 4
-		a1 := (int(input[ip+0]) + int(input[ip+3])) * 8
-		b1 := (int(input[ip+1]) + int(input[ip+2])) * 8
-		c1 := (int(input[ip+1]) - int(input[ip+2])) * 8
-		d1 := (int(input[ip+0]) - int(input[ip+3])) * 8
+	r0 := input[:4]
+	a0 := (int(r0[0]) + int(r0[3])) * 8
+	b0 := (int(r0[1]) + int(r0[2])) * 8
+	c0 := (int(r0[1]) - int(r0[2])) * 8
+	d0 := (int(r0[0]) - int(r0[3])) * 8
+	t0 := a0 + b0
+	t2 := a0 - b0
+	t1 := (c0*2217 + d0*5352 + 14500) >> 12
+	t3 := (d0*2217 - c0*5352 + 7500) >> 12
 
-		tmp[op+0] = a1 + b1
-		tmp[op+2] = a1 - b1
-		tmp[op+1] = (c1*2217 + d1*5352 + 14500) >> 12
-		tmp[op+3] = (d1*2217 - c1*5352 + 7500) >> 12
+	r1 := input[stride : stride+4]
+	a1 := (int(r1[0]) + int(r1[3])) * 8
+	b1 := (int(r1[1]) + int(r1[2])) * 8
+	c1 := (int(r1[1]) - int(r1[2])) * 8
+	d1 := (int(r1[0]) - int(r1[3])) * 8
+	t4 := a1 + b1
+	t6 := a1 - b1
+	t5 := (c1*2217 + d1*5352 + 14500) >> 12
+	t7 := (d1*2217 - c1*5352 + 7500) >> 12
+
+	r2 := input[2*stride : 2*stride+4]
+	a2 := (int(r2[0]) + int(r2[3])) * 8
+	b2 := (int(r2[1]) + int(r2[2])) * 8
+	c2 := (int(r2[1]) - int(r2[2])) * 8
+	d2 := (int(r2[0]) - int(r2[3])) * 8
+	t8 := a2 + b2
+	t10 := a2 - b2
+	t9 := (c2*2217 + d2*5352 + 14500) >> 12
+	t11 := (d2*2217 - c2*5352 + 7500) >> 12
+
+	r3 := input[3*stride : 3*stride+4]
+	a3 := (int(r3[0]) + int(r3[3])) * 8
+	b3 := (int(r3[1]) + int(r3[2])) * 8
+	c3 := (int(r3[1]) - int(r3[2])) * 8
+	d3 := (int(r3[0]) - int(r3[3])) * 8
+	t12 := a3 + b3
+	t14 := a3 - b3
+	t13 := (c3*2217 + d3*5352 + 14500) >> 12
+	t15 := (d3*2217 - c3*5352 + 7500) >> 12
+
+	// col 0
+	ca := t0 + t12
+	cb := t4 + t8
+	cc := t4 - t8
+	cd := t0 - t12
+	output[0] = int16((ca + cb + 7) >> 4)
+	output[8] = int16((ca - cb + 7) >> 4)
+	v := (cc*2217 + cd*5352 + 12000) >> 16
+	if cd != 0 {
+		v++
 	}
+	output[4] = int16(v)
+	output[12] = int16((cd*2217 - cc*5352 + 51000) >> 16)
 
-	for col := range 4 {
-		a1 := tmp[col+0] + tmp[col+12]
-		b1 := tmp[col+4] + tmp[col+8]
-		c1 := tmp[col+4] - tmp[col+8]
-		d1 := tmp[col+0] - tmp[col+12]
-
-		output[col+0] = int16((a1 + b1 + 7) >> 4)
-		output[col+8] = int16((a1 - b1 + 7) >> 4)
-		output[col+4] = int16(((c1*2217 + d1*5352 + 12000) >> 16) + boolInt(d1 != 0))
-		output[col+12] = int16((d1*2217 - c1*5352 + 51000) >> 16)
+	// col 1
+	ca = t1 + t13
+	cb = t5 + t9
+	cc = t5 - t9
+	cd = t1 - t13
+	output[1] = int16((ca + cb + 7) >> 4)
+	output[9] = int16((ca - cb + 7) >> 4)
+	v = (cc*2217 + cd*5352 + 12000) >> 16
+	if cd != 0 {
+		v++
 	}
+	output[5] = int16(v)
+	output[13] = int16((cd*2217 - cc*5352 + 51000) >> 16)
+
+	// col 2
+	ca = t2 + t14
+	cb = t6 + t10
+	cc = t6 - t10
+	cd = t2 - t14
+	output[2] = int16((ca + cb + 7) >> 4)
+	output[10] = int16((ca - cb + 7) >> 4)
+	v = (cc*2217 + cd*5352 + 12000) >> 16
+	if cd != 0 {
+		v++
+	}
+	output[6] = int16(v)
+	output[14] = int16((cd*2217 - cc*5352 + 51000) >> 16)
+
+	// col 3
+	ca = t3 + t15
+	cb = t7 + t11
+	cc = t7 - t11
+	cd = t3 - t15
+	output[3] = int16((ca + cb + 7) >> 4)
+	output[11] = int16((ca - cb + 7) >> 4)
+	v = (cc*2217 + cd*5352 + 12000) >> 16
+	if cd != 0 {
+		v++
+	}
+	output[7] = int16(v)
+	output[15] = int16((cd*2217 - cc*5352 + 51000) >> 16)
 }
 
 func ForwardDCT8x4(input []int16, stride int, output *[32]int16) {
