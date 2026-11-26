@@ -149,7 +149,7 @@ func TestSADLimitSliceRows(t *testing.T) {
 		t.Fatal("SIMD backend required")
 	}
 	for _, stride := range []int{0, 1, 15, 16, 19, 1312} {
-		for mode := 0; mode < 3; mode++ {
+		for mode := range 3 {
 			a, b := make([]byte, 3+15*stride+16)[3:], make([]byte, 5+15*(stride+3)+16)[5:]
 			for i := range a {
 				if mode == 0 {

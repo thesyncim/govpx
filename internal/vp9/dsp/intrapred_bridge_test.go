@@ -306,7 +306,7 @@ func intra57panic(fn func()) (pan bool) { defer func() { pan = recover() != nil 
 func TestIntraBridge57(t *testing.T) {
 	for _, tc := range intra57cases() {
 		for _, stride := range []int{tc.n, tc.n + 7} {
-			for pattern := 0; pattern < 5; pattern++ {
+			for pattern := range 5 {
 				got := make([]byte, 4096)
 				want := make([]byte, 4096)
 				for i := range got {

@@ -8,12 +8,12 @@ import (
 
 func dc4PixelOracle(dst []byte, ds int, above, left []byte) {
 	sum := 0
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		sum += int(above[i]) + int(left[i])
 	}
 	value := byte((sum + 4) >> 3)
-	for y := 0; y < 4; y++ {
-		for x := 0; x < 4; x++ {
+	for y := range 4 {
+		for x := range 4 {
 			dst[y*ds+x] = value
 		}
 	}
@@ -23,7 +23,7 @@ func TestIntra4x4DCFillAllSums(t *testing.T) {
 	for total := 0; total <= 2040; total++ {
 		above, left := make([]byte, 4), make([]byte, 4)
 		rem := total
-		for i := 0; i < 8; i++ {
+		for i := range 8 {
 			v := min(255, rem)
 			rem -= v
 			if i < 4 {
@@ -32,7 +32,7 @@ func TestIntra4x4DCFillAllSums(t *testing.T) {
 				left[i-4] = byte(v)
 			}
 		}
-		for align := 0; align < 16; align++ {
+		for align := range 16 {
 			const ds = 7
 			const span = 3*ds + 4
 			got := bytes.Repeat([]byte{91}, align+span+17)
@@ -50,8 +50,8 @@ func TestIntra4x4DCFillAllSums(t *testing.T) {
 func TestIntra4x4DCFillAliases(t *testing.T) {
 	selected := Enabled && runtime.GOARCH == "arm64"
 	for _, ds := range []int{0, 1, 3, 4, 7, 37, 1312} {
-		for align := 0; align < 16; align++ {
-			for alias := 0; alias < 5; alias++ {
+		for align := range 16 {
+			for alias := range 5 {
 				span := 3*ds + 4
 				off := 31 + align
 				got := make([]byte, off+span+71)

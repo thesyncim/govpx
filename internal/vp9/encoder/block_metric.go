@@ -403,12 +403,9 @@ func blockDiffStatsPreparedEdgeR2(src []byte, ss, sw, sh int, ref []byte, rs, sx
 	if x >= sw {
 		x = sw - 1
 	}
-	available := sw - x
-	if available > w {
-		available = w
-	}
+	available := min(sw-x, w)
 	lastY := -1
-	for y := 0; y < h; y++ {
+	for y := range h {
 		yy := sy + y
 		if yy >= sh {
 			yy = sh - 1

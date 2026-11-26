@@ -154,7 +154,7 @@ func dcPairNativeRunStates(t *testing.T) {
 			for _, pl := range []int{0, 1, 7, pn - 1, pn} {
 				for _, dl := range []int{0, 1, 7, dn - 1, dn} {
 					for _, clip := range []bool{false, true} {
-						for mode := 0; mode < 5; mode++ {
+						for mode := range 5 {
 							po, do := 64+align, 64+align+pn+17
 							switch mode {
 							case 1:

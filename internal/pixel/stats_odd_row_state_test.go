@@ -130,10 +130,10 @@ func oddRowRequire(t *testing.T) {
 func TestStatsOddRowAllBytePairs(t *testing.T) {
 	oddRowRequire(t)
 	count := 0
-	for aa := 0; aa < 256; aa++ {
-		for bb := 0; bb < 256; bb++ {
+	for aa := range 256 {
+		for bb := range 256 {
 			blob := make([]byte, 40)
-			for i := 0; i < 8; i++ {
+			for i := range 8 {
 				blob[1+i] = byte(aa)
 				blob[19+i] = byte(bb)
 			}
@@ -179,7 +179,7 @@ func TestStatsOddRowRowsAndTall(t *testing.T) {
 		for _, strides := range [][2]int{{0, 0}, {1, 2}, {7, 7}, {8, 8}, {13, 17}, {37, 41}} {
 			for _, align := range []int{0, 1, 7, 15} {
 				for _, alias := range []bool{false, true} {
-					for pattern := 0; pattern < 4; pattern++ {
+					for pattern := range 4 {
 						oddRowRows(t, h, strides[0], strides[1], align, pattern, alias)
 						count++
 					}

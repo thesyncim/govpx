@@ -27,10 +27,6 @@ func widenHi8(v archsimd.Uint8x16) archsimd.Uint16x8 {
 	return v.InterleaveHi(archsimd.BroadcastUint8x16(0)).ReshapeToUint16s()
 }
 
-func hiInt16(v archsimd.Int16x8) archsimd.Int16x8 {
-	return v.HiToLo()
-}
-
 func sqSumInt32(acc archsimd.Int64x2, v archsimd.Int32x4) archsimd.Int64x2 {
 	hi := v.HiToLo()
 	return acc.Add(v.MulWidenLo(v)).Add(hi.MulWidenLo(hi))
@@ -130,7 +126,7 @@ func sad16ColsX4Slice(src, p0, p1, p2, p3 []byte, srcStride, refStride int, h in
 		}
 		return sumU16(a0), sumU16(a1), sumU16(a2), sumU16(a3)
 	}
-	for row := 0; row < h; row++ {
+	for row := range h {
 		o := row * refStride
 		s := archsimd.LoadUint8x16(src[row*srcStride:])
 		a0 = absAcc16(a0, s, archsimd.LoadUint8x16(p0[o:]))

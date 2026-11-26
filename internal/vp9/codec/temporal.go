@@ -525,24 +525,6 @@ func gcdPositive(a, b int) int {
 	return a
 }
 
-func (t *temporalState) temporalLayerOutputFrameRateInt(layerID int, timing timingState) int {
-	if uint(layerID) >= uint(t.pattern.Layers) {
-		return 0
-	}
-	decimator := t.pattern.RateDecimator[layerID]
-	if decimator <= 0 {
-		return 0
-	}
-	fps := outputFrameRate(timing) / float64(decimator)
-	if fps <= 0 {
-		return 0
-	}
-	if fps > float64(maxInt()) {
-		return maxInt()
-	}
-	return int(fps)
-}
-
 type temporalReferenceRefresh struct {
 	Last   bool
 	Golden bool

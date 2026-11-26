@@ -2115,16 +2115,6 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostQEOB(txSize common.TxSize,
 		dequant, coeffs, qcoeffs, initCtx, eob, eobKnown)
 }
 
-// vp9KeyframeUvCoeffBlockRateCostQ is the qcoeff-emitting sibling of
-// vp9KeyframeUvCoeffBlockRateCost. libvpx vp9_rdopt.c:367,438 reads
-// qcoeff[rc] directly for chroma planes too.
-func (e *VP9Encoder) vp9KeyframeUvCoeffBlockRateCostQ(txSize common.TxSize,
-	dequant [2]int16, coeffs, qcoeffs []int16, initCtx int,
-) int {
-	return e.vp9KeyframeUvCoeffBlockRateCostQEOB(txSize, dequant, coeffs,
-		qcoeffs, initCtx, 0, false)
-}
-
 func (e *VP9Encoder) vp9KeyframeUvCoeffBlockRateCostQEOB(txSize common.TxSize,
 	dequant [2]int16, coeffs, qcoeffs []int16, initCtx int,
 	eob int, eobKnown bool,

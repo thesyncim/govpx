@@ -32,7 +32,7 @@ func TestCopy16FrozenPartialPanic(t *testing.T) {
 			dl = 15*p[1] + 16
 		}
 		for _, shift := range []int{-33, -16, -1, 0, 1, 16, 33, 22000} {
-			for mode := 0; mode < 8; mode++ {
+			for mode := range 8 {
 				sw, dw := [2]int{sl, sl}, [2]int{dl, dl}
 				switch mode {
 				case 1:
@@ -68,14 +68,14 @@ func TestCopy16FrozenPartialPanic(t *testing.T) {
 }
 
 func copy16Oracle(src []byte, ss int, dst []byte, ds int) {
-	for y := 0; y < 16; y++ {
+	for y := range 16 {
 		d := dst[y*ds : y*ds+16]
 		s := src[y*ss : y*ss+16]
 		var row [16]byte
-		for x := 0; x < 16; x++ {
+		for x := range 16 {
 			row[x] = s[x]
 		}
-		for x := 0; x < 16; x++ {
+		for x := range 16 {
 			d[x] = row[x]
 		}
 	}
@@ -85,7 +85,7 @@ func TestCopy16RowsPublicState(t *testing.T) {
 	strides := [][2]int{{0, 0}, {0, 17}, {1, 7}, {7, 1}, {15, 16}, {16, 15}, {16, 16}, {17, 31}, {32, 37}, {1312, 1320}, {-1, 16}, {16, -1}, {1 << 30, 16}, {16, 1 << 30}, {int(^uint(0) >> 1), 16}}
 	for _, pitch := range strides {
 		for _, shift := range []int{-33, -16, -1, 0, 1, 16, 33, 22000} {
-			for mode := 0; mode < 7; mode++ {
+			for mode := range 7 {
 				ss, ds := pitch[0], pitch[1]
 				so, do := 64, 64+shift
 				original := make([]byte, 45000)

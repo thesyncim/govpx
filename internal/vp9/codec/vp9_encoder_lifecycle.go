@@ -21,116 +21,10 @@ type VP9Encoder struct {
 	cyclicCountRefreshMapSnap []int8
 	perceptualAQ              encoder.PerceptualAQState
 	vp9OracleTraceHolder
-	// spatialScalabilityLocked is set for encoders owned by
-	// VP9SpatialSVCEncoder; the parent owns spatial layer metadata.
-	spatialScalabilityLocked bool
-	// temporalScalabilityLocked is set for encoders owned by
-	// VP9SpatialSVCEncoder; the parent owns access-unit temporal metadata.
-	temporalScalabilityLocked bool
 
-	// svc mirrors the subset of libvpx SVC layer-context state read by the
-	// speed-features dispatcher and other ported consumers. Single-layer
-	// encoders leave it at encoder.DefaultSVCState() so e.svc.UseSvc reports cpi->use_svc
-	// = 0 and number_spatial_layers = number_temporal_layers = 1.
-	//
-	// libvpx: vp9_svc_layercontext.h SVC struct.
-	svc encoder.SVCState
-	// svcRefConfig is a per-frame fixed-SVC reference-slot override derived
-	// from libvpx vp9_svc_layercontext.c set_flags_and_fb_idx_*.
-	svcRefConfig vp9SVCReferenceFrameConfig
-
-	// maxCopiedFrame mirrors cpi->max_copied_frame, written by the
-	// speed-features dispatcher at speeds 7-8 to bound the number of
-	// consecutive frames whose partition can be copied from the prior frame.
-	//
-	// libvpx: vp9_encoder.h cpi->max_copied_frame,
-	// vp9_speed_features.c:721,728,733,758.
-	maxCopiedFrame int
-
-	// lastFrameDropped mirrors VP9_COMP::last_frame_dropped. The realtime
-	// speed-feature cascade disables partition copy on the frame following a
-	// pre-encode or post-encode drop.
-	//
-	// libvpx:
-	//   - vp9_ratectrl.c:596,642 set after post/pre encode drops
-	//   - vp9_encoder.c:5529 clear after a coded frame
-	//   - vp9_speed_features.c:721-728 copy-partition gate
-	lastFrameDropped bool
-
-	// refFrameFlags mirrors cpi->ref_frame_flags, the bitmask of currently
-	// enabled reference frames. The speed-features dispatcher clears the
-	// VP9_GOLD_FLAG bit at speed 7 when SVC enables the long-term temporal
-	// reference for a non-base temporal layer. libvpx initializes this from
-	// kVp9RefFlagList; govpx defaults to the union of LAST/GOLD/ALT.
-	//
-	// libvpx: vp9_encoder.h cpi->ref_frame_flags,
-	// vp9_speed_features.c:747.
-	refFrameFlags int
-
-	activeMap        []uint8
-	activeMapMiRows  int
-	activeMapMiCols  int
-	activeMapEnabled bool
-	roi              vp9ROIMapState
-	denoiser         vp9DenoiserState
-	// noiseEstimate mirrors libvpx's cpi->noise_estimate. The struct is
-	// seeded by encoder.NoiseEstimateState.Init in NewVP9Encoder (libvpx:
-	// vp9_encoder.c:1528). The enabled flag is recomputed by
-	// vp9NoiseEstimateRefreshEnabled before each speed-features dispatch
-	// so the consumer at vp9_speed_features.c:777-782 reads the same
-	// predicate libvpx evaluates.
-	// libvpx ref: vp9/encoder/vp9_noise_estimate.h:30-40.
-	noiseEstimate encoder.NoiseEstimateState
-
-	// frameIndex tracks the frame number for the key-frame cadence
-	// gate. Mirrors libvpx's cpi->common.current_video_frame.
-	frameIndex int
-
-	// sourceTS mirrors the libvpx source-timestamp bookkeeping that drives
-	// adjust_frame_rate (vp9/encoder/vp9_encoder.c:5753). The implicit per-call
-	// PTS is vp9PTS (incremented once per encode call, duration 1), converted to
-	// ticks through the current g_timebase ratio. adjust_frame_rate re-derives
-	// cpi->framerate from the inter-frame timestamp delta, which is how a
-	// mid-stream fps change actually reaches rate control.
-	sourceTS encoderSourceTimestampState
-	// vp9PTS is the implicit presentation timestamp in timebase units, matching
-	// the vpxenc driver's `pts += frame_duration` (frame_duration == 1 under the
-	// exact-fps timebase). It advances once per encode call.
-	vp9PTS uint64
-	// framesSinceKey tracks committed and dropped frames since the last
-	// keyframe for adaptive keyframe min-distance gating.
-	framesSinceKey uint16
-	// forceKeyFrame is a sticky one-shot request consumed by the next
-	// successfully committed frame.
-	forceKeyFrame bool
-
-	// deadlineModePreviousFrame mirrors VP9_COMP::deadline_mode_previous_frame.
-	// libvpx uses it in one-pass rate control to force a key frame after a
-	// GOOD/BEST <-> REALTIME mode transition, and in the realtime speed-feature
-	// cascade to force nonrd_keyframe on the transition frame.
-	//
-	// libvpx:
-	//   - vp9_ratectrl.c:2133,2310,2510 mode-change keyframe tests
-	//   - vp9_speed_features.c:863-866 nonrd_keyframe mode-change override
-	//   - vp9_ratectrl.c:2003,2024 postencode/drop latch
-	deadlineModePreviousFrame    vp9DeadlineMode
-	deadlineModePreviousFrameSet bool
-
-	// lastVP9HeaderFrameType feeds non-frame-parallel coefficient probability
-	// adaptation, which uses a distinct after-key update factor.
-	lastVP9HeaderFrameType  common.FrameType
-	lastVP9HeaderValid      bool
-	vp9NonrdModeCostFcValid bool
-	vp9NonrdMvCostFcValid   bool
-	vp9CoeffTokenCostsValid bool
-
-	// prevFrameTxMode tracks libvpx cm->tx_mode across frames so the final
-	// else branch of select_tx_mode (vp9/encoder/vp9_encodeframe.c:4343-4344)
-	// can read back the previous frame's tx_mode. Zero-value Only4x4 matches
-	// libvpx's cm->tx_mode initial value (cm is zero-initialised at alloc),
-	// so the first frame's else-branch returns ONLY_4X4 if the speed-feature
-	// configurator routes there.
-	prevFrameTxMode common.TxMode
+	activeMap []uint8
+	roi       vp9ROIMapState
+	denoiser  vp9DenoiserState
 
 	// aboveSegCtx / leftSegCtx are the partition-history arrays the
 	// per-SB walker stamps. Sized to the frame's mi_cols at first
@@ -577,53 +471,77 @@ type VP9Encoder struct {
 	rdThresh encoder.RDThreshState
 
 	// --- Pure value / pointer-free tail (beyond Go GC PtrBytes: 0 scan cost) ---
-	temporal               temporalState
-	rc                     vp9RateControlState
-	lfi                    vp9dec.LoopFilterInfoN
-	lfRefDeltas            [vp9dec.MaxRefLfDeltas]int8
-	lfModeDeltas           [vp9dec.MaxModeLfDeltas]int8
-	vp9LastFiltLevel       uint8
-	vp9FilterThreshes      [vp9dec.MaxRefFrames][vp9dec.SwitchableFilterContexts]int64
-	vp9FilterThreshesPrev  [vp9dec.MaxRefFrames][vp9dec.SwitchableFilterContexts]int64
-	vp9FilterDiff          [vp9dec.SwitchableFilterContexts]int64
-	vp9BlockFilterRDScores [vp9dec.SwitchableFilterContexts]uint64
-	vp9BlockFilterRDValid  bool
-	lastQuantizerInternal  int
-	lastQuantizerPublic    int
-	lastQuantizerValid     bool
-	lastLoopFilterLevel    uint8
-	lastLoopFilterValid    bool
-	cbRdmult               int
-	fullRDPredMv           [vp9dec.MaxRefFrames]vp9dec.MV
-	sf                     SpeedFeatures
-	vp9HeaderScratch       vp9dec.UncompressedHeader
-	vp9InterIntraHdr       vp9dec.UncompressedHeader
-	frameContexts          [common.FrameContexts]vp9dec.FrameContext
-	fc                     vp9dec.FrameContext
-	vp9NonrdModeCostFc     vp9dec.FrameContext
-	vp9NonrdMvCostFc       vp9dec.FrameContext
-	vp9CoeffTokenCosts     encoder.FrameCoeffTokenCostTable
-	intraScratch           vp9dec.IntraPredictorScratch
-	modeScratch            [1024]byte
-	blockScratch           [64 * 64]byte
-	intraSkipPredScratch   [32 * 32]byte
-	nonrdOrigPredScratch   [64 * 64]byte
-	nonrdBestPredScratch   [64 * 64]byte
-	nonrdFilterPredScratch [64 * 64]byte
-	intProEstPred          [64 * 64]uint8
-	intProSrcScratch       [64 * 64]uint8
-	coefScratch            [1024]int16
-	qCoefScratch           [1024]int16
-	residueScratch         [1024]int16
-	coefTokenCache         [1024]uint8
-	interPredHdrScratch    vp9dec.UncompressedHeader
-	txCoeffScratch         [1024]int16
-	qCoeffScratch          [1024]int16
-	dqCoeffScratch         [1024]int16
-	dqScratch              vp9dec.DequantTables
-	dqFPY                  [vp9dec.MaxSegments]encoder.QuantizeFPTables
-	dqFPUv                 [vp9dec.MaxSegments]encoder.QuantizeFPTables
-	frameCounts            encoder.FrameCounts
+	spatialScalabilityLocked     bool
+	temporalScalabilityLocked    bool
+	svc                          encoder.SVCState
+	svcRefConfig                 vp9SVCReferenceFrameConfig
+	maxCopiedFrame               int
+	lastFrameDropped             bool
+	refFrameFlags                int
+	activeMapMiRows              int
+	activeMapMiCols              int
+	activeMapEnabled             bool
+	noiseEstimate                encoder.NoiseEstimateState
+	frameIndex                   int
+	sourceTS                     encoderSourceTimestampState
+	vp9PTS                       uint64
+	framesSinceKey               uint16
+	forceKeyFrame                bool
+	deadlineModePreviousFrame    vp9DeadlineMode
+	deadlineModePreviousFrameSet bool
+	lastVP9HeaderFrameType       common.FrameType
+	lastVP9HeaderValid           bool
+	vp9NonrdModeCostFcValid      bool
+	vp9NonrdMvCostFcValid        bool
+	vp9CoeffTokenCostsValid      bool
+	prevFrameTxMode              common.TxMode
+	temporal                     temporalState
+	rc                           vp9RateControlState
+	lfi                          vp9dec.LoopFilterInfoN
+	lfRefDeltas                  [vp9dec.MaxRefLfDeltas]int8
+	lfModeDeltas                 [vp9dec.MaxModeLfDeltas]int8
+	vp9LastFiltLevel             uint8
+	vp9FilterThreshes            [vp9dec.MaxRefFrames][vp9dec.SwitchableFilterContexts]int64
+	vp9FilterThreshesPrev        [vp9dec.MaxRefFrames][vp9dec.SwitchableFilterContexts]int64
+	vp9FilterDiff                [vp9dec.SwitchableFilterContexts]int64
+	vp9BlockFilterRDScores       [vp9dec.SwitchableFilterContexts]uint64
+	vp9BlockFilterRDValid        bool
+	lastQuantizerInternal        int
+	lastQuantizerPublic          int
+	lastQuantizerValid           bool
+	lastLoopFilterLevel          uint8
+	lastLoopFilterValid          bool
+	cbRdmult                     int
+	fullRDPredMv                 [vp9dec.MaxRefFrames]vp9dec.MV
+	sf                           SpeedFeatures
+	vp9HeaderScratch             vp9dec.UncompressedHeader
+	vp9InterIntraHdr             vp9dec.UncompressedHeader
+	frameContexts                [common.FrameContexts]vp9dec.FrameContext
+	fc                           vp9dec.FrameContext
+	vp9NonrdModeCostFc           vp9dec.FrameContext
+	vp9NonrdMvCostFc             vp9dec.FrameContext
+	vp9CoeffTokenCosts           encoder.FrameCoeffTokenCostTable
+	intraScratch                 vp9dec.IntraPredictorScratch
+	modeScratch                  [1024]byte
+	blockScratch                 [64 * 64]byte
+	intraSkipPredScratch         [32 * 32]byte
+	nonrdOrigPredScratch         [64 * 64]byte
+	nonrdBestPredScratch         [64 * 64]byte
+	nonrdFilterPredScratch       [64 * 64]byte
+	intProEstPred                [64 * 64]uint8
+	intProSrcScratch             [64 * 64]uint8
+	coefScratch                  [1024]int16
+	qCoefScratch                 [1024]int16
+	residueScratch               [1024]int16
+	coefTokenCache               [1024]uint8
+	interPredHdrScratch          vp9dec.UncompressedHeader
+	txCoeffScratch               [1024]int16
+	qCoeffScratch                [1024]int16
+	dqCoeffScratch               [1024]int16
+	dqScratch                    vp9dec.DequantTables
+	dqFPY                        [vp9dec.MaxSegments]encoder.QuantizeFPTables
+	dqFPUv                       [vp9dec.MaxSegments]encoder.QuantizeFPTables
+	frameCounts                  encoder.FrameCounts
 }
 
 // vp9EncoderBlockCoeffScratch stages one superblock's transform

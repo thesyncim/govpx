@@ -17,7 +17,7 @@ func Nanotime() int64 {
 //
 //go:noinline
 func RuntimeProcYield(cycles uint32) {
-	for i := uint32(0); i < cycles; i++ {
+	for i := range cycles {
 		if i == ^uint32(0) {
 			runtime.Gosched()
 		}

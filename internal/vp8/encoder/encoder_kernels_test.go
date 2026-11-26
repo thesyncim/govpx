@@ -6,6 +6,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp8/common"
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 	"math/bits"
+	"reflect"
 	"testing"
 )
 
@@ -468,7 +469,7 @@ func TestR3Writer(t *testing.T) {
 }
 func TestR3Branches(t *testing.T) {
 	s := uint64(13)
-	for n := 0; n < 2048; n++ {
+	for n := range 2048 {
 		var v [tables.MaxEntropyTokens]int
 		for i := range v {
 			if n < 1024 {
@@ -489,7 +490,7 @@ func TestR3Branches(t *testing.T) {
 }
 func TestR3CostFill(t *testing.T) {
 	s := uint64(77)
-	for n := 0; n < 64; n++ {
+	for n := range 64 {
 		var p tables.CoefficientProbs
 		for i := range p {
 			for j := range p[i] {
@@ -546,7 +547,7 @@ func TestR3Contexts(t *testing.T) {
 }
 func TestR3Skippable(t *testing.T) {
 	s := uint64(19)
-	for n := 0; n < 4096; n++ {
+	for n := range 4096 {
 		var c MacroblockCoefficients
 		for i := range c.EOB {
 			if n < 1024 {
@@ -573,15 +574,15 @@ func TestR3Skippable(t *testing.T) {
 func TestR3DirectCost(t *testing.T) {
 	s := uint64(23)
 	n := 0
-	for seed := 0; seed < 64; seed++ {
+	for range 64 {
 		var p [tables.EntropyNodes]uint8
 		for i := range p {
 			p[i] = byte(r3Rand(&s))
 		}
 		for token := -1; token <= tables.MaxEntropyTokens; token++ {
-			for bt := 0; bt < 4; bt++ {
-				for band := 0; band < 8; band++ {
-					for ctx := 0; ctx < 3; ctx++ {
+			for bt := range 4 {
+				for band := range 8 {
+					for ctx := range 3 {
 						a := coefTokenCostElided(p, token, bt, band, ctx)
 						b := r3Frozen_coefTokenCostElided(p, token, bt, band, ctx)
 						if a != b {
@@ -770,6 +771,386 @@ func BenchmarkR3Components(b *testing.B) {
 				b.Fatal("plane")
 			}
 			r3Sink += uint64(len(a))
+		})
+	}
+}
+
+func round3EOBChunksCapture(fn func()) (pan string) {
+	defer func() {
+		if p := recover(); p != nil {
+			pan = fmt.Sprint(p)
+		}
+	}()
+	fn()
+	return
+}
+
+func round3EOBChunksFrozen(qcoeff *[16]int16, skipDC int) int {
+	for pos := 15; pos >= skipDC; pos-- {
+		rc := int(tables.DefaultZigZag1D[pos])
+		if qcoeff[rc] != 0 {
+			return pos + 1
+		}
+	}
+	return skipDC
+}
+
+func TestRound3EOBChunks(t *testing.T) {
+	for _, skip := range []int{-1, 0, 1, 2, 15, 16, 17} {
+		for pos := -1; pos < 16; pos++ {
+			var c [16]int16
+			if pos >= 0 {
+				c[pos] = 1
+			}
+			for _, v := range []int16{1, -1, 32767, -32768} {
+				if pos >= 0 {
+					c[pos] = v
+				}
+				a, b := 0, 0
+				ap := round3EOBChunksCapture(func() { a = BlockCoeffEOB(&c, skip) })
+				bp := round3EOBChunksCapture(func() { b = round3EOBChunksFrozen(&c, skip) })
+				if a != b || ap != bp {
+					t.Fatalf("skip%d pos%d got%d/%q want%d/%q", skip, pos, a, ap, b, bp)
+				}
+			}
+		}
+	}
+}
+
+var round3EOBChunksSink uint64
+
+func BenchmarkRound3EOBChunks(b *testing.B) {
+	for _, pos := range []int{-1, 0, 15} {
+		b.Run(fmt.Sprintf("pos%d", pos), func(b *testing.B) {
+			var c [16]int16
+			if pos >= 0 {
+				c[pos] = 7
+			}
+			v := 0
+			b.ReportAllocs()
+			for b.Loop() {
+				v = BlockCoeffEOB(&c, 0)
+			}
+			if v != round3EOBChunksFrozen(&c, 0) {
+				b.Fatal("frozen mismatch")
+			}
+			round3EOBChunksSink += uint64(v)
+		})
+	}
+}
+
+func round3MeanLumaFrozen(src SourceImage, mbRow int, mbCol int) int {
+	baseY := mbRow * 16
+	baseX := mbCol * 16
+	sum := 0
+	sse := 0
+	for row := range 16 {
+		srcY := clampSourceCoord(baseY+row, src.Height)
+		for col := range 16 {
+			srcX := clampSourceCoord(baseX+col, src.Width)
+			v := int(src.Y[srcY*src.YStride+srcX])
+			sum += v
+			sse += v * v
+		}
+	}
+	variance := sse - int((int64(sum)*int64(sum)+128)>>8)
+	if variance < 0 {
+		return 0
+	}
+	return variance
+}
+
+func TestRound3MeanLumaStats(t *testing.T) {
+	for _, dim := range []int{1, 15, 16, 17, 32, 65} {
+		for _, pad := range []int{0, 13} {
+			stride := dim + pad
+			src := SourceImage{Width: dim, Height: dim, YStride: stride, Y: make([]byte, stride*dim)}
+			for i := range src.Y {
+				src.Y[i] = byte(i*73 + 19)
+			}
+			for row := -1; row < 5; row++ {
+				for col := -1; col < 5; col++ {
+					a := MacroblockMeanLumaSSE(src, row, col)
+					b := round3MeanLumaFrozen(src, row, col)
+					if a != b {
+						t.Fatalf("dim%d stride%d mb%d/%d", dim, stride, row, col)
+					}
+				}
+			}
+		}
+	}
+}
+
+var round3MeanLumaSink uint64
+
+func BenchmarkRound3MeanLumaStats(b *testing.B) {
+	for _, dim := range []int{16, 17, 32} {
+		b.Run(fmt.Sprintf("dim%d", dim), func(b *testing.B) {
+			s := SourceImage{Width: dim, Height: dim, YStride: dim, Y: make([]byte, dim*dim)}
+			for i := range s.Y {
+				s.Y[i] = byte(i*17 + 29)
+			}
+			v := 0
+			b.ReportAllocs()
+			for b.Loop() {
+				v = MacroblockMeanLumaSSE(s, 0, 0)
+			}
+			if v != round3MeanLumaFrozen(s, 0, 0) {
+				b.Fatal("mean")
+			}
+			round3MeanLumaSink += uint64(v)
+		})
+	}
+}
+
+func round3UVPacketCapture(fn func()) (pan string) {
+	defer func() {
+		if p := recover(); p != nil {
+			pan = fmt.Sprint(p)
+		}
+	}()
+	fn()
+	return
+}
+
+func round3UVPacketCoefficients(pattern string) MacroblockCoefficients {
+	var c MacroblockCoefficients
+	for block := range 25 {
+		for j := range 16 {
+			switch pattern {
+			case "zero":
+			case "lumaOnly":
+				if block < 16 && j == 1 {
+					c.QCoeff[block][j] = int16(block%3 + 1)
+				}
+			case "denseSmall":
+				c.QCoeff[block][j] = int16((block+j)%3 - 1)
+			case "denseMixed":
+				c.QCoeff[block][j] = int16((block*17+j*13)%2049 - 1024)
+			}
+		}
+	}
+	setAllMacroblockEOBs(&c, false)
+	return c
+}
+
+func round3UVPacketFrozenBlock(counts *coefficientTokenCounts, records *InterCoefficientTokenRecords, blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int) error {
+	// Records-nil callers (e.g. probability-only update passes) re-enter
+	// the cheaper count-only path; the per-coefficient nil check that
+	// previously sat inside appendTokenUnchecked is hoisted once here.
+	if records == nil {
+		return countBlockCoefficientTokens(counts, blockType, ctx, skipDC, qcoeff, eob)
+	}
+	// Uint range checks collapse the (x < 0 || x >= max) dual-bound
+	// pairs into one branch each. Hot per-block validation.
+	if counts == nil || qcoeff == nil ||
+		uint(blockType) >= uint(tables.BlockTypes) ||
+		uint(ctx) >= uint(tables.PrevCoefContexts) ||
+		uint(skipDC) > 1 {
+		return ErrInvalidPacketConfig
+	}
+	if eob <= skipDC {
+		(*counts)[blockType][skipDC][ctx][tables.DCTEOBToken]++
+		records.appendTokenUnchecked(blockType, skipDC, ctx, tables.DCTEOBToken, 0, 0, false)
+		return nil
+	}
+	if eob > 16 {
+		return ErrInvalidPacketConfig
+	}
+
+	band := skipDC
+	tokenCtx := ctx
+	skipEOBNode := false
+	for pos := skipDC; pos < eob; pos++ {
+		// DefaultZigZag1D returns a permutation of 0..15. Mask the uint8
+		// lookup result so the compiler can elide the bounds check on
+		// qcoeff[rc] (qcoeff is *[16]int16).
+		rc := tables.DefaultZigZag1D[pos] & 0xF
+		coeff := int(qcoeff[rc])
+		// Branchless |coeff| split into magnitude and sign nibble: signMask
+		// is -1 when coeff is negative, 0 otherwise.
+		signMask := coeff >> intSignShift
+		mag := (coeff ^ signMask) - signMask
+		sign := uint8(signMask & 1)
+		// Uint range check folds the (mag < 0) guard the int comparison
+		// could not eliminate (signed-overflow possibility) and yields a
+		// proven [0, DCTMaxValue] for the LUT load below.
+		if uint(mag) > uint(tables.DCTMaxValue) {
+			return ErrInvalidPacketConfig
+		}
+		token := int(coeffAbsTokenLUT[mag])
+		// blockType and band were validated to [0,3] and the LUT yields
+		// 0..7 for band. AND-mask both so BlockTypes(=4) and
+		// CoefBands(=8) bounds checks elide (both are powers of two).
+		(*counts)[blockType&3][band&7][tokenCtx][token]++
+		// records guaranteed non-nil by the entry branch above, so the
+		// per-coefficient nil check inside appendTokenUnchecked has been
+		// dropped (it is the hot-path unchecked variant by contract).
+		records.appendTokenUnchecked(blockType, band, tokenCtx, token, mag, sign, skipEOBNode)
+		if pos+1 < 16 {
+			band = int(tables.CoefBandsTable[pos+1])
+			tokenCtx = int(tables.PrevTokenClass[token])
+			skipEOBNode = tokenCtx == 0
+		}
+	}
+	if eob < 16 {
+		(*counts)[blockType&3][band&7][tokenCtx][tables.DCTEOBToken]++
+		records.appendTokenUnchecked(blockType, band, tokenCtx, tables.DCTEOBToken, 0, 0, false)
+	}
+	return nil
+}
+
+func round3UVPacketFrozenMacro(is4x4 bool, above *TokenContextPlanes, left *TokenContextPlanes, coeffs *MacroblockCoefficients, counts *coefficientTokenCounts, records *InterCoefficientTokenRecords) error {
+	if records == nil {
+		return countCoefficientMacroblockTokens(is4x4, above, left, coeffs, counts)
+	}
+	if above == nil || left == nil || coeffs == nil || counts == nil {
+		return ErrInvalidPacketConfig
+	}
+	blockType := 0
+	skipDC := 0
+	if !is4x4 {
+		eob := coeffs.BlockEOB(24, 0)
+		ctx := int(above.Y2 + left.Y2)
+		if ctx >= tables.PrevCoefContexts {
+			return ErrInvalidPacketConfig
+		}
+		if eob <= 0 {
+			// Macroblock entry and context checks already prove these arguments.
+			(*counts)[1][0][ctx][tables.DCTEOBToken]++
+			records.appendTokenUnchecked(1, 0, ctx, tables.DCTEOBToken, 0, 0, false)
+		} else if err := round3UVPacketFrozenBlock(counts, records, 1, ctx, 0, &coeffs.QCoeff[24], eob); err != nil {
+			return err
+		}
+		hasCoeffs := uint8(0)
+		if eob > 0 {
+			hasCoeffs = 1
+		}
+		above.Y2 = hasCoeffs
+		left.Y2 = hasCoeffs
+
+		blockType = 0
+		skipDC = 1
+	} else {
+		blockType = 3
+	}
+
+	if !zeroY1TokenRecords(above, left, coeffs, counts, records, blockType, skipDC) {
+		for block := range 16 {
+			eob := coeffs.BlockEOB(block, skipDC)
+			a := block & 3
+			l := (block & 0x0c) >> 2
+			ctx := int(above.Y1[a] + left.Y1[l])
+			if ctx >= tables.PrevCoefContexts {
+				return ErrInvalidPacketConfig
+			}
+			if eob <= skipDC {
+				// Macroblock entry and context checks already prove these arguments.
+				(*counts)[blockType][skipDC][ctx][tables.DCTEOBToken]++
+				records.appendTokenUnchecked(blockType, skipDC, ctx, tables.DCTEOBToken, 0, 0, false)
+			} else if err := round3UVPacketFrozenBlock(counts, records, blockType, ctx, skipDC, &coeffs.QCoeff[block], eob); err != nil {
+				return err
+			}
+			hasCoeffs := uint8(0)
+			if eob > skipDC {
+				hasCoeffs = 1
+			}
+			above.Y1[a] = hasCoeffs
+			left.Y1[l] = hasCoeffs
+		}
+
+	}
+
+	for block := 16; block < 24; block++ {
+		eob := coeffs.BlockEOB(block, 0)
+		a, l := common.UVTokenContextIndex(block)
+		ctx := int(getTokenUVContext(above, a) + getTokenUVContext(left, l))
+		if ctx >= tables.PrevCoefContexts {
+			return ErrInvalidPacketConfig
+		}
+		if eob <= 0 {
+			// Macroblock entry and context checks already prove these arguments.
+			(*counts)[2][0][ctx][tables.DCTEOBToken]++
+			records.appendTokenUnchecked(2, 0, ctx, tables.DCTEOBToken, 0, 0, false)
+		} else if err := round3UVPacketFrozenBlock(counts, records, 2, ctx, 0, &coeffs.QCoeff[block], eob); err != nil {
+			return err
+		}
+		hasCoeffs := uint8(0)
+		if eob > 0 {
+			hasCoeffs = 1
+		}
+		setTokenUVContext(above, a, hasCoeffs)
+		setTokenUVContext(left, l, hasCoeffs)
+	}
+	return nil
+}
+
+func TestRound3UVPacket(t *testing.T) {
+	n := 0
+	for _, pattern := range []string{"zero", "lumaOnly", "denseSmall", "denseMixed"} {
+		for _, is4 := range []bool{false, true} {
+			for _, capacity := range []int{0, 1, 7, 8, 15, 64, 1024} {
+				for _, ctx := range []byte{0, 1, 255} {
+					a, b := round3UVPacketCoefficients(pattern), round3UVPacketCoefficients(pattern)
+					if is4 {
+						setAllMacroblockEOBs(&a, true)
+						b = a
+					}
+					var ac, bc coefficientTokenCounts
+					aa, al := TokenContextPlanes{Y2: ctx}, TokenContextPlanes{}
+					ba, bl := aa, al
+					ar := InterCoefficientTokenRecords{Records: make([]CoefficientTokenRecord, 0, capacity)}
+					br := InterCoefficientTokenRecords{Records: make([]CoefficientTokenRecord, 0, capacity)}
+					var ae, be error
+					ap := round3UVPacketCapture(func() { ae = AccumulateInterMacroblockTokenCountsAndRecords(&ac, &ar, is4, &aa, &al, &a) })
+					bp := round3UVPacketCapture(func() { be = round3UVPacketFrozenMacro(is4, &ba, &bl, &b, &bc, &br) })
+					if ap != bp || ae != be || ac != bc || aa != ba || al != bl || a != b || !reflect.DeepEqual(ar.Records, br.Records) {
+						t.Fatalf("%s is4%v cap%d ctx%d panic%q/%q err%v/%v", pattern, is4, capacity, ctx, ap, bp, ae, be)
+					}
+					n++
+				}
+			}
+		}
+	}
+	t.Logf("%d full macro state/error/partial-panic cases", n)
+}
+
+var round3UVPacketSink uint64
+
+func BenchmarkRound3UVPacket(b *testing.B) {
+	for _, pattern := range []string{"zero", "lumaOnly", "denseSmall", "denseMixed"} {
+		b.Run(pattern, func(b *testing.B) {
+			c := round3UVPacketCoefficients(pattern)
+			var ac, wc coefficientTokenCounts
+			var a, l, wa, wl TokenContextPlanes
+			ar := InterCoefficientTokenRecords{Records: make([]CoefficientTokenRecord, 0, 1024)}
+			wr := InterCoefficientTokenRecords{Records: make([]CoefficientTokenRecord, 0, 1024)}
+			if round3UVPacketFrozenMacro(false, &wa, &wl, &c, &wc, &wr) != nil {
+				b.Fatal("oracle")
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				a, l = TokenContextPlanes{}, TokenContextPlanes{}
+				ar.Records = ar.Records[:0]
+				if AccumulateInterMacroblockTokenCountsAndRecords(&ac, &ar, false, &a, &l, &c) != nil {
+					b.Fatal("count")
+				}
+			}
+			if a != wa || l != wl || !reflect.DeepEqual(ar.Records, wr.Records) {
+				b.Fatal("state")
+			}
+			for i := range ac {
+				for j := range ac[i] {
+					for k := range ac[i][j] {
+						for m := range ac[i][j][k] {
+							if ac[i][j][k][m] != wc[i][j][k][m]*b.N {
+								b.Fatal("counts")
+							}
+						}
+					}
+				}
+			}
+			round3UVPacketSink += uint64(len(ar.Records))
 		})
 	}
 }

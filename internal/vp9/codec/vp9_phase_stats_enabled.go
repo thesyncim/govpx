@@ -434,24 +434,6 @@ func (p *vp9TileWorkerPool) vp9PhaseAddTileWorkerWakeSignals(n int64) {
 	}
 }
 
-func (p *vp9TileWorkerPool) vp9PhaseIncTileWorkerPark() {
-	if p != nil && p.phaseStats != nil {
-		atomic.AddInt64(&p.phaseStats.VP9TileWorkerParks, 1)
-	}
-}
-
-func (p *vp9TileWorkerPool) vp9PhaseAddTileWorkerWait(spins, goscheds int64) {
-	if p == nil || p.phaseStats == nil {
-		return
-	}
-	if spins != 0 {
-		atomic.AddInt64(&p.phaseStats.VP9TileWorkerWaitSpins, spins)
-	}
-	if goscheds != 0 {
-		atomic.AddInt64(&p.phaseStats.VP9TileWorkerWaitGoscheds, goscheds)
-	}
-}
-
 func (d *VP9Decoder) setVP9PhaseStats(stats *EncoderPhaseStats) {
 	if d != nil {
 		d.phaseStats = stats

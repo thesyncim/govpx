@@ -138,7 +138,7 @@ func TestVP8Algorithm2DenoiserLumaFrozen(t *testing.T) {
 			for _, alias := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/partial%t/alias%t", pattern, partial, alias), func(t *testing.T) {
 					got, want := astraNewDenoiserFixture(t, pattern, partial, alias, true), astraNewDenoiserFixture(t, pattern, partial, alias, true)
-					for trial := 0; trial < 3; trial++ {
+					for range 3 {
 						gm := got.e.applyDenoiserToInterMacroblock(got.source, got.filtered, got.rows, got.cols, got.row, got.col, &got.decision)
 						wm := want.e.astraFrozenApplyDenoiserToInterMacroblock(want.source, want.filtered, want.rows, want.cols, want.row, want.col, &want.decision)
 						astraDenoiserCompare(t, &got, &want, gm, wm)

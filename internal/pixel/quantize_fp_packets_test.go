@@ -13,7 +13,7 @@ import (
 // fpPacketScalar derives the public integer contract independently. It includes
 // parameters outside libvpx's encoder-table range, which must retain fallback.
 func fpPacketScalar(c, scan, qo, dq []int16, n int, r, q, d [2]int16, cl []byte) (eob int) {
-	for i := 0; i < n; i++ {
+	for i := range n {
 		k := 1
 		if i == 0 {
 			k = 0
@@ -256,7 +256,7 @@ func fpPacketCapture(fn func() int) (eob int, panicText string) {
 func TestFPPacketAliasOrder(t *testing.T) {
 	count := 0
 	for _, n := range []int{16, 64, 256} {
-		for a := 0; a < 4; a++ {
+		for a := range 4 {
 			for b := a + 1; b < 4; b++ {
 				for _, shift := range []int{0, 1, -1, n - 1, -n + 1} {
 					for pattern := range 3 {

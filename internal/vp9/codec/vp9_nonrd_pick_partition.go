@@ -7,7 +7,6 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	vp9dsp "github.com/thesyncim/govpx/internal/vp9/dsp"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
-	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // vp9_nonrd_pick_partition.go ports the ML_BASED_PARTITION branch of libvpx
@@ -176,55 +175,6 @@ type vp9PaddedLastFrameBuffer struct {
 	rows   int
 	w      int
 	h      int
-}
-
-// vp9BuildPaddedPlane builds (and grows) a border-padded copy of an input
-// plane sized (w + 2*border, h + 2*border). Border pixels are edge-
-// replicated, plus the y-axis padding rows are constructed by repeating
-// the first / last visible rows (libvpx YV12 vpx_extend_frame_borders_*
-// semantics). Returns the padded slice, its stride, and the absolute
-// origin coordinates (border, border).
-//
-// libvpx counterpart: vp9_alloc_frame_buffer pre-allocates the YV12
-// buffer with VP9_ENC_BORDER_IN_PIXELS=160 border padding on every plane;
-// vp9_setup_pre_planes / vp9_setup_src_planes hand out a pointer offset
-// to (border, border) so the int-pro motion search's `-(bw>>1)` peek
-// stays in-bounds.
-func vp9BuildPaddedPlane(buf *vp9PaddedLastFrameBuffer,
-	plane []uint8, planeStride, w, h int,
-) (pixels []uint8, stride, originY, originX int) {
-	stride = w + 2*vp9MLPartitionBorder
-	rows := h + 2*vp9MLPartitionBorder
-	needed := stride * rows
-	buf.pixels = buffers.EnsureLen(buf.pixels, needed)
-	buf.stride = stride
-	buf.rows = rows
-	buf.w = w
-	buf.h = h
-
-	for y := range rows {
-		srcRow := y - vp9MLPartitionBorder
-		if srcRow < 0 {
-			srcRow = 0
-		} else if srcRow >= h {
-			srcRow = h - 1
-		}
-		dst := buf.pixels[y*stride:]
-		src := plane[srcRow*planeStride : srcRow*planeStride+w]
-		// Left border.
-		left := src[0]
-		for x := range vp9MLPartitionBorder {
-			dst[x] = left
-		}
-		// Body.
-		copy(dst[vp9MLPartitionBorder:vp9MLPartitionBorder+w], src)
-		// Right border.
-		right := src[w-1]
-		for x := vp9MLPartitionBorder + w; x < stride; x++ {
-			dst[x] = right
-		}
-	}
-	return buf.pixels, stride, vp9MLPartitionBorder, vp9MLPartitionBorder
 }
 
 // vp9ResetMLPartitionCache clears the per-frame ML partition context

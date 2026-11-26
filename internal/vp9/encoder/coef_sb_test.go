@@ -818,8 +818,8 @@ func TestWriteCoefSbBlock8x8WithResidue(t *testing.T) {
 	// DC on the first one only.
 	blockCoeffs := map[[3]int][]int16{}
 	for plane := range 3 {
-		for r := 0; r < 2; r += 1 {
-			for c := 0; c < 2; c += 1 {
+		for r := range 2 {
+			for c := range 2 {
 				blockCoeffs[[3]int{plane, r, c}] = make([]int16, 16)
 			}
 		}

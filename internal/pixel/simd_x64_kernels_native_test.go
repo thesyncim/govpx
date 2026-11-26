@@ -47,14 +47,14 @@ func BenchmarkX64Round2UV(b *testing.B) {
 func round2ScalarUV(p []byte, off, step, outer, blim, lim, thr, kind int) {
 	clamp := func(x int) int { return max(-128, min(127, x)) }
 	abs := func(x int) int { return max(x, -x) }
-	for lane := 0; lane < 8; lane++ {
+	for lane := range 8 {
 		o := off + lane*outer
 		var a [8]int
 		for k := range a {
 			a[k] = int(p[o+(k-4)*step])
 		}
 		need := 2*abs(a[3]-a[4])+abs(a[2]-a[5])/2 <= blim
-		for k := 0; k < 3; k++ {
+		for k := range 3 {
 			need = need && abs(a[k]-a[k+1]) <= lim && abs(a[k+4]-a[k+5]) <= lim
 		}
 		if !need {
@@ -100,7 +100,7 @@ func TestX64Round2UVBoundary(t *testing.T) {
 	clamp := func(x int) int { return max(-128, min(127, x)) }
 	for _, kind := range []int{4, 6} {
 		for value := -128; value <= 127; value++ {
-			for lane := 0; lane < 16; lane++ {
+			for lane := range 16 {
 				var values [16]int8
 				values[lane] = int8(value)
 				if uvRoundedZero(archsimd.LoadInt8x16Array(&values), kind) {
@@ -119,16 +119,16 @@ func TestX64Round2UVBoundary(t *testing.T) {
 	}
 	for _, vertical := range []bool{false, true} {
 		for _, pitch := range []int{8, 9, 32, 672} {
-			for align := 0; align < 8; align++ {
+			for align := range 8 {
 				for _, kind := range []int{4, 6} {
-					for pattern := 0; pattern < 32; pattern++ {
+					for pattern := range 32 {
 						step, outer := pitch, 1
 						if vertical {
 							step, outer = 1, pitch
 						}
 						u, v := bytes.Repeat([]byte{167}, align+7*step+7*outer+14), bytes.Repeat([]byte{185}, align+7*step+7*outer+14)
-						for axis := 0; axis < 8; axis++ {
-							for lane := 0; lane < 8; lane++ {
+						for axis := range 8 {
+							for lane := range 8 {
 								value := 128
 								if pattern < 4 {
 									value = []int{0, 127, 128, 255}[pattern]
@@ -163,11 +163,11 @@ var round2UintSink uint64
 func BenchmarkX64Round2FP(b *testing.B) {
 	for _, n := range []int{16, 32, 64, 256} {
 		for _, pattern := range []string{"zero", "dc", "dense"} {
-			for mode := 0; mode < 4; mode++ {
+			for mode := range 4 {
 				b.Run(fmt.Sprintf("n%d/%s/optional%d", n, pattern, mode), func(b *testing.B) {
 					var c, scan, qc, dc [256]int16
 					var classes [256]byte
-					for i := 0; i < n; i++ {
+					for i := range n {
 						scan[i] = int16(n - i)
 						if pattern == "dense" {
 							c[i] = int16((i*173)%8191 - 4095)
@@ -261,7 +261,7 @@ func BenchmarkX64Round2Subpel(b *testing.B) {
 }
 func TestX64Round2SADLimit(t *testing.T) {
 	var a, c [16 * 32]byte
-	for mode := 0; mode < 4; mode++ {
+	for mode := range 4 {
 		for i := range a {
 			a[i] = byte(i * 17)
 			c[i] = byte(i * 29)
@@ -279,8 +279,8 @@ func TestX64Round2SADLimit(t *testing.T) {
 		}
 		for _, limit := range []int{-1, 0, 1, 2000, 10000, 40000, 65000, 65280} {
 			want := 0
-			for y := 0; y < 16; y++ {
-				for x := 0; x < 16; x++ {
+			for y := range 16 {
+				for x := range 16 {
 					d := int(a[y*32+x]) - int(c[y*32+x])
 					want += max(d, -d)
 				}
@@ -311,7 +311,7 @@ func BenchmarkX64Round2SADLimit(b *testing.B) {
 }
 func round2Copy8(src []byte, ss int, dst []byte, ds int) {
 	if !Copy8Rows(src, ss, dst, ds) {
-		for y := 0; y < 8; y++ {
+		for y := range 8 {
 			copy(dst[y*ds:y*ds+8], src[y*ss:y*ss+8])
 		}
 	}
@@ -325,7 +325,7 @@ func TestX64Round2Copy8(t *testing.T) {
 			}
 			want = got
 			so, do := 64, 64+delta
-			for y := 0; y < 8; y++ {
+			for y := range 8 {
 				copy(want[do+y*stride:do+y*stride+8], want[so+y*stride:so+y*stride+8])
 			}
 			round2Copy8(got[so:], stride, got[do:], stride)
@@ -360,9 +360,9 @@ func TestX64Round2Projection(t *testing.T) {
 			if !ProjectionCols16(a[:], 80, w, h, 2, out[:]) {
 				t.Fatal("projection declined")
 			}
-			for y := 0; y < h; y++ {
+			for y := range h {
 				sum := 0
-				for x := 0; x < w; x++ {
+				for x := range w {
 					sum += int(a[y*80+x])
 				}
 				if out[y] != int16(sum)>>2 {
@@ -376,8 +376,8 @@ func TestX64Round2Projection(t *testing.T) {
 		}
 		for k := range out {
 			sum := 0
-			for y := 0; y < 8; y++ {
-				for x := 0; x < 8; x++ {
+			for y := range 8 {
+				for x := range 8 {
 					sum += int(a[(y+(k/2)*8)*80+x+(k%2)*8])
 				}
 			}
@@ -411,7 +411,7 @@ func BenchmarkX64Round2Projection(b *testing.B) {
 }
 func TestX64Round2Variance(t *testing.T) {
 	var a, c [256]int16
-	for mode := 0; mode < 3; mode++ {
+	for mode := range 3 {
 		for i := range a {
 			a[i] = int16(i * 173)
 			c[i] = int16(i * 271)
@@ -426,7 +426,7 @@ func TestX64Round2Variance(t *testing.T) {
 		}
 		for _, n := range []int{8, 16, 64, 256} {
 			var sum, sse int32
-			for i := 0; i < n; i++ {
+			for i := range n {
 				d := int32(a[i]) - int32(c[i])
 				sum += d
 				sse += d * d
@@ -618,7 +618,7 @@ func TestX64Round2FlatParity(t *testing.T) {
 	for _, kind := range []int{8, 16} {
 		for _, vertical := range []bool{false, true} {
 			for _, pitch := range []int{16, 19, 32} {
-				for pattern := 0; pattern < 16; pattern++ {
+				for pattern := range 16 {
 					var original [2048]byte
 					for i := range original {
 						original[i] = 128
@@ -652,7 +652,7 @@ func TestX64Round2FlatParity(t *testing.T) {
 func TestX64Round2MacroScalar(t *testing.T) {
 	for _, vertical := range []bool{false, true} {
 		for _, pitch := range []int{20, 23, 32} {
-			for pattern := 0; pattern < 16; pattern++ {
+			for pattern := range 16 {
 				var original [2048]byte
 				for i := range original {
 					original[i] = 128

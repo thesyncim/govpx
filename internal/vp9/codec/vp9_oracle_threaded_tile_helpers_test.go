@@ -43,8 +43,11 @@ func assertVP9OracleThreadedTileWriterUsed(t *testing.T, enc *VP9Encoder,
 		t.Fatalf("frame %d: VP9 threaded tile jobs = %d, want at least %d",
 			frame, len(pool.encodeJobs), wantJobs)
 	}
-	for i := 0; i < wantJobs; i++ {
-		job := &pool.encodeJobs[i]
+	for i := range wantJobs {
+		job := pool.encodeJobs[i]
+		if job == nil {
+			t.Fatalf("frame %d: VP9 threaded tile job %d is nil", frame, i)
+		}
 		if job.err != nil {
 			t.Fatalf("frame %d: VP9 threaded tile job %d error = %v",
 				frame, i, job.err)

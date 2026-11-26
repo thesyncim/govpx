@@ -79,7 +79,6 @@ const (
 	PostProcessDemacroblock = codecapi.PostProcessDemacroblock
 	PostProcessAddNoise     = codecapi.PostProcessAddNoise
 	PostProcessMFQE         = codecapi.PostProcessMFQE
-	allPostProcessFlags     = codecapi.AllPostProcessFlags
 )
 
 // VP8Decryptor mirrors libvpx v1.16.0 vpx_decrypt_cb.

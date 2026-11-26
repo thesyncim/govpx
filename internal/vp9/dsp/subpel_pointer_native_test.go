@@ -13,8 +13,8 @@ var subpelPointerNativeSink uint32
 func subpelPointerOracle(src []byte, ss int, ref []byte, rs, w, h, x, y int) (uint32, uint32) {
 	sum, sse := int64(0), uint32(0)
 	fx, fy := 16*x, 16*y
-	for row := 0; row < h; row++ {
-		for col := 0; col < w; col++ {
+	for row := range h {
+		for col := range w {
 			a := (int(src[row*ss+col])*(128-fx) + int(src[row*ss+col+1])*fx + 64) >> 7
 			b := (int(src[(row+1)*ss+col])*(128-fx) + int(src[(row+1)*ss+col+1])*fx + 64) >> 7
 			d := ((a*(128-fy) + b*fy + 64) >> 7) - int(ref[row*rs+col])

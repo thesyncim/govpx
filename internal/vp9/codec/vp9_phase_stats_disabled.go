@@ -98,10 +98,6 @@ func (p *vp9TileWorkerPool) vp9PhaseStartTileWorkerEpoch(vp9TileWorkerJobKind) {
 
 func (p *vp9TileWorkerPool) vp9PhaseAddTileWorkerWakeSignals(int64) {}
 
-func (p *vp9TileWorkerPool) vp9PhaseIncTileWorkerPark() {}
-
-func (p *vp9TileWorkerPool) vp9PhaseAddTileWorkerWait(int64, int64) {}
-
 func (d *VP9Decoder) setVP9PhaseStats(*EncoderPhaseStats) {}
 
 func (d *VP9Decoder) vp9PhaseIncInterPredictPlane() {}

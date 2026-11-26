@@ -4,8 +4,7 @@ const (
 	// MaxTemporalLayers is the largest VP8 temporal-layer count exposed by
 	// govpx. It bounds [TemporalScalabilityConfig.LayerTargetBitrateKbps]
 	// and the per-layer counters on [EncodeResult].
-	MaxTemporalLayers     = 5
-	maxTemporalPeriodSize = 16
+	MaxTemporalLayers = 5
 )
 
 // TemporalLayeringMode selects a built-in temporal scalability pattern.

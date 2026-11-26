@@ -39,7 +39,7 @@ func TestVP8WorkElisionFDCTPackets(t *testing.T) {
 	}
 	for _, count := range []int{1, 2, 3, 8, 16, 25} {
 		for delta := -17; delta <= 17; delta++ {
-			for pattern := 0; pattern < 5; pattern++ {
+			for pattern := range 5 {
 				const off = 64
 				got := make([]int16, off+25*16+80)
 				for i := range got {

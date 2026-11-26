@@ -631,7 +631,7 @@ func partitionVarianceFor(bsize common.BlockSize, args setVTPartitioningArgs) *p
 // 4*4*255=4080, so the row additions cannot carry into the other block.
 func avg4x4PairR3(src []byte, stride int) (int32, int32) {
 	var sum uint64
-	for y := 0; y < 4; y++ {
+	for y := range 4 {
 		v := binary.LittleEndian.Uint64(src[y*stride:])
 		v = (v & 0x00ff00ff00ff00ff) + ((v >> 8) & 0x00ff00ff00ff00ff)
 		sum += (v + (v >> 16)) & 0x0000ffff0000ffff

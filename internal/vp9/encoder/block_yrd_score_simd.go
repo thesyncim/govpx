@@ -318,7 +318,7 @@ func blockYrdQuantScore(coeff []int16, n int, r, q, d [2]int16) (int, uint32) {
 func blockYrdUniformScore(input []int16, stride, n int, r, q, d [2]int16) (int, uint32, bool) {
 	v := input[0]
 	same := archsimd.BroadcastInt16x8(v)
-	for y := 0; y < n; y++ {
+	for y := range n {
 		row := input[y*stride:]
 		for x := 0; x < n; x += 8 {
 			c := archsimd.LoadInt16x8Array((*[8]int16)(row[x : x+8]))

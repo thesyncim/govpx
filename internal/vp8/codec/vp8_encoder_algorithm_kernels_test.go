@@ -1,9 +1,8 @@
-// Frozen b57aac772af29e85f4b5b34ae33600cc84cd6a0f entrypoints are exact-state
-// oracles for the algorithmic work-elision paths. Benchmarks call the live
-// production entrypoints with identical fixtures on both revisions.
 package codec
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
@@ -467,7 +466,7 @@ func round2Call(e *VP8Encoder, src vp8enc.SourceImage, q *vp8enc.MacroblockQuant
 	return
 }
 func TestVP8Algorithm2(t *testing.T) {
-	for pat := 0; pat < 3; pat++ {
+	for pat := range 3 {
 		for _, kind := range []string{"activity-edge", "activity-inner", "bpred", "keyfast", "keyrd", "yrd", "uvrd", "whole", "chroma"} {
 			for _, rc := range [][2]int{{0, 0}, {0, 1}, {1, 0}, {1, 1}, {2, 2}} {
 				if kind == "activity-edge" && rc[0] == rc[1] {
@@ -649,7 +648,7 @@ func frozen2SegmentQuants(baseQIndex int, deltas vp8common.QuantDeltas, segmenta
 var round2QuantSink [4]vp8enc.MacroblockQuant
 
 func TestVP8Algorithm2SegmentSetup(t *testing.T) {
-	for q := 0; q < 128; q++ {
+	for q := range 128 {
 		var a, b [4]vp8enc.MacroblockQuant
 		d := vp8common.QuantDeltas{Y1DC: -3, Y2DC: 2, Y2AC: 4, UVDC: 1, UVAC: -2}
 		s := vp8enc.SegmentationConfig{}
@@ -785,7 +784,7 @@ func frozen2invertRegularQuant(dequant int, quant *int16, shift *int16) {
 var round2ZbinBoost = [16]int{0, 0, 8, 10, 12, 14, 16, 20, 24, 28, 32, 36, 40, 44, 44, 44}
 
 func TestVP8Algorithm2BlockSetup(t *testing.T) {
-	for pattern := 0; pattern < 4; pattern++ {
+	for pattern := range 4 {
 		var d [16]int16
 		for i := range d {
 			switch pattern {
@@ -876,6 +875,51 @@ func TestVP8Algorithm2ClampedEdges(t *testing.T) {
 			if x != y || m != n || !reflect.DeepEqual(a.analysis.Img.YFull, b.analysis.Img.YFull) || !reflect.DeepEqual(a.analysis.Img.UFull, b.analysis.Img.UFull) || !reflect.DeepEqual(a.analysis.Img.VFull, b.analysis.Img.VFull) {
 				t.Fatalf("%s @%v got%v/%v want%v/%v", kind, rc, x, m, y, n)
 			}
+		}
+	}
+}
+
+// TestVP8Algorithm2Stream pins packets and frame flags to the immutable b57 baseline.
+func TestVP8Algorithm2Stream(t *testing.T) {
+	for _, sz := range [][2]int{{48, 48}, {65, 49}, {160, 90}} {
+		for _, tune := range []Tuning{TunePSNR, TuneSSIM} {
+			t.Run(fmt.Sprintf("%dx%d/tune%d", sz[0], sz[1], tune), func(t *testing.T) {
+				e := newSizedTestEncoder(t, sz[0], sz[1])
+				e.opts.Tuning = tune
+				dst := make([]byte, sz[0]*sz[1]*6+4096)
+				h := sha256.New()
+				var length [8]byte
+				for frame := range 16 {
+					img := testImage(sz[0], sz[1])
+					for y := 0; y < sz[1]; y++ {
+						for x := 0; x < sz[0]; x++ {
+							v := byte((x*7 + y*11 + frame*13) ^ (x*y + frame*19))
+							if frame < 4 {
+								v = byte(96 + frame)
+							}
+							img.Y[y*img.YStride+x] = v
+						}
+					}
+					for i := range img.U {
+						img.U[i] = byte(i*13 + frame*7)
+						img.V[i] = byte(i*29 + frame*11)
+					}
+					r, err := e.EncodeInto(dst, img, uint64(frame), 1, 0)
+					if err != nil {
+						t.Fatal(err)
+					}
+					binary.LittleEndian.PutUint64(length[:], uint64(len(r.Data)))
+					h.Write(length[:])
+					h.Write(r.Data)
+					fmt.Fprintf(h, "%t,%t,%t,%d|", r.KeyFrame, r.Dropped, r.Droppable, r.LookaheadDepth)
+				}
+				got := fmt.Sprintf("%x", h.Sum(nil))
+				expected := map[string]string{"48x48/tune0": "94d2d44afce27325c5e0e6298f53d87e65e826e9846d6ac609d274b114f9e162", "48x48/tune1": "94d2d44afce27325c5e0e6298f53d87e65e826e9846d6ac609d274b114f9e162", "65x49/tune0": "021db19fc47e375025f91a7767d68fbf1b5d06e08d4edc23c2b8803400fc42b0", "65x49/tune1": "a7e6780411fc2c1eb332cf2e4749f6e5213860fe84ffec30676ea3c2126cda02", "160x90/tune0": "205c81a59a3d27c6d50b0f7704366cd19a26a206ca0ce058551e4c35807cb8df", "160x90/tune1": "7768d90618c27fe28acd32327861d9f5980f28b9ea118f970b9713ae4177c32b"}
+				if got != expected[t.Name()[len("TestVP8Algorithm2Stream/"):]] {
+					t.Fatalf("stream hash %s", got)
+				}
+				t.Logf("vp8_stream_sha256=%s", got)
+			})
 		}
 	}
 }

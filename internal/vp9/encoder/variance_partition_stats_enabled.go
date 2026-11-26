@@ -13,10 +13,6 @@ type choosePartitioningStatsArg struct {
 	Stats *ChoosePartitioningStats
 }
 
-func choosePartitioningStats(a choosePartitioningStatsArg) *ChoosePartitioningStats {
-	return a.Stats
-}
-
 func setVTPartitioningWithStats(miGrid []vp9dec.NeighborMi, miRows, miCols, miRow, miCol int,
 	bsize, bsizeMin common.BlockSize, threshold int64, forceSplit bool, isKeyFrame bool,
 	args setVTPartitioningArgs,

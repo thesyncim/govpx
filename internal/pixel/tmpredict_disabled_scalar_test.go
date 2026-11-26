@@ -26,7 +26,7 @@ func tmCheckDisabledScalarContract(t *testing.T) {
 			if ds >= 0 && ds <= 37 {
 				span = (w-1)*ds + w
 			}
-			for mode := 0; mode < 5; mode++ {
+			for mode := range 5 {
 				for _, dlen := range []int{0, 1, span - 1, span} {
 					for _, n := range []int{0, w - 1, w} {
 						for _, nl := range []int{0, w - 1, w} {

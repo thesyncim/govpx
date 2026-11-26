@@ -60,7 +60,7 @@ func TestDCPairAllBytesAndDeltas(t *testing.T) {
 		t.Skip("native SIMD disabled")
 	}
 	var src, dst [32]byte
-	for p := 0; p < 256; p++ {
+	for p := range 256 {
 		for i := range src {
 			src[i] = byte(p)
 		}

@@ -16,12 +16,12 @@ func TestCopy16RowsHandledAndDeclines(t *testing.T) {
 			}
 			want := append([]byte(nil), got...)
 			so, do := 64, 64+shift
-			for y := 0; y < 16; y++ {
+			for y := range 16 {
 				var row [16]byte
-				for x := 0; x < 16; x++ {
+				for x := range 16 {
 					row[x] = want[so+y*p[0]+x]
 				}
-				for x := 0; x < 16; x++ {
+				for x := range 16 {
 					want[do+y*p[1]+x] = row[x]
 				}
 			}

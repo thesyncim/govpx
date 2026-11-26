@@ -54,7 +54,7 @@ func TestVP9NonrdCoeffCostFrameTransitions(t *testing.T) {
 			if e.vp9CoeffTokenCostsValid != wantTable {
 				t.Fatalf("cost table valid=%t, want %t (frame gate=%t)", e.vp9CoeffTokenCostsValid, wantTable, gatePresent)
 			}
-			for tx := common.Tx4x4; tx < common.TxSizes; tx++ {
+			for tx := range common.TxSizes {
 				n := vp9dec.MaxEobForTxSize(tx)
 				scan := common.DefaultScanOrders[tx]
 				q := make([]int16, n)
@@ -65,9 +65,9 @@ func TestVP9NonrdCoeffCostFrameTransitions(t *testing.T) {
 				}
 				for fast := 0; fast <= 1; fast++ {
 					e.sf.UseFastCoefCosting = fast
-					for plane := 0; plane < 2; plane++ {
-						for ref := 0; ref < 2; ref++ {
-							for ctx := 0; ctx < 3; ctx++ {
+					for plane := range 2 {
+						for ref := range 2 {
+							for ctx := range 3 {
 								var scratch [1024]byte
 								want := encoder.CoeffBlockRateCost(encoder.CoeffBlockRateCostInput{TxSize: tx, CoefModel: &e.fc.CoefProbs[tx][plane][ref], ScanOrder: scan, Dequant: [2]int16{90, 90}, Coeffs: dq, QCoeffs: q, InitCtx: ctx, Fast: fast != 0, TokenCache: &scratch})
 								var got int

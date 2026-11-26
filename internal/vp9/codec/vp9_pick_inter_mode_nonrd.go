@@ -2241,56 +2241,45 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		return vp9InterModeDecision{}, false
 	}
 
-	// libvpx: vp9_pickmode.c:2714-2750 — update thresh_freq_fact when
-	// sf.adaptive_rd_thresh fires. For inter winners walk
-	// ref_frame ∈ {LAST..GOLDEN}, mode ∈ {NEARESTMV..NEWMV} and update via
-	// update_thresh_freq_fact or update_thresh_freq_fact_row_mt.
-	//
-	//   if (cpi->sf.adaptive_rd_thresh) {
-	//     THR_MODES best_mode_idx =
-	//         mode_idx[best_pickmode.best_ref_frame][mode_offset(mi->mode)];
-	//     if (best_pickmode.best_ref_frame == INTRA_FRAME) {
-	//       ... intra mode_list walk ...
-	//     } else {
-	//       for (ref_frame = LAST_FRAME; ref_frame <= GOLDEN_FRAME; ++ref_frame) {
-	//         if (best_pickmode.best_ref_frame != ref_frame) continue;
-	//         for (this_mode = NEARESTMV; this_mode <= NEWMV; ++this_mode) {
-	//           update_thresh_freq_fact(cpi, tile_data, x->source_variance,
-	//                                   bsize, ref_frame, best_mode_idx, this_mode);
-	//         }
-	//       }
-	//     }
-	//   }
-	//
 	if e.sf.AdaptiveRdThresh != 0 && bestSet && bsize >= common.Block8x8 {
-		bestRefFrame := bp.bestRefFrame
-		bestMode := bp.bestMode
-		if bestRefFrame >= vp9dec.IntraFrame && bestRefFrame < vp9dec.MaxRefFrames &&
-			encoder.ModeOffsetInterOrIntra(bestMode) >= 0 {
-			bestModeIdx := encoder.ModeIdxTable[bestRefFrame][encoder.ModeOffsetInterOrIntra(bestMode)]
-			if bestRefFrame == vp9dec.IntraFrame {
-				// libvpx walks intra_mode_list = {DC, V, H, TM}.
-				intraModeList := [...]common.PredictionMode{
-					common.DcPred, common.VPred, common.HPred, common.TmPred,
-				}
-				for _, im := range intraModeList {
-					e.updateVP9NonrdThreshFreqFact(sourceVariance, miRow,
-						bsize, vp9dec.IntraFrame, bestModeIdx, im)
-				}
-			} else {
-				for rf := int8(vp9dec.LastFrame); rf <= vp9dec.GoldenFrame; rf++ {
-					if rf != bestRefFrame {
-						continue
-					}
-					for tm := common.NearestMv; tm <= common.NewMv; tm++ {
-						e.updateVP9NonrdThreshFreqFact(sourceVariance, miRow,
-							bsize, rf, bestModeIdx, tm)
-					}
-				}
-			}
-		}
+		e.updateVP9NonrdAdaptiveThreshFreqFact(sourceVariance, miRow, bsize,
+			bp.bestRefFrame, bp.bestMode)
 	}
 
 	e.cbRdmult = prevCbRdmult
 	return best, true
+}
+
+// updateVP9NonrdAdaptiveThreshFreqFact ports vp9_pickmode.c:2714-2750: after
+// pickVP9InterReferenceModeNonRD settles on a winning mode, update the
+// per-mode adaptive RD threshold frequency factors for either the intra mode
+// list or the inter mode list of the winning reference frame.
+func (e *VP9Encoder) updateVP9NonrdAdaptiveThreshFreqFact(sourceVariance uint,
+	miRow int, bsize common.BlockSize, bestRefFrame int8, bestMode common.PredictionMode,
+) {
+	if bestRefFrame < vp9dec.IntraFrame || bestRefFrame >= vp9dec.MaxRefFrames ||
+		encoder.ModeOffsetInterOrIntra(bestMode) < 0 {
+		return
+	}
+	bestModeIdx := encoder.ModeIdxTable[bestRefFrame][encoder.ModeOffsetInterOrIntra(bestMode)]
+	if bestRefFrame == vp9dec.IntraFrame {
+		// libvpx walks intra_mode_list = {DC, V, H, TM}.
+		intraModeList := [...]common.PredictionMode{
+			common.DcPred, common.VPred, common.HPred, common.TmPred,
+		}
+		for _, im := range intraModeList {
+			e.updateVP9NonrdThreshFreqFact(sourceVariance, miRow,
+				bsize, vp9dec.IntraFrame, bestModeIdx, im)
+		}
+		return
+	}
+	for rf := int8(vp9dec.LastFrame); rf <= vp9dec.GoldenFrame; rf++ {
+		if rf != bestRefFrame {
+			continue
+		}
+		for tm := common.NearestMv; tm <= common.NewMv; tm++ {
+			e.updateVP9NonrdThreshFreqFact(sourceVariance, miRow,
+				bsize, rf, bestModeIdx, tm)
+		}
+	}
 }

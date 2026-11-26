@@ -21,7 +21,7 @@ func TestDCPairCoeffVectorBoundaries(t *testing.T) {
 	}
 	check := func(c0, c1 int32) {
 		v := dcPairSignedCoeff8(c0, c1)
-		for lane := uint8(0); lane < 8; lane++ {
+		for lane := range uint8(8) {
 			c := c0
 			if lane >= 4 {
 				c = c1
@@ -31,7 +31,7 @@ func TestDCPairCoeffVectorBoundaries(t *testing.T) {
 			}
 		}
 	}
-	for i := int32(0); i < 65536; i++ {
+	for i := range int32(65536) {
 		check(int32(int16(i)), -int32(int16(i)))
 		check(-2147483648+i, 2147483647-i)
 		check(2147483647-i, -2147483648+i)

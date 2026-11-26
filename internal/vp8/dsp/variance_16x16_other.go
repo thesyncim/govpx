@@ -91,7 +91,7 @@ func varianceBlock16xNScalar(src []byte, srcStride int, ref []byte, refStride in
 	_ = ref[(height-1)*refStride+15]
 	sum := 0
 	sse := 0
-	for y := 0; y < height; y++ {
+	for y := range height {
 		srcRow := src[y*srcStride:]
 		refRow := ref[y*refStride:]
 		d0 := int(srcRow[0]) - int(refRow[0])
@@ -122,7 +122,7 @@ func varianceBlock8xNScalar(src []byte, srcStride int, ref []byte, refStride int
 	_ = ref[(height-1)*refStride+7]
 	sum := 0
 	sse := 0
-	for y := 0; y < height; y++ {
+	for y := range height {
 		srcRow := src[y*srcStride:]
 		refRow := ref[y*refStride:]
 		d0 := int(srcRow[0]) - int(refRow[0])
@@ -144,7 +144,7 @@ func varianceBlock4xNScalar(src []byte, srcStride int, ref []byte, refStride int
 	_ = ref[(height-1)*refStride+3]
 	sum := 0
 	sse := 0
-	for y := 0; y < height; y++ {
+	for y := range height {
 		srcRow := src[y*srcStride:]
 		refRow := ref[y*refStride:]
 		d0 := int(srcRow[0]) - int(refRow[0])
@@ -172,10 +172,10 @@ func varFilterBlock2DBilinearFirstPass16(src []byte, srcStride int,
 	f1 := int(filter[1])
 	const round = tables.FilterWeight / 2
 	const shift = tables.FilterShift
-	for y := 0; y < height; y++ {
+	for y := range height {
 		srcRow := y * srcStride
 		dstRow := y * 16
-		for x := 0; x < 16; x++ {
+		for x := range 16 {
 			v := int(src[srcRow+x])*f0 + int(src[srcRow+x+1])*f1
 			dst[dstRow+x] = uint16((v + round) >> shift)
 		}
@@ -268,10 +268,10 @@ func bilinearFirstPassScalar(src []byte, srcStride int, dst *[17 * 16]uint16,
 	f1 := int(filter[1])
 	const round = tables.FilterWeight / 2
 	const shift = tables.FilterShift
-	for y := 0; y < height; y++ {
+	for y := range height {
 		srcRow := y * srcStride
 		dstRow := y * width
-		for x := 0; x < width; x++ {
+		for x := range width {
 			v := int(src[srcRow+x])*f0 + int(src[srcRow+x+1])*f1
 			dst[dstRow+x] = uint16((v + round) >> shift)
 		}
@@ -284,10 +284,10 @@ func bilinearSecondPassScalar(src *[17 * 16]uint16, dst []byte,
 	f1 := int(filter[1])
 	const round = tables.FilterWeight / 2
 	const shift = tables.FilterShift
-	for y := 0; y < height; y++ {
+	for y := range height {
 		srcRow := y * width
 		dstRow := y * width
-		for x := 0; x < width; x++ {
+		for x := range width {
 			v := int(src[srcRow+x])*f0 + int(src[srcRow+x+width])*f1
 			dst[dstRow+x] = byte((v + round) >> shift)
 		}

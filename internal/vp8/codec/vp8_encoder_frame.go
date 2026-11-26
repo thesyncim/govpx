@@ -744,119 +744,8 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			result.Quantizer = vp8common.QIndexToPublicQuantizer(e.rc.currentQuantizer)
 			result.InternalQuantizer = e.rc.currentQuantizer
 		} else {
-			finalQuantizer := e.rc.currentQuantizer
-			e.commitInterFrameAttempt(attempt, internalShowFrame)
-			if attempt.Config.Segmentation.Enabled {
-				e.roi.clearUpdateFlags()
-			}
-			e.rememberSegmentationConfig(attempt.Config.Segmentation)
-			e.loopFilterLevel = attempt.Config.LoopFilterLevel
-			result.Data = dst[:attempt.Size]
-			result.SizeBytes = attempt.Size
-			e.setEncodeResultQuantizer(&result, finalQuantizer)
-			result.Droppable = interFrameDroppable(attempt.Config)
-			if oracleTraceBuild {
-				e.emitOracleRateAndRecodeTrace(vp8common.InterFrame, finalQuantizer, attempt.Size, attempt.ProjectedSizeBits, attempt.CoefSavingsBits, attempt.RefFrameSavingsBits)
-			}
-			e.rc.postEncodeFrameWithPacketContext(attempt.Size, rateControlPostEncodeContext{
-				goldenFrame:           attempt.Config.RefreshGolden,
-				altRefFrame:           attempt.Config.RefreshAltRef,
-				macroblocks:           required,
-				showFrame:             internalShowFrame,
-				skipPostPackOverspend: e.twoPass.enabled(),
-				alwaysUpdateFactor:    e.opts.RTCExternalRateControl,
-				errorResilient:        e.opts.ErrorResilient || e.opts.ErrorResilientPartitions,
-				autoAltRef:            e.opts.AutoAltRef,
-			})
-			if hiddenAltRefFrame {
-				e.twoPass.chargeAltRefFrameBitsWithProjection(vpxrc.EncodedSizeBits(attempt.Size), attempt.ProjectedSizeBits)
-			} else {
-				e.twoPass.finishFrame(vpxrc.EncodedSizeBits(attempt.Size))
-			}
-			// libvpx vp8/encoder/onyx_if.c lines 4478-4513 update
-			// ni_frames / ni_tot_qi / ni_av_qi from the post-encode Q
-			// after each non-dropped frame. For govpx we record visible
-			// inter frames (hidden ARF frames are still visible to the
-			// regulator but are gated out by the refresh-altref check
-			// inside recordInterFrameQuantizer when number_of_layers<=1).
-			// The recorder feeds the firstpass.c lines 994-1006 maxq
-			// limit clamp on subsequent estimate_max_q calls.
-			e.twoPass.recordInterFrameQuantizer(finalQuantizer, false, attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef, int(temporalFrame.LayerCount), e.twoPass.enabled())
-			e.rc.clampScreenContentBufferDebt(e.opts.ScreenContentMode)
-			result.BufferLevelBits = e.rc.bufferLevelBits
-			e.forceKeyFrame = false
-			if attempt.CyclicRefresh {
-				if attempt.CyclicRefreshMapLive {
-					e.commitLiveCyclicRefreshMap(rows, cols, attempt.CyclicRefreshNextIndex)
-				} else {
-					e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
-				}
-			}
-			e.updateActivityProbeRDState(finalQuantizer, e.rc.currentZbinOverQuant, rows, cols)
-			e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
-			e.lastInterSkipCount = countSkippedInterFrameModes(e.interFrameModes[:required])
-			e.updateConsecutiveZeroLast(e.interFrameModes[:required])
-			e.updateGFActiveMap(attempt.Config.RefreshGolden, e.interFrameModes[:required])
-			// libvpx vp8/encoder/onyx_if.c update_golden_frame_stats: track
-			// per-frame ref usage so calc_gf_params and the auto_gold
-			// refresh decision read the same `recent_ref_frame_usage`
-			// libvpx would. On GF refresh the encoder resets the counters
-			// to {1,1,1,1} via resetRecentRefFrameUsage; otherwise the
-			// counts accumulate (skipping the immediate post-GF frame).
-			intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes[:required])
-			e.temporalLayerRefUsage = [vp8common.MaxRefFrames]int{intra, last, golden, alt}
-			if attempt.Config.RefreshGolden {
-				e.rc.resetRecentRefFrameUsage(required)
-			} else {
-				e.rc.updateRecentRefFrameUsage(intra, last, golden, alt)
-			}
-			if required > 0 {
-				e.rc.thisFramePercentIntra = (100 * intra) / required
-			}
-			// libvpx vp8/encoder/onyx_if.c rolls last_frame_percent_intra
-			// AFTER decide_key_frame consumes this_frame_percent_intra.
-			// Keep that ordering here: lastFramePercentIntra captures the
-			// just-encoded frame's value for the next frame's heuristic.
-			e.lastFramePercentIntra = e.rc.thisFramePercentIntra
-			e.saveTemporalLayerCodingState(temporalFrame)
-			e.propagateTemporalLayerCodingState(temporalFrame, vpxrc.EncodedSizeBits(attempt.Size))
-			e.temporal.finishFrame(temporalFrame, false, internalShowFrame, temporalReferenceRefresh{
-				Last:   attempt.Config.RefreshLast,
-				Golden: attempt.Config.RefreshGolden,
-				AltRef: attempt.Config.RefreshAltRef,
-			}, vpxrc.EncodedSizeBits(attempt.Size), e.temporalBufferConfig())
-			e.populateTemporalLayerBufferResult(&result, temporalFrame)
-			if oracleTraceBuild {
-				e.emitOracleFrameTrace(oracleTraceFrameSummary{
-					FrameType:            vp8common.InterFrame,
-					BaseQIndex:           int(attempt.Config.BaseQIndex),
-					LoopFilter:           int(attempt.Config.LoopFilterLevel),
-					SharpnessLevel:       int(attempt.Config.SharpnessLevel),
-					RefLFDeltas:          attempt.Config.RefLFDeltas,
-					ModeLFDeltas:         attempt.Config.ModeLFDeltas,
-					ModeRefLFDeltaEnable: attempt.Config.LFDeltaEnabled,
-					ModeRefLFDeltaUpdate: attempt.Config.LFDeltaUpdate,
-					RefreshLast:          attempt.Config.RefreshLast,
-					RefreshGolden:        attempt.Config.RefreshGolden,
-					RefreshAltRef:        attempt.Config.RefreshAltRef,
-					GoldenSignBias:       attempt.Config.GoldenSignBias,
-					AltRefSignBias:       attempt.Config.AltRefSignBias,
-					SegEnabled:           attempt.Config.Segmentation.Enabled,
-					SizeBytes:            attempt.Size,
-				})
-				e.flushOracleMBTraceBuffer()
-			}
-			e.clearExternalRefreshMaskAfterPacket()
-			e.clearExternalReferenceMaskAfterPacket()
-			e.clearCarriedNoUpdateEntropyAfterPacket()
-			// libvpx onyx_if.c end-of-encode: record ambient_err if the next
-			// frame will be a forced KF so the forced-KF recode branch has a
-			// baseline to compare against.
-			e.updateNextKeyFrameForcedAfterCommit(source, rows, cols)
-			if !hiddenAltRefFrame {
-				e.finishAutoSpeedTiming(false)
-				e.frameCount++
-			}
+			e.commitVP8InterFrameState(dst, source, rows, cols, required, attempt,
+				internalShowFrame, hiddenAltRefFrame, temporalFrame, &result)
 			finishSourceAltRef()
 			return result, nil
 		}
@@ -892,6 +781,122 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		e.cancelAutoSpeedTiming()
 		return EncodeResult{}, err
 	}
+	e.commitVP8KeyFrameState(dst, source, rows, cols, required, keyAttempt,
+		internalShowFrame, twoPassSceneCut, temporalFrame, &result)
+	finishSourceAltRef()
+	return result, nil
+}
+
+// commitVP8InterFrameState commits entropy, reference buffers, rate control,
+// cyclic refresh, ref-usage stats, temporal layering, and oracle trace state
+// for a finished VP8 inter-frame attempt.
+func (e *VP8Encoder) commitVP8InterFrameState(dst []byte, source vp8enc.SourceImage,
+	rows, cols, required int, attempt interFrameEncodeAttempt,
+	internalShowFrame, hiddenAltRefFrame bool, temporalFrame temporalFrame,
+	result *EncodeResult,
+) {
+	finalQuantizer := e.rc.currentQuantizer
+	e.commitInterFrameAttempt(attempt, internalShowFrame)
+	if attempt.Config.Segmentation.Enabled {
+		e.roi.clearUpdateFlags()
+	}
+	e.rememberSegmentationConfig(attempt.Config.Segmentation)
+	e.loopFilterLevel = attempt.Config.LoopFilterLevel
+	result.Data = dst[:attempt.Size]
+	result.SizeBytes = attempt.Size
+	e.setEncodeResultQuantizer(result, finalQuantizer)
+	result.Droppable = interFrameDroppable(attempt.Config)
+	if oracleTraceBuild {
+		e.emitOracleRateAndRecodeTrace(vp8common.InterFrame, finalQuantizer, attempt.Size, attempt.ProjectedSizeBits, attempt.CoefSavingsBits, attempt.RefFrameSavingsBits)
+	}
+	e.rc.postEncodeFrameWithPacketContext(attempt.Size, rateControlPostEncodeContext{
+		goldenFrame:           attempt.Config.RefreshGolden,
+		altRefFrame:           attempt.Config.RefreshAltRef,
+		macroblocks:           required,
+		showFrame:             internalShowFrame,
+		skipPostPackOverspend: e.twoPass.enabled(),
+		alwaysUpdateFactor:    e.opts.RTCExternalRateControl,
+		errorResilient:        e.opts.ErrorResilient || e.opts.ErrorResilientPartitions,
+		autoAltRef:            e.opts.AutoAltRef,
+	})
+	if hiddenAltRefFrame {
+		e.twoPass.chargeAltRefFrameBitsWithProjection(vpxrc.EncodedSizeBits(attempt.Size), attempt.ProjectedSizeBits)
+	} else {
+		e.twoPass.finishFrame(vpxrc.EncodedSizeBits(attempt.Size))
+	}
+	e.twoPass.recordInterFrameQuantizer(finalQuantizer, false, attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef, int(temporalFrame.LayerCount), e.twoPass.enabled())
+	e.rc.clampScreenContentBufferDebt(e.opts.ScreenContentMode)
+	result.BufferLevelBits = e.rc.bufferLevelBits
+	e.forceKeyFrame = false
+	if attempt.CyclicRefresh {
+		if attempt.CyclicRefreshMapLive {
+			e.commitLiveCyclicRefreshMap(rows, cols, attempt.CyclicRefreshNextIndex)
+		} else {
+			e.commitCyclicRefresh(rows, cols, attempt.CyclicRefreshNextIndex, e.interFrameModes[:required])
+		}
+	}
+	e.updateActivityProbeRDState(finalQuantizer, e.rc.currentZbinOverQuant, rows, cols)
+	e.lastInterZeroMVCount = countLastZeroMVInterFrameModes(e.interFrameModes[:required])
+	e.lastInterSkipCount = countSkippedInterFrameModes(e.interFrameModes[:required])
+	e.updateConsecutiveZeroLast(e.interFrameModes[:required])
+	e.updateGFActiveMap(attempt.Config.RefreshGolden, e.interFrameModes[:required])
+	intra, last, golden, alt := countInterFrameRefUsage(e.interFrameModes[:required])
+	e.temporalLayerRefUsage = [vp8common.MaxRefFrames]int{intra, last, golden, alt}
+	if attempt.Config.RefreshGolden {
+		e.rc.resetRecentRefFrameUsage(required)
+	} else {
+		e.rc.updateRecentRefFrameUsage(intra, last, golden, alt)
+	}
+	if required > 0 {
+		e.rc.thisFramePercentIntra = (100 * intra) / required
+	}
+	e.lastFramePercentIntra = e.rc.thisFramePercentIntra
+	e.saveTemporalLayerCodingState(temporalFrame)
+	e.propagateTemporalLayerCodingState(temporalFrame, vpxrc.EncodedSizeBits(attempt.Size))
+	e.temporal.finishFrame(temporalFrame, false, internalShowFrame, temporalReferenceRefresh{
+		Last:   attempt.Config.RefreshLast,
+		Golden: attempt.Config.RefreshGolden,
+		AltRef: attempt.Config.RefreshAltRef,
+	}, vpxrc.EncodedSizeBits(attempt.Size), e.temporalBufferConfig())
+	e.populateTemporalLayerBufferResult(result, temporalFrame)
+	if oracleTraceBuild {
+		e.emitOracleFrameTrace(oracleTraceFrameSummary{
+			FrameType:            vp8common.InterFrame,
+			BaseQIndex:           int(attempt.Config.BaseQIndex),
+			LoopFilter:           int(attempt.Config.LoopFilterLevel),
+			SharpnessLevel:       int(attempt.Config.SharpnessLevel),
+			RefLFDeltas:          attempt.Config.RefLFDeltas,
+			ModeLFDeltas:         attempt.Config.ModeLFDeltas,
+			ModeRefLFDeltaEnable: attempt.Config.LFDeltaEnabled,
+			ModeRefLFDeltaUpdate: attempt.Config.LFDeltaUpdate,
+			RefreshLast:          attempt.Config.RefreshLast,
+			RefreshGolden:        attempt.Config.RefreshGolden,
+			RefreshAltRef:        attempt.Config.RefreshAltRef,
+			GoldenSignBias:       attempt.Config.GoldenSignBias,
+			AltRefSignBias:       attempt.Config.AltRefSignBias,
+			SegEnabled:           attempt.Config.Segmentation.Enabled,
+			SizeBytes:            attempt.Size,
+		})
+		e.flushOracleMBTraceBuffer()
+	}
+	e.clearExternalRefreshMaskAfterPacket()
+	e.clearExternalReferenceMaskAfterPacket()
+	e.clearCarriedNoUpdateEntropyAfterPacket()
+	e.updateNextKeyFrameForcedAfterCommit(source, rows, cols)
+	if !hiddenAltRefFrame {
+		e.finishAutoSpeedTiming(false)
+		e.frameCount++
+	}
+}
+
+// commitVP8KeyFrameState commits entropy, reference buffers, rate control,
+// cyclic refresh, temporal layering, and oracle trace state for a finished
+// VP8 keyframe attempt.
+func (e *VP8Encoder) commitVP8KeyFrameState(dst []byte, source vp8enc.SourceImage,
+	rows, cols, required int, keyAttempt keyFrameEncodeAttempt,
+	internalShowFrame, twoPassSceneCut bool, temporalFrame temporalFrame,
+	result *EncodeResult,
+) {
 	finalQuantizer := e.rc.currentQuantizer
 	e.commitKeyFrameEntropy(keyAttempt)
 	if keyAttempt.SegmentationEnabled {
@@ -900,23 +905,15 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.rememberSegmentationConfig(keyAttempt.SegmentationConfig)
 	// Mirror libvpx onyx_if.c key-frame branch: zero frames_since_golden,
 	// drop source_alt_ref_active when no ARF schedule is pending, and
-	// decrement frames_till_alt_ref_frame. Carried out by
-	// `refreshKeyFrameReferencesFromAnalysis -> resetGoldenFrameStats`,
-	// which is the single keyframe-path call point. Calling it twice
-	// (legacy code did) would double-decrement framesTillAltRefFrame and
-	// silently shorten any pass2-armed ARF schedule.
+	// decrement frames_till_alt_ref_frame.
 	e.refreshKeyFrameReferencesFromAnalysis()
 	e.setPreviewFrame(vp8common.KeyFrame, finalQuantizer, keyAttempt.LoopFilterLevel, false)
-	// Seed denoiser running averages from the key-frame source (libvpx
-	// onyx_if.c update_reference_frames key-frame branch).
 	e.initDenoiserAvgFromKeyFrame(source)
-	// Key frames consume any pending force_maxqp gate without applying it
-	// (cyclic refresh is already keyframe-reset).
 	e.clearForceMaxQuantizer()
 	e.loopFilterLevel = keyAttempt.LoopFilterLevel
 	result.Data = dst[:keyAttempt.Size]
 	result.SizeBytes = keyAttempt.Size
-	e.setEncodeResultQuantizer(&result, finalQuantizer)
+	e.setEncodeResultQuantizer(result, finalQuantizer)
 	if oracleTraceBuild {
 		e.emitOracleRateAndRecodeTrace(vp8common.KeyFrame, finalQuantizer, keyAttempt.Size, keyAttempt.ProjectedSizeBits, keyAttempt.CoefSavingsBits, keyAttempt.RefFrameSavingsBits)
 	}
@@ -935,12 +932,6 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.rc.clampScreenContentBufferDebt(e.opts.ScreenContentMode)
 	result.BufferLevelBits = e.rc.bufferLevelBits
 	e.forceKeyFrame = false
-	// libvpx does not advance cyclic_refresh_mode_index or rewrite
-	// cyclic_refresh_map on key frames: cyclic_background_refresh only
-	// clears the segmentation map for the keyframe packet, and
-	// encodeframe.c updates cyclic_refresh_map only in the inter path.
-	// Preserve both rolling structures so the next inter frame attempts the
-	// same refresh candidates.
 	e.commitKeyFrameCyclicRefreshMap(rows, cols, e.keyFrameModes[:required], keyAttempt.SegmentationEnabled)
 	e.updateActivityProbeRDState(finalQuantizer, e.rc.currentZbinOverQuant, rows, cols)
 	clearUint8Map(e.consecZeroLast)
@@ -948,9 +939,6 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	clearBoolMap(e.dotArtifactChecked)
 	e.lastInterZeroMVCount = 0
 	e.lastInterSkipCount = 0
-	// libvpx vp8/encoder/onyx_if.c key-frame path resets the rolling
-	// recent_ref_frame_usage counters to 1 each (the same as a GF
-	// refresh) so the next GF section starts with a clean baseline.
 	e.rc.resetRecentRefFrameUsage(required)
 	e.resetGFActiveMap(required)
 	if e.rc.framesTillGFUpdateDue > 0 {
@@ -958,9 +946,6 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		e.rc.framesTillGFUpdateDue--
 	}
 	e.rc.thisFramePercentIntra = 100
-	// libvpx vp8/encoder/onyx_if.c sets last_frame_percent_intra=100
-	// after every key frame, mirroring the encoder's expectation that
-	// the next inter frame starts from an "all-intra" baseline.
 	e.lastFramePercentIntra = 100
 	e.resetInterRDThresholdMultipliers()
 	e.interRDFrameActive = false
@@ -968,7 +953,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.saveTemporalLayerCodingState(temporalFrame)
 	e.propagateTemporalLayerCodingState(temporalFrame, vpxrc.EncodedSizeBits(keyAttempt.Size))
 	e.temporal.finishFrame(temporalFrame, true, internalShowFrame, temporalReferenceRefresh{Last: true, Golden: true, AltRef: true}, vpxrc.EncodedSizeBits(keyAttempt.Size), e.temporalBufferConfig())
-	e.populateTemporalLayerBufferResult(&result, temporalFrame)
+	e.populateTemporalLayerBufferResult(result, temporalFrame)
 	if oracleTraceBuild {
 		e.emitOracleFrameTrace(oracleTraceFrameSummary{
 			FrameType:            vp8common.KeyFrame,
@@ -990,16 +975,10 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	e.clearExternalRefreshMaskAfterPacket()
 	e.clearExternalReferenceMaskAfterPacket()
 	e.clearCarriedNoUpdateEntropyAfterPacket()
-	// libvpx onyx_if.c, end-of-encode: clear this_key_frame_forced after the
-	// frame has been committed; the next forced KF will set it again. Update
-	// the next_key_frame_forced bookkeeping for the following frame's
-	// ambient_err capture.
 	e.thisKeyFrameForced = false
 	e.updateNextKeyFrameForcedAfterCommit(source, rows, cols)
 	e.finishAutoSpeedTiming(true)
 	e.frameCount++
-	finishSourceAltRef()
-	return result, nil
 }
 
 // updateNextKeyFrameForcedAfterCommit ports the libvpx

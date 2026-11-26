@@ -7,14 +7,14 @@ import (
 )
 
 func copy8Oracle(src []byte, ss int, dst []byte, ds int) {
-	for y := 0; y < 8; y++ {
+	for y := range 8 {
 		d := dst[y*ds : y*ds+8]
 		s := src[y*ss : y*ss+8]
 		var row [8]byte
-		for x := 0; x < 8; x++ {
+		for x := range 8 {
 			row[x] = s[x]
 		}
-		for x := 0; x < 8; x++ {
+		for x := range 8 {
 			d[x] = row[x]
 		}
 	}
@@ -24,7 +24,7 @@ func TestCopy8RowsPublicState(t *testing.T) {
 	strides := [][2]int{{0, 0}, {0, 17}, {1, 7}, {7, 1}, {15, 8}, {8, 15}, {8, 8}, {17, 31}, {32, 37}, {1312, 1320}, {-1, 8}, {8, -1}, {1 << 30, 8}, {8, 1 << 30}, {int(^uint(0) >> 1), 8}}
 	for _, pitch := range strides {
 		for _, shift := range []int{-33, -8, -1, 0, 1, 8, 33, 22000} {
-			for mode := 0; mode < 7; mode++ {
+			for mode := range 7 {
 				ss, ds := pitch[0], pitch[1]
 				so, do := 64, 64+shift
 				original := make([]byte, 45000)
