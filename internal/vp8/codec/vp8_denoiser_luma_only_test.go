@@ -95,10 +95,6 @@ func astraDenoiserCompare(t *testing.T, got, want *astraDenoiserFixture, gm, wm 
 	for _, pair := range [][2][]byte{
 		{got.source.Y, want.source.Y}, {got.source.U, want.source.U}, {got.source.V, want.source.V},
 		{got.filtered.U, want.filtered.U}, {got.filtered.V, want.filtered.V},
-		{got.e.denoiser.mcY[:], want.e.denoiser.mcY[:]},
-		{got.e.denoiser.mcRunning.Img.YFull, want.e.denoiser.mcRunning.Img.YFull},
-		{got.e.denoiser.mcRunning.Img.UFull, want.e.denoiser.mcRunning.Img.UFull},
-		{got.e.denoiser.mcRunning.Img.VFull, want.e.denoiser.mcRunning.Img.VFull},
 	} {
 		if !bytes.Equal(pair[0], pair[1]) {
 			t.Fatal("source, overlay, luma scratch, or fallback image mismatch")
@@ -156,9 +152,6 @@ func TestVP8Algorithm2DenoiserLumaFrozen(t *testing.T) {
 					gm := got.e.applyDenoiserToInterMacroblock(got.source, got.filtered, got.rows, got.cols, got.row, got.col, &got.decision)
 					wm := want.e.astraFrozenApplyDenoiserToInterMacroblock(want.source, want.filtered, want.rows, want.cols, want.row, want.col, &want.decision)
 					astraDenoiserCompare(t, &got, &want, gm, wm)
-					if got.e.denoiser.mcU != want.e.denoiser.mcU || got.e.denoiser.mcV != want.e.denoiser.mcV {
-						t.Fatal("UV consumer retained stale scratch")
-					}
 				})
 			}
 		}

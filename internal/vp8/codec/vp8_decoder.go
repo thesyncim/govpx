@@ -90,6 +90,7 @@ type VP8Decoder struct {
 	modeReader      boolcoder.Decoder
 	tokenReaders    [8]boolcoder.Decoder
 	partitions      vp8dec.PartitionLayout
+	wavefront       *vp8dec.WavefrontPool
 
 	// Pointer-free value fields below (never scanned by Go's GC).
 	lifecycle          vp8DecoderState
@@ -628,6 +629,10 @@ func (d *VP8Decoder) Close() error {
 	if d.isClosed() {
 		return ErrClosed
 	}
+	if d.wavefront != nil {
+		d.wavefront.Close()
+		d.wavefront = nil
+	}
 	d.Reset()
 	d.lifecycle = vp8DecoderClosed
 	return nil
@@ -664,6 +669,15 @@ func (d *VP8Decoder) decodeFramePacket(packet []byte, frame vp8dec.FrameHeader, 
 		d.zeroCorruptMacroblockTokens(d.modesCorrupt)
 		vp8dec.ApplyCorruptInterFrameRefresh(&d.state)
 		d.frameCorrupt = true
+	}
+	if !d.frameCorrupt && !errorConcealment && d.opts.Threads >= 2 && d.mbRows > 1 {
+		if err := d.decodeAndReconstructWavefront(info); err != nil {
+			return err
+		}
+		d.saveErrorConcealmentModes()
+		d.frameSuppress = d.refreshReferences()
+		d.commitParsedState(info)
+		return nil
 	}
 	if d.frameCorrupt {
 		if d.modesCorrupt > 0 {
@@ -1113,6 +1127,37 @@ func (d *VP8Decoder) zeroCorruptMacroblockTokens(first int) {
 		d.tokens[i] = vp8dec.MacroblockTokens{}
 		d.modes[i].MBSkipCoeff = true
 	}
+}
+
+func (d *VP8Decoder) decodeAndReconstructWavefront(info StreamInfo) error {
+	if d.wavefront == nil {
+		d.wavefront = vp8dec.NewWavefrontPool(d.opts.Threads)
+	}
+	frameType := vp8common.KeyFrame
+	if !info.KeyFrame {
+		frameType = vp8common.InterFrame
+	}
+	cfg := vp8dec.InterPredictionConfigForVersion(info.Profile)
+	skipLoopFilter := vp8dec.VersionSkipsLoopFilter(info.Profile)
+	loopFilter := vp8dec.LoopFilterHeaderForVersion(info.Profile, d.state.LoopFilter)
+	readers := d.tokenReaders[:d.partitions.TokenCount]
+	cur := d.curBuf()
+	if err := d.wavefront.DecodeReconstructLoopFilterWavefront(
+		&cur.Img, &d.lastBuf().Img, &d.goldenBuf().Img, &d.altBuf().Img,
+		d.mbRows, d.mbCols, readers, &d.frameCoefProbs, d.modes, &d.dequants, cfg,
+		info.KeyFrame,
+		!skipLoopFilter,
+		frameType, loopFilter, d.state.Segmentation, &d.loopInfo,
+	); err != nil {
+		return ErrInvalidData
+	}
+	for i := range readers {
+		if readers[i].Err() != nil {
+			return ErrInvalidData
+		}
+	}
+	cur.ExtendBorders()
+	return nil
 }
 
 func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {

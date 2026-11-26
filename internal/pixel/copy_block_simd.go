@@ -138,19 +138,21 @@ func ExtendPlaneBorder(full []byte, origin, stride, width, height, borderX, bord
 	case 32:
 		rowStart := origin
 		for range height {
-			lf := archsimd.BroadcastUint8x16(full[rowStart])
-			lf.StoreArray((*[16]byte)(full[rowStart-32 : rowStart-16]))
-			lf.StoreArray((*[16]byte)(full[rowStart-16 : rowStart]))
-			rf := archsimd.BroadcastUint8x16(full[rowStart+width-1])
-			rf.StoreArray((*[16]byte)(full[rowStart+width : rowStart+width+16]))
-			rf.StoreArray((*[16]byte)(full[rowStart+width+16 : rowStart+width+32]))
+			row := full[rowStart-32 : rowStart+width+32]
+			lf := archsimd.BroadcastUint8x16(row[32])
+			lf.StoreArray((*[16]byte)(row[0:16]))
+			lf.StoreArray((*[16]byte)(row[16:32]))
+			rf := archsimd.BroadcastUint8x16(row[width+31])
+			rf.StoreArray((*[16]byte)(row[width+32 : width+48]))
+			rf.StoreArray((*[16]byte)(row[width+48 : width+64]))
 			rowStart += stride
 		}
 	case 16:
 		rowStart := origin
 		for range height {
-			archsimd.BroadcastUint8x16(full[rowStart]).StoreArray((*[16]byte)(full[rowStart-16 : rowStart]))
-			archsimd.BroadcastUint8x16(full[rowStart+width-1]).StoreArray((*[16]byte)(full[rowStart+width : rowStart+width+16]))
+			row := full[rowStart-16 : rowStart+width+16]
+			archsimd.BroadcastUint8x16(row[16]).StoreArray((*[16]byte)(row[0:16]))
+			archsimd.BroadcastUint8x16(row[width+15]).StoreArray((*[16]byte)(row[width+16 : width+32]))
 			rowStart += stride
 		}
 	default:
@@ -171,7 +173,7 @@ func ExtendPlaneBorder(full []byte, origin, stride, width, height, borderX, bord
 	}
 	span := width + 2*borderX
 	topSrc := full[origin-borderX : origin-borderX+span]
-	for y := 1; y <= borderY; y++ {
+	for y := borderY; y >= 1; y-- {
 		dstStart := origin - y*stride - borderX
 		copy(full[dstStart:dstStart+span], topSrc)
 	}

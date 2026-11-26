@@ -549,6 +549,8 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	contentStateSbFd := w.contentStateSbFd
 	nmvCostCache := w.vp9NmvCostCache
 	blockCoeffScratch := w.blockCoeffScratch
+	vp9TokenFrame := w.vp9TokenFrame
+	lastSource := w.lastSource
 	var aboveCtx [vp9dec.MaxMbPlane][]uint8
 	var leftCtx [vp9dec.MaxMbPlane][]uint8
 	for plane := range vp9dec.MaxMbPlane {
@@ -613,6 +615,18 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	w.intProSrcBorderedValid = false
 	w.contentStateSbFd = contentStateSbFd
 	w.vp9NmvCostCache = nmvCostCache
+	w.vp9TokenFrame = vp9TokenFrame
+	w.lastSource = lastSource
+	if src.lastSourceValid && len(src.lastSource.Y) > 0 {
+		rect := src.lastSource.Rect
+		if w.lastSource.Rect != rect ||
+			w.lastSource.SubsampleRatio != src.lastSource.SubsampleRatio ||
+			len(w.lastSource.Y) == 0 {
+			w.lastSource = *image.NewYCbCr(rect, src.lastSource.SubsampleRatio)
+		}
+		copyVP9VisiblePlane(w.lastSource.Y, w.lastSource.YStride,
+			src.lastSource.Y, src.lastSource.YStride, rect.Dx(), rect.Dy())
+	}
 	// Worker-private coefficient staging scratch (see
 	// VP9Encoder.blockCoeffScratch): never alias the parent's arrays.
 	if blockCoeffScratch == nil {

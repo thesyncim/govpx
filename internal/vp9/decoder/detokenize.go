@@ -165,20 +165,32 @@ func readCoeffBits(r *bitstream.ReaderState, probs []uint8, n int,
 func vpxReadNoFill(prob uint32,
 	value uint64, rng uint32, count int32,
 ) (uint32, uint64, uint32, int32) {
-	s := 1 + (((rng - 1) * prob) >> 8)
-	m := ^uint32(int32(uint32(value>>56)-s) >> 31)
-	nr := s ^ (((rng - s) ^ s) & m)
+	s := (rng*prob + (256 - prob)) >> 8
+	bigsplit := uint64(s) << 56
+	ge := value >= bigsplit
+	nr := s
+	if ge {
+		nr = rng - s
+	}
+	nv := value
+	if ge {
+		nv = value - bigsplit
+	}
+	var bit uint32
+	if ge {
+		bit = 1
+	}
 	sh := uint32(bits.LeadingZeros8(uint8(nr)))
-	return m & 1, (value - uint64(s&m)<<56) << sh, nr << sh, count - int32(sh)
+	return bit, nv << sh, nr << sh, count - int32(sh)
 }
 
-// vpxReadBoolNoFill lowers to CMP + CSINC + CSEL on arm64 (0 branches, ~11
-// cycles vs ~21 for arithmetic masking) while staying under Go's 80-node
+// vpxReadBoolNoFill lowers to MADD + LSR + CMP + CSEL on arm64 (0 branches,
+// ~9 cycles vs ~11 for SUB+MUL+LSR+ADD) while staying under Go's 80-node
 // inliner budget by returning bool directly.
 func vpxReadBoolNoFill(prob uint32,
 	value uint64, rng uint32, count int32,
 ) (bool, uint64, uint32, int32) {
-	s := 1 + (((rng - 1) * prob) >> 8)
+	s := (rng*prob + (256 - prob)) >> 8
 	bigsplit := uint64(s) << 56
 	ge := value >= bigsplit
 	nr := s
@@ -193,6 +205,28 @@ func vpxReadBoolNoFill(prob uint32,
 	return ge, nv << sh, nr << sh, count - int32(sh)
 }
 
+// vpxReadBitBoolNoFill is branchless vpxReadBoolNoFill at prob=128 — one
+// equally-likely bit returning bool so callers lower sign negation to CSNEG.
+// Since rng-split == rng>>1 identically for all rng, both candidates compute
+// in parallel without waiting on split.
+func vpxReadBitBoolNoFill(
+	value uint64, rng uint32, count int32,
+) (bool, uint64, uint32, int32) {
+	split := (rng + 1) >> 1
+	bigsplit := uint64(split) << 56
+	ge := value >= bigsplit
+	nr := split
+	if ge {
+		nr = rng >> 1
+	}
+	nv := value
+	if ge {
+		nv = value - bigsplit
+	}
+	shift := uint32(1) - (nr >> 7)
+	return ge, nv << shift, nr << shift, count - int32(shift)
+}
+
 // vpxReadBitNoFill is branchless vpxReadNoFill at prob=128 — one equally-likely
 // bit, mirroring vpx_read_bit. The caller performs the fill check.
 func vpxReadBitNoFill(
@@ -203,7 +237,7 @@ func vpxReadBitNoFill(
 	ge := value >= bigsplit
 	nr := split
 	if ge {
-		nr = rng - split
+		nr = rng >> 1
 	}
 	nv := value
 	if ge {
@@ -424,7 +458,6 @@ func decodeVP9Cat3to6Fast(
 	if count < 32 {
 		value, count, pos = bitstream.FillFast(buf, pos, value, count)
 	}
-	var bit uint32
 	var b bool
 	var val int
 	b, value, rng, count = vpxReadBoolNoFill(uint32(p[5]), value, rng, count)
@@ -436,8 +469,11 @@ func decodeVP9Cat3to6Fast(
 				if count < 0 {
 					value, count, pos = bitstream.FillFast(buf, pos, value, count)
 				}
-				bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat6Prob[i]), value, rng, count)
-				val += val - cat6MinVal + int(bit)
+				b, value, rng, count = vpxReadBoolNoFill(uint32(tables.Cat6Prob[i]), value, rng, count)
+				val += val - cat6MinVal
+				if b {
+					val++
+				}
 			}
 		} else {
 			val = cat5MinVal
@@ -445,8 +481,11 @@ func decodeVP9Cat3to6Fast(
 				if count < 0 {
 					value, count, pos = bitstream.FillFast(buf, pos, value, count)
 				}
-				bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat5Prob[i]), value, rng, count)
-				val += val - cat5MinVal + int(bit)
+				b, value, rng, count = vpxReadBoolNoFill(uint32(tables.Cat5Prob[i]), value, rng, count)
+				val += val - cat5MinVal
+				if b {
+					val++
+				}
 			}
 		}
 	} else {
@@ -457,8 +496,11 @@ func decodeVP9Cat3to6Fast(
 				if count < 0 {
 					value, count, pos = bitstream.FillFast(buf, pos, value, count)
 				}
-				bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat4Prob[i]), value, rng, count)
-				val += val - cat4MinVal + int(bit)
+				b, value, rng, count = vpxReadBoolNoFill(uint32(tables.Cat4Prob[i]), value, rng, count)
+				val += val - cat4MinVal
+				if b {
+					val++
+				}
 			}
 		} else {
 			val = cat3MinVal
@@ -466,8 +508,11 @@ func decodeVP9Cat3to6Fast(
 				if count < 0 {
 					value, count, pos = bitstream.FillFast(buf, pos, value, count)
 				}
-				bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat3Prob[i]), value, rng, count)
-				val += val - cat3MinVal + int(bit)
+				b, value, rng, count = vpxReadBoolNoFill(uint32(tables.Cat3Prob[i]), value, rng, count)
+				val += val - cat3MinVal
+				if b {
+					val++
+				}
 			}
 		}
 	}
@@ -505,7 +550,7 @@ func DecodeCoefsFastPlaneAfterEOB(
 	c := 0
 	slowResume := false
 	slowSkipEob := false
-	var p32, bit uint32
+	var p32 uint32
 	var b bool
 	if pos > fastLimit {
 		slowResume = true
@@ -569,47 +614,66 @@ fastLoop:
 							if count < 0 {
 								value, count, pos = bitstream.FillFast(buf, pos, value, count)
 							}
-							bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat2Prob[i]), value, rng, count)
-							val += val - cat2MinVal + int(bit)
+							b, value, rng, count = vpxReadBoolNoFill(uint32(tables.Cat2Prob[i]), value, rng, count)
+							val += val - cat2MinVal
+							if b {
+								val++
+							}
 						}
 					} else {
 						if count < 0 {
 							value, count, pos = bitstream.FillFast(buf, pos, value, count)
 						}
-						bit, value, rng, count = vpxReadNoFill(uint32(tables.Cat1Prob[0]), value, rng, count)
-						val = cat1MinVal + int(bit)
+						b, value, rng, count = vpxReadBoolNoFill(uint32(tables.Cat1Prob[0]), value, rng, count)
+						val = cat1MinVal
+						if b {
+							val++
+						}
 					}
 				}
 				v := (val * int(dqv)) >> dqShift
 				if count < 0 {
 					value, count, pos = bitstream.FillFast(buf, pos, value, count)
 				}
-				bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
-				sign := -int(bit)
-				dqcoeff[int(scanArr[c&1023])&1023] = int16((v ^ sign) - sign)
+				b, value, rng, count = vpxReadBitBoolNoFill(value, rng, count)
+				if b {
+					v = -v
+				}
+				dqcoeff[int(scanArr[c&1023])&1023] = int16(v)
 			} else {
 				idx := int(scanArr[c&1023]) & 1023
 				b, value, rng, count = vpxReadBoolNoFill(uint32(p[1]), value, rng, count)
 				if b {
 					scanCache[c&1023] = 3
-					bit, value, rng, count = vpxReadNoFill(uint32(p[2]), value, rng, count)
-					v := ((3 + int(bit)) * int(dqv)) >> dqShift
-					bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
-					sign := -int(bit)
-					dqcoeff[idx] = int16((v ^ sign) - sign)
+					b, value, rng, count = vpxReadBoolNoFill(uint32(p[2]), value, rng, count)
+					m := 3
+					if b {
+						m = 4
+					}
+					v := (m * int(dqv)) >> dqShift
+					b, value, rng, count = vpxReadBitBoolNoFill(value, rng, count)
+					if b {
+						v = -v
+					}
+					dqcoeff[idx] = int16(v)
 				} else {
 					scanCache[c&1023] = 2
 					v := (2 * int(dqv)) >> dqShift
-					bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
-					sign := -int(bit)
-					dqcoeff[idx] = int16((v ^ sign) - sign)
+					b, value, rng, count = vpxReadBitBoolNoFill(value, rng, count)
+					if b {
+						v = -v
+					}
+					dqcoeff[idx] = int16(v)
 				}
 			}
 		} else {
 			scanCache[c&1023] = 1
-			bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
-			sign := -int(bit)
-			dqcoeff[int(scanArr[c&1023])&1023] = int16((dq1 ^ sign) - sign)
+			b, value, rng, count = vpxReadBitBoolNoFill(value, rng, count)
+			v := dq1
+			if b {
+				v = -v
+			}
+			dqcoeff[int(scanArr[c&1023])&1023] = int16(v)
 		}
 
 		c++

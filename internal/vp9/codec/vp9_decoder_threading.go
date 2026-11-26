@@ -607,6 +607,16 @@ type vp9DecoderTileJob struct {
 
 	err         error
 	unsupported bool
+
+	isBorder     bool
+	borderOK     bool
+	borderFull   []byte
+	borderOrigin int
+	borderStride int
+	borderWidth  int
+	borderHeight int
+	borderX      int
+	borderY      int
 }
 
 type vp9DecoderTileWorkerPool struct {
@@ -1098,6 +1108,50 @@ func (p *vp9DecoderTileWorkerPool) recordTileSchedule(descs []vp9DecoderTileDesc
 	p.lastTileScheduleLen = uint8(n)
 }
 
+func copyVP9TileWorkerState(dst *VP9Decoder, parent *VP9Decoder) {
+	dst.opts = parent.opts
+	dst.aboveSegCtx = parent.aboveSegCtx
+	dst.miGrid = parent.miGrid
+	dst.miIdx = parent.miIdx
+	dst.segMap = parent.segMap
+	dst.lastSegMap = parent.lastSegMap
+	dst.segMapMiRows = parent.segMapMiRows
+	dst.segMapMiCols = parent.segMapMiCols
+	dst.planes = parent.planes
+	dst.lastFrame = parent.lastFrame
+	dst.frameY = parent.frameY
+	dst.frameU = parent.frameU
+	dst.frameV = parent.frameV
+	dst.frameYFull = parent.frameYFull
+	dst.frameUFull = parent.frameUFull
+	dst.frameVFull = parent.frameVFull
+	if parent.refFramesView != nil {
+		dst.refFramesView = parent.refFramesView
+	} else {
+		dst.refFramesView = &parent.refFrames
+	}
+	dst.prevFrameMvs = parent.prevFrameMvs
+	dst.curFrameMvs = parent.curFrameMvs
+	dst.frameYOrigin = parent.frameYOrigin
+	dst.frameUOrigin = parent.frameUOrigin
+	dst.frameVOrigin = parent.frameVOrigin
+	dst.prevFrameMvRows = parent.prevFrameMvRows
+	dst.prevFrameMvCols = parent.prevFrameMvCols
+	dst.usePrevFrameMvs = parent.usePrevFrameMvs
+	dst.width = parent.width
+	dst.height = parent.height
+	dst.sfCacheNext = 0
+	dst.sfCache = [4]vp9ScaleFactorsEntry{}
+	dst.unsupportedReconstruct = parent.unsupportedReconstruct
+	dst.predictLumaOnly = parent.predictLumaOnly
+	dst.predictChromaOnly = parent.predictChromaOnly
+	dst.predictChromaPlane = parent.predictChromaPlane
+	dst.dq = parent.dq
+	dst.fc = parent.fc
+	dst.coefProbsPacked = parent.coefProbsPacked
+	dst.highbd = nil
+}
+
 func (p *vp9DecoderTileWorkerPool) prepareTileJob(worker int,
 	parent *VP9Decoder, kind vp9DecoderTileJobKind, desc vp9DecoderTileDesc,
 	comp vp9dec.CompressedHeader,
@@ -1107,7 +1161,7 @@ func (p *vp9DecoderTileWorkerPool) prepareTileJob(worker int,
 ) {
 	job := &p.jobs[worker]
 	job.descs = nil
-	job.worker = *parent
+	copyVP9TileWorkerState(&job.worker, parent)
 	if parent.highbd != nil {
 		dq := job.highbdState.dqcoeff32
 		sc := job.highbdState.interPredictScratch16
@@ -1199,7 +1253,49 @@ func (p *vp9DecoderTileWorkerPool) prepareRowMTJob(worker int,
 		interMaps, miRows, miCols, partitionProbs, storage)
 }
 
+func (p *vp9DecoderTileWorkerPool) extendFrameBorders(
+	yFull []byte, yOrigin, yStride, yW, yH, yBX, yBY int,
+	uFull []byte, uOrigin, uStride, uW, uH, uBX, uBY int,
+	vFull []byte, vOrigin, vStride, vW, vH, vBX, vBY int,
+) bool {
+	j0 := &p.jobs[0]
+	j0.isBorder = true
+	j0.borderOK = false
+	j0.borderFull = uFull
+	j0.borderOrigin = uOrigin
+	j0.borderStride = uStride
+	j0.borderWidth = uW
+	j0.borderHeight = uH
+	j0.borderX = uBX
+	j0.borderY = uBY
+
+	j1 := &p.jobs[1]
+	j1.isBorder = true
+	j1.borderOK = false
+	j1.borderFull = vFull
+	j1.borderOrigin = vOrigin
+	j1.borderStride = vStride
+	j1.borderWidth = vW
+	j1.borderHeight = vH
+	j1.borderX = vBX
+	j1.borderY = vBY
+
+	epoch := p.startHelperWorkers(2)
+	yOK := vp9ExtendPlaneBorder(yFull, yOrigin, yStride, yW, yH, yBX, yBY)
+	p.waitHelperWorkers(epoch, 2)
+	ok := yOK && j0.borderOK && j1.borderOK
+	j0.isBorder = false
+	j0.borderFull = nil
+	j1.isBorder = false
+	j1.borderFull = nil
+	return ok
+}
+
 func (j *vp9DecoderTileJob) run() {
+	if j.isBorder {
+		j.borderOK = vp9ExtendPlaneBorder(j.borderFull, j.borderOrigin, j.borderStride, j.borderWidth, j.borderHeight, j.borderX, j.borderY)
+		return
+	}
 	if j.rowMTStorage != nil {
 		j.runRowMT()
 		return

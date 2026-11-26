@@ -60,6 +60,15 @@ func filterLinearFast(src []byte, ss int, dst []byte, ds, w, h, step int, t0, t1
 	return filterBilinear8ARM64(src, ss, dst, ds, w, h, step, t0, t1)
 }
 
+// FilterHalfPelDisjoint computes (src[i]+src[i+step]+1)>>1 for disjoint
+// src/dst planes directly via the ARM64 NEON half-pel kernel, skipping the
+// generic slicesOverlap and 2-tap dispatch in FilterBilinear.
+func FilterHalfPelDisjoint(src []byte, ss int, dst []byte, ds, w, h, step int) {
+	if !filterBilinear8ARM64(src, ss, dst, ds, w, h, step, 64, 64) {
+		FilterBilinear(src, ss, dst, ds, w, h, step, 64, 64)
+	}
+}
+
 func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0, t1 uint8) bool {
 	if w <= 0 || h <= 0 || ss < 0 || ds < 0 || step < 0 {
 		return false

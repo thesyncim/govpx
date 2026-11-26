@@ -221,6 +221,7 @@ type VP9Decoder struct {
 	aboveSegCtx []int8
 	leftSegCtx  []int8
 	miGrid      []vp9dec.NeighborMi
+	miIdx       []int32
 
 	segMap       []uint8
 	lastSegMap   []uint8
@@ -1038,6 +1039,9 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 			hdr.BitDepthColor.BitDepth); err != nil {
 			return err
 		}
+		if hdr.FrameParallelDecoding {
+			vp9dec.PackFrameCoefProbs(&d.coefProbsPacked, &d.fc.CoefProbs)
+		}
 		if err := d.parseVP9IntraModeTiles(packet[compEnd:], &hdr, compHeader); err != nil {
 			return err
 		}
@@ -1450,12 +1454,22 @@ func (d *VP9Decoder) refreshVP9ReferenceFrames(hdr *vp9dec.UncompressedHeader) {
 		uvBY := yb >> ssY
 		uvW := (d.lastFrame.Width + (1 << ssX) - 1) >> ssX
 		uvH := (d.lastFrame.Height + (1 << ssY) - 1) >> ssY
-		if vp9ExtendPlaneBorder(d.frameYFull, d.frameYOrigin, d.lastFrame.YStride,
-			d.lastFrame.Width, d.lastFrame.Height, yb, yb) &&
-			vp9ExtendPlaneBorder(d.frameUFull, d.frameUOrigin, d.lastFrame.UStride,
-				uvW, uvH, uvBX, uvBY) &&
-			vp9ExtendPlaneBorder(d.frameVFull, d.frameVOrigin, d.lastFrame.VStride,
-				uvW, uvH, uvBX, uvBY) {
+		var extended bool
+		if d.vp9TilePool != nil && d.vp9TilePool.helperCount >= 2 {
+			extended = d.vp9TilePool.extendFrameBorders(
+				d.frameYFull, d.frameYOrigin, d.lastFrame.YStride, d.lastFrame.Width, d.lastFrame.Height, yb, yb,
+				d.frameUFull, d.frameUOrigin, d.lastFrame.UStride, uvW, uvH, uvBX, uvBY,
+				d.frameVFull, d.frameVOrigin, d.lastFrame.VStride, uvW, uvH, uvBX, uvBY,
+			)
+		} else {
+			extended = vp9ExtendPlaneBorder(d.frameYFull, d.frameYOrigin, d.lastFrame.YStride,
+				d.lastFrame.Width, d.lastFrame.Height, yb, yb) &&
+				vp9ExtendPlaneBorder(d.frameUFull, d.frameUOrigin, d.lastFrame.UStride,
+					uvW, uvH, uvBX, uvBY) &&
+				vp9ExtendPlaneBorder(d.frameVFull, d.frameVOrigin, d.lastFrame.VStride,
+					uvW, uvH, uvBX, uvBY)
+		}
+		if extended {
 			yOrigin = d.frameYOrigin
 			uOrigin = d.frameUOrigin
 			vOrigin = d.frameVOrigin
@@ -2060,7 +2074,11 @@ func (d *VP9Decoder) prepareVP9PostProcessModes(rows, cols int) {
 					if idx >= len(d.miGrid) {
 						continue
 					}
-					mi := &d.miGrid[idx]
+					miIdx := idx
+					if len(d.miIdx) > 0 {
+						miIdx = int(d.miIdx[idx])
+					}
+					mi := &d.miGrid[miIdx]
 					if mi.Skip == 0 {
 						mode.MBSkipCoeff = false
 					}
@@ -2217,6 +2235,9 @@ func (d *VP9Decoder) Reset() {
 	}
 	if d.miGrid != nil {
 		d.miGrid = d.miGrid[:0]
+	}
+	if d.miIdx != nil {
+		d.miIdx = d.miIdx[:0]
 	}
 	if d.vp9TileDescs != nil {
 		d.vp9TileDescs = d.vp9TileDescs[:0]

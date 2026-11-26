@@ -42,14 +42,8 @@ func FindInterMvRefsFields(miGrid []NeighborMi,
 	differentRefFound := false
 	earlyBreak := mode != common.NearMv
 	search := tables.MvRefBlocks[bsize]
+	tileInBounds := tile.MiColStart >= 0 && tile.MiColEnd <= miCols
 	var prevFrameMvsRef *MvRef
-	if usePrevFrameMvs && miRow >= 0 && miCol >= 0 &&
-		miRow < prevFrameMvRows && miCol < prevFrameMvCols {
-		idx := miRow*prevFrameMvCols + miCol
-		if idx >= 0 && idx < len(prevFrameMvs) {
-			prevFrameMvsRef = &prevFrameMvs[idx]
-		}
-	}
 
 	i := 0
 	if block >= 0 {
@@ -60,7 +54,7 @@ func FindInterMvRefsFields(miGrid []NeighborMi,
 			}
 			r := miRow + int(pos.Row)
 			c := miCol + int(pos.Col)
-			if r < 0 || c < 0 || r >= miRows || c >= miCols {
+			if !tileInBounds && (c < 0 || c >= miCols) {
 				continue
 			}
 			cand := &miGrid[r*miCols+c]
@@ -86,7 +80,7 @@ func FindInterMvRefsFields(miGrid []NeighborMi,
 		}
 		r := miRow + int(pos.Row)
 		c := miCol + int(pos.Col)
-		if r < 0 || c < 0 || r >= miRows || c >= miCols {
+		if !tileInBounds && (c < 0 || c >= miCols) {
 			continue
 		}
 		cand := &miGrid[r*miCols+c]
@@ -102,6 +96,13 @@ func FindInterMvRefsFields(miGrid []NeighborMi,
 		}
 	}
 
+	if usePrevFrameMvs && miRow >= 0 && miCol >= 0 &&
+		miRow < prevFrameMvRows && miCol < prevFrameMvCols {
+		idx := miRow*prevFrameMvCols + miCol
+		if idx >= 0 && idx < len(prevFrameMvs) {
+			prevFrameMvsRef = &prevFrameMvs[idx]
+		}
+	}
 	if prevFrameMvsRef != nil {
 		if prevFrameMvsRef.RefFrame[0] == refFrame {
 			if appendMvRef(&out, &count, prevFrameMvsRef.Mv[0], earlyBreak) {
@@ -122,10 +123,166 @@ func FindInterMvRefsFields(miGrid []NeighborMi,
 			}
 			r := miRow + int(pos.Row)
 			c := miCol + int(pos.Col)
-			if r < 0 || c < 0 || r >= miRows || c >= miCols {
+			if !tileInBounds && (c < 0 || c >= miCols) {
 				continue
 			}
 			cand := &miGrid[r*miCols+c]
+			if cand.RefFrame[0] > IntraFrame && cand.RefFrame[0] != refFrame {
+				mv := scaleDiffRefMv(cand.Mv[0], cand.RefFrame[0], refFrame, signBias)
+				if appendMvRef(&out, &count, mv, earlyBreak) {
+					goto done
+				}
+			}
+			if cand.RefFrame[1] > IntraFrame && cand.RefFrame[1] != refFrame &&
+				cand.Mv[1] != cand.Mv[0] {
+				mv := scaleDiffRefMv(cand.Mv[1], cand.RefFrame[1], refFrame, signBias)
+				if appendMvRef(&out, &count, mv, earlyBreak) {
+					goto done
+				}
+			}
+		}
+	}
+
+	if prevFrameMvsRef != nil {
+		if prevFrameMvsRef.RefFrame[0] != refFrame &&
+			prevFrameMvsRef.RefFrame[0] > IntraFrame {
+			mv := scaleDiffRefMv(prevFrameMvsRef.Mv[0],
+				prevFrameMvsRef.RefFrame[0], refFrame, signBias)
+			if appendMvRef(&out, &count, mv, earlyBreak) {
+				goto done
+			}
+		}
+		if prevFrameMvsRef.RefFrame[1] > IntraFrame &&
+			prevFrameMvsRef.RefFrame[1] != refFrame &&
+			prevFrameMvsRef.Mv[1] != prevFrameMvsRef.Mv[0] {
+			mv := scaleDiffRefMv(prevFrameMvsRef.Mv[1],
+				prevFrameMvsRef.RefFrame[1], refFrame, signBias)
+			if appendMvRef(&out, &count, mv, earlyBreak) {
+				goto done
+			}
+		}
+	}
+
+	normalizeCount = true
+
+done:
+	if normalizeCount {
+		if mode == common.NearMv {
+			count = 2
+		} else {
+			count = 1
+		}
+	}
+	for i := 0; i < count; i++ {
+		ClampMvRef(&out[i], miRows, miCols, miRow, miCol, bsize)
+	}
+	return out, count
+}
+
+// FindInterMvRefsFieldsIdx is FindInterMvRefsFields backed by a 4-byte miIdx
+// indirection grid (matching libvpx's mi_grid_visible pointer grid).
+func FindInterMvRefsFieldsIdx(miGrid []NeighborMi, miIdx []int32,
+	usePrevFrameMvs bool, prevFrameMvs []MvRef,
+	prevFrameMvRows, prevFrameMvCols int,
+	tile TileBounds,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize,
+	mode common.PredictionMode,
+	refFrame int8,
+	signBias [MaxRefFrames]uint8,
+	block int,
+) ([2]MV, int) {
+	var out [2]MV
+	count := 0
+	normalizeCount := false
+	differentRefFound := false
+	earlyBreak := mode != common.NearMv
+	search := tables.MvRefBlocks[bsize]
+	tileInBounds := tile.MiColStart >= 0 && tile.MiColEnd <= miCols
+	var prevFrameMvsRef *MvRef
+
+	i := 0
+	if block >= 0 {
+		for ; i < 2 && i < len(search); i++ {
+			pos := search[i]
+			if !IsInside(tile, miRows, miRow, miCol, int(pos.Row), int(pos.Col)) {
+				continue
+			}
+			r := miRow + int(pos.Row)
+			c := miCol + int(pos.Col)
+			if !tileInBounds && (c < 0 || c >= miCols) {
+				continue
+			}
+			cand := &miGrid[miIdx[r*miCols+c]]
+			differentRefFound = true
+			if cand.RefFrame[0] == refFrame {
+				mv := subBlockMv(cand, 0, int(pos.Col), block)
+				if appendMvRef(&out, &count, mv, earlyBreak) {
+					goto done
+				}
+			} else if cand.RefFrame[1] == refFrame {
+				mv := subBlockMv(cand, 1, int(pos.Col), block)
+				if appendMvRef(&out, &count, mv, earlyBreak) {
+					goto done
+				}
+			}
+		}
+	}
+
+	for ; i < len(search); i++ {
+		pos := search[i]
+		if !IsInside(tile, miRows, miRow, miCol, int(pos.Row), int(pos.Col)) {
+			continue
+		}
+		r := miRow + int(pos.Row)
+		c := miCol + int(pos.Col)
+		if !tileInBounds && (c < 0 || c >= miCols) {
+			continue
+		}
+		cand := &miGrid[miIdx[r*miCols+c]]
+		differentRefFound = true
+		if cand.RefFrame[0] == refFrame {
+			if appendMvRef(&out, &count, cand.Mv[0], earlyBreak) {
+				goto done
+			}
+		} else if cand.RefFrame[1] == refFrame {
+			if appendMvRef(&out, &count, cand.Mv[1], earlyBreak) {
+				goto done
+			}
+		}
+	}
+
+	if usePrevFrameMvs && miRow >= 0 && miCol >= 0 &&
+		miRow < prevFrameMvRows && miCol < prevFrameMvCols {
+		idx := miRow*prevFrameMvCols + miCol
+		if idx >= 0 && idx < len(prevFrameMvs) {
+			prevFrameMvsRef = &prevFrameMvs[idx]
+		}
+	}
+	if prevFrameMvsRef != nil {
+		if prevFrameMvsRef.RefFrame[0] == refFrame {
+			if appendMvRef(&out, &count, prevFrameMvsRef.Mv[0], earlyBreak) {
+				goto done
+			}
+		} else if prevFrameMvsRef.RefFrame[1] == refFrame {
+			if appendMvRef(&out, &count, prevFrameMvsRef.Mv[1], earlyBreak) {
+				goto done
+			}
+		}
+	}
+
+	if differentRefFound {
+		for i := range search {
+			pos := search[i]
+			if !IsInside(tile, miRows, miRow, miCol, int(pos.Row), int(pos.Col)) {
+				continue
+			}
+			r := miRow + int(pos.Row)
+			c := miCol + int(pos.Col)
+			if !tileInBounds && (c < 0 || c >= miCols) {
+				continue
+			}
+			cand := &miGrid[miIdx[r*miCols+c]]
 			if cand.RefFrame[0] > IntraFrame && cand.RefFrame[0] != refFrame {
 				mv := scaleDiffRefMv(cand.Mv[0], cand.RefFrame[0], refFrame, signBias)
 				if appendMvRef(&out, &count, mv, earlyBreak) {

@@ -31,6 +31,7 @@ func (d *VP9Decoder) parseVP9IntraModeTiles(tileData []byte,
 	if d.opts.DecodeTileRowSet || d.opts.DecodeTileColSet {
 		for i := range d.miGrid {
 			d.miGrid[i] = vp9dec.NeighborMi{}
+			d.miIdx[i] = int32(i)
 		}
 	}
 	if hdr.Seg.Enabled {
@@ -161,6 +162,7 @@ func (d *VP9Decoder) parseVP9InterModeTiles(tileData []byte,
 	if d.opts.DecodeTileRowSet || d.opts.DecodeTileColSet {
 		for i := range d.miGrid {
 			d.miGrid[i] = vp9dec.NeighborMi{}
+			d.miIdx[i] = int32(i)
 		}
 	}
 	if hdr.Seg.Enabled {
@@ -461,7 +463,19 @@ func (d *VP9Decoder) readVP9IntraModeBlock(r *bitstream.Reader,
 	yMis := min(int(common.Num8x8BlocksHighLookup[bsize]), miRows-miRow)
 
 	mi := &d.miGrid[miRow*miCols+miCol]
-	*mi = vp9dec.NeighborMi{SbType: bsize}
+	if bsize < common.Block8x8 {
+		*mi = vp9dec.NeighborMi{SbType: bsize}
+	} else {
+		mi.SbType = bsize
+		mi.TxSize = 0
+		mi.InterpFilter = 0
+		mi.Skip = 0
+		mi.SegmentID = 0
+		mi.SegIDPredicted = 0
+		mi.Mode = 0
+		mi.RefFrame = [2]int8{}
+		mi.Mv = [2]vp9dec.MV{}
+	}
 	above := d.vp9DecoderMiAt(miRows, miCols, miRow-1, miCol)
 	var left *vp9dec.NeighborMi
 	if miCol > tile.MiColStart {
@@ -508,7 +522,19 @@ func (d *VP9Decoder) readVP9InterModeBlock(r *bitstream.Reader,
 	yMis := min(int(common.Num8x8BlocksHighLookup[bsize]), miRows-miRow)
 
 	mi := &d.miGrid[miRow*miCols+miCol]
-	*mi = vp9dec.NeighborMi{SbType: bsize}
+	if bsize < common.Block8x8 {
+		*mi = vp9dec.NeighborMi{SbType: bsize}
+	} else {
+		mi.SbType = bsize
+		mi.TxSize = 0
+		mi.InterpFilter = 0
+		mi.Skip = 0
+		mi.SegmentID = 0
+		mi.SegIDPredicted = 0
+		mi.Mode = 0
+		mi.RefFrame = [2]int8{}
+		mi.Mv = [2]vp9dec.MV{}
+	}
 	above := d.vp9DecoderMiAt(miRows, miCols, miRow-1, miCol)
 	var left *vp9dec.NeighborMi
 	if miCol > tile.MiColStart {
@@ -516,19 +542,27 @@ func (d *VP9Decoder) readVP9InterModeBlock(r *bitstream.Reader,
 	}
 
 	segID := 0
-	d.segIDPredictedScratch = 0
-	if hdr.Seg.Enabled {
-		maps.SegIDPredictedOut = &d.segIDPredictedScratch
-		segID = vp9dec.ReadInterSegmentId(r, &hdr.Seg, maps,
-			miRow*miCols+miCol, xMis, yMis, above, left)
+	var isInter int
+	if !hdr.Seg.Enabled && hdr.FrameParallelDecoding {
+		skipCtx := vp9dec.GetSkipContext(above, left)
+		mi.Skip = uint8(r.Read(uint32(d.fc.SkipProbs[skipCtx])))
+		interCtx := vp9dec.GetIntraInterContext(above, left)
+		isInter = int(r.Read(uint32(d.fc.IntraInterProb[interCtx])))
+	} else {
+		d.segIDPredictedScratch = 0
+		if hdr.Seg.Enabled {
+			maps.SegIDPredictedOut = &d.segIDPredictedScratch
+			segID = vp9dec.ReadInterSegmentId(r, &hdr.Seg, maps,
+				miRow*miCols+miCol, xMis, yMis, above, left)
+		}
+		mi.SegmentID = uint8(segID)
+		mi.SegIDPredicted = d.segIDPredictedScratch
+		if !hdr.Seg.TemporalUpdate {
+			mi.SegIDPredicted = uint8(segID)
+		}
+		mi.Skip = uint8(d.readVP9SkipWithCounts(r, hdr, segID, above, left))
+		isInter = d.readVP9IsInterBlockWithCounts(r, hdr, segID, above, left)
 	}
-	mi.SegmentID = uint8(segID)
-	mi.SegIDPredicted = d.segIDPredictedScratch
-	if !hdr.Seg.TemporalUpdate {
-		mi.SegIDPredicted = uint8(segID)
-	}
-	mi.Skip = uint8(d.readVP9SkipWithCounts(r, hdr, segID, above, left))
-	isInter := d.readVP9IsInterBlockWithCounts(r, hdr, segID, above, left)
 
 	if bsize >= common.Block8x8 && comp.TxMode == common.TxModeSelect &&
 		!(isInter != 0 && mi.Skip != 0) {
@@ -581,13 +615,16 @@ func (d *VP9Decoder) readVP9InterBlockModeInfo(r *bitstream.Reader,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 ) bool {
 	signBias := vp9dec.FrameRefSignBias(hdr)
-	refs := vp9dec.SetupCompoundReferenceMode(signBias)
+	var refs vp9dec.CompoundFrameRefs
+	if comp.ReferenceMode != vp9dec.SingleReference {
+		refs = vp9dec.SetupCompoundReferenceMode(signBias)
+	}
 	d.readVP9RefFramesWithCounts(r, hdr, comp.ReferenceMode, signBias, refs,
 		segID, above, left, &mi.RefFrame)
-	interModeCtx := vp9dec.InterModeContext(d.miGrid, miCols, tile,
+	interModeCtx := vp9dec.InterModeContextIdx(d.miGrid, d.miIdx, miCols, tile,
 		miRows, miRow, miCol, mi.SbType)
 
-	if vp9dec.SegFeatureActive(&hdr.Seg, segID, vp9dec.SegLvlSkip) {
+	if hdr.Seg.Enabled && vp9dec.SegFeatureActive(&hdr.Seg, segID, vp9dec.SegLvlSkip) {
 		mi.Mode = common.ZeroMv
 		if mi.SbType < common.Block8x8 {
 			return false
@@ -692,7 +729,7 @@ func (d *VP9Decoder) vp9FindInterMvRefs(tile vp9dec.TileBounds,
 	refFrame int8,
 	signBias [vp9dec.MaxRefFrames]uint8,
 ) ([2]vp9dec.MV, int) {
-	return vp9dec.FindInterMvRefsFields(d.miGrid, d.usePrevFrameMvs,
+	return vp9dec.FindInterMvRefsFieldsIdx(d.miGrid, d.miIdx, d.usePrevFrameMvs,
 		d.prevFrameMvs, d.prevFrameMvRows, d.prevFrameMvCols,
 		tile, miRows, miCols, miRow, miCol, bsize, mode, refFrame,
 		signBias, -1)
@@ -706,7 +743,7 @@ func (d *VP9Decoder) vp9FindInterMvRefsForBlock(tile vp9dec.TileBounds,
 	signBias [vp9dec.MaxRefFrames]uint8,
 	block int,
 ) ([2]vp9dec.MV, int) {
-	return vp9dec.FindInterMvRefsFields(d.miGrid, d.usePrevFrameMvs,
+	return vp9dec.FindInterMvRefsFieldsIdx(d.miGrid, d.miIdx, d.usePrevFrameMvs,
 		d.prevFrameMvs, d.prevFrameMvRows, d.prevFrameMvCols,
 		tile, miRows, miCols, miRow, miCol, bsize, mode, refFrame,
 		signBias, block)
@@ -861,16 +898,16 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 								pixel.FilterBilinear2DPair8x8(uSrc, uSrcStride, vSrc, vSrcStride, uDst, uDstStride, vDst, vDstStride, 128, 0, 64, 64) {
 								return true
 							}
-							pixel.FilterBilinear(uSrc, uSrcStride, uDst, uDstStride, ubw, ubh, uSrcStride, 64, 64)
-							pixel.FilterBilinear(vSrc, vSrcStride, vDst, vDstStride, ubw, ubh, vSrcStride, 64, 64)
+							pixel.FilterHalfPelDisjoint(uSrc, uSrcStride, uDst, uDstStride, ubw, ubh, uSrcStride)
+							pixel.FilterHalfPelDisjoint(vSrc, vSrcStride, vDst, vDstStride, ubw, ubh, vSrcStride)
 							return true
 						} else if subX && !subY {
 							if ubw == 8 && ubh == 8 &&
 								pixel.FilterBilinear2DPair8x8(uSrc, uSrcStride, vSrc, vSrcStride, uDst, uDstStride, vDst, vDstStride, 64, 64, 128, 0) {
 								return true
 							}
-							pixel.FilterBilinear(uSrc, uSrcStride, uDst, uDstStride, ubw, ubh, 1, 64, 64)
-							pixel.FilterBilinear(vSrc, vSrcStride, vDst, vDstStride, ubw, ubh, 1, 64, 64)
+							pixel.FilterHalfPelDisjoint(uSrc, uSrcStride, uDst, uDstStride, ubw, ubh, 1)
+							pixel.FilterHalfPelDisjoint(vSrc, vSrcStride, vDst, vDstStride, ubw, ubh, 1)
 							return true
 						} else {
 							if ubw == 8 && ubh == 8 &&
@@ -1738,7 +1775,7 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 					eobTotal += d.readVP9InterResiduePlane(&rs, pd, planeType, txSize,
 						dequant, planeScan, coefCounts, num4x4W, num4x4H, step,
 						aboveBase, leftBase, interPlane, interStride,
-						interBaseX, interBaseY, hdr.Quant.Lossless)
+						interBaseX, interBaseY, hdr.Quant.Lossless, coeffs)
 					continue
 				}
 			}
@@ -1807,9 +1844,41 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 					so = common.GetScanPtr(txSize, planeType, isInter,
 						hdr.Quant.Lossless, mode)
 				}
-				eob := vp9dec.DecodeCoefsState(&rs, txSize, planeType, isInter, dequant,
-					initCtx, so, &d.fc.CoefProbs,
-					coefCounts, &d.dqcoeff, &d.coefTokenCache)
+				var eob int
+				if coefCounts == nil {
+					first := consumeVP9FirstEOB(&rs, uint32(d.fc.CoefProbs[txSize][planeType][isInter][0][initCtx][0]))
+					if first == 0 {
+						eob = 0
+					} else if first == 1 {
+						planeCtx := &d.fastCoefCtx
+						planeCtx.TxSize = txSize
+						planeCtx.PlaneType = planeType
+						planeCtx.IsInter = isInter
+						planeCtx.Dequant = dequant
+						planeCtx.Scan = so.Scan
+						planeCtx.Neighbors = so.Neighbors
+						planeCtx.ScanArr = so.ScanArr
+						planeCtx.ScanNeighborsArr = so.ScanNeighborsArr
+						planeCtx.ScanMetaArr = so.ScanMetaArr
+						planeCtx.FC = &d.fc.CoefProbs
+						planeCtx.PackedModel = &d.coefProbsPacked[txSize][planeType][isInter]
+						planeCtx.DQCoeff = &d.dqcoeff
+						planeCtx.TokenCache = &d.coefTokenCache
+						buf, _, _, pos := rs.BitView()
+						var newPos int
+						eob, newPos, rs.Value, rs.Range, rs.Count = vp9dec.DecodeCoefsFastPlaneAfterEOB(
+							&rs, planeCtx, buf, pos, rs.Value, rs.Range, rs.Count, initCtx)
+						rs.CommitPos(newPos)
+					} else {
+						eob = vp9dec.DecodeCoefsState(&rs, txSize, planeType, isInter, dequant,
+							initCtx, so, &d.fc.CoefProbs,
+							nil, &d.dqcoeff, &d.coefTokenCache)
+					}
+				} else {
+					eob = vp9dec.DecodeCoefsState(&rs, txSize, planeType, isInter, dequant,
+						initCtx, so, &d.fc.CoefProbs,
+						coefCounts, &d.dqcoeff, &d.coefTokenCache)
+				}
 				eobTotal += eob
 				if isInter == 0 && !d.unsupportedReconstruct {
 					dst, stride, ok := d.reconstructVP9IntraPredictTx(hdr, pd, plane,
@@ -1956,11 +2025,11 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 	dst []byte, dstStride int,
 	baseX, baseY int,
 	lossless bool,
+	coeffs []int16,
 ) int {
 	eobTotal := 0
 	aCtx := pd.AboveContext[aboveBase:]
 	lCtx := pd.LeftContext[leftBase:]
-	coeffs := d.dqcoeff[:vp9dec.MaxEobForTxSize(txSize)]
 	dcProbs := &d.fc.CoefProbs[txSize][planeType][1][0]
 	// Hoist txSize switch out of the inner (rr, cc) loop so each size runs a
 	// tight branch-free context read/update without repeated switching.
@@ -1974,6 +2043,7 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 			count := rs.Count
 			ctxInit := false
 			planeCtx := &d.fastCoefCtx
+			dcP := [3]uint32{uint32(dcProbs[0][0]), uint32(dcProbs[1][0]), uint32(dcProbs[2][0])}
 			if num4x4H > 0 && num4x4W > 0 {
 				aCtx = aCtx[:num4x4W:num4x4W]
 				lCtx = lCtx[:num4x4H:num4x4H]
@@ -1989,7 +2059,7 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 					}
 					var eob int
 					if count >= 0 {
-						prob := uint32(dcProbs[initCtx][0])
+						prob := dcP[initCtx]
 						split := (rng*prob + (256 - prob)) >> 8
 						bigsplit := uint64(split) << 56
 						if value < bigsplit {
@@ -2134,6 +2204,7 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 			count := rs.Count
 			ctxInit := false
 			planeCtx := &d.fastCoefCtx
+			dcP := [3]uint32{uint32(dcProbs[0][0]), uint32(dcProbs[1][0]), uint32(dcProbs[2][0])}
 			if num4x4H > 0 && num4x4W > 0 {
 				aLim := (num4x4W + 1) &^ 1
 				lLim := (num4x4H + 1) &^ 1
@@ -2151,7 +2222,7 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 					}
 					var eob int
 					if count >= 0 {
-						prob := uint32(dcProbs[initCtx][0])
+						prob := dcP[initCtx]
 						split := (rng*prob + (256 - prob)) >> 8
 						bigsplit := uint64(split) << 56
 						if value < bigsplit {
@@ -2306,18 +2377,19 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 			count := rs.Count
 			ctxInit := false
 			planeCtx := &d.fastCoefCtx
+			dcP := [3]uint32{uint32(dcProbs[0][0]), uint32(dcProbs[1][0]), uint32(dcProbs[2][0])}
 			dstOff := baseY*dstStride + baseX
 			rowStep := 16 * dstStride
 			for rr := 0; rr < num4x4H; rr += 4 {
 				lv := lCtx[rr] | lCtx[rr+1] | lCtx[rr+2] | lCtx[rr+3]
 				for cc := 0; cc < num4x4W; cc += 4 {
-					initCtx := int(aCtx[cc]|aCtx[cc+1]|aCtx[cc+2]|aCtx[cc+3]) + int(lv)
+					initCtx := int((aCtx[cc]|aCtx[cc+1]|aCtx[cc+2]|aCtx[cc+3])&1) + int(lv&1)
 					if count < 0 && pos <= fastLimit {
 						value, count, pos = bitstream.FillFast(buf, pos, value, count)
 					}
 					var eob int
 					if count >= 0 {
-						prob := uint32(dcProbs[initCtx][0])
+						prob := dcP[initCtx]
 						split := (rng*prob + (256 - prob)) >> 8
 						bigsplit := uint64(split) << 56
 						if value < bigsplit {
@@ -2641,7 +2713,6 @@ func (d *VP9Decoder) reconstructVP9IntraPredictTx(
 	if planeBsize >= common.BlockSizes {
 		return nil, 0, false
 	}
-	rows := len(planeData) / stride
 	alignedWidth := buffers.Align(int(hdr.Width), 8)
 	alignedHeight := buffers.Align(int(hdr.Height), 8)
 	planeWidth := alignedWidth >> pd.SubsamplingX
@@ -2652,7 +2723,7 @@ func (d *VP9Decoder) reconstructVP9IntraPredictTx(
 	y0 := baseY + blockRow4x4*4
 
 	bs := 4 << uint(txSize)
-	if x0+bs > stride || y0+bs > rows {
+	if x0+bs > stride || (y0+bs)*stride > len(planeData) {
 		return nil, 0, false
 	}
 
@@ -2726,6 +2797,7 @@ func (d *VP9Decoder) ensureVP9DecoderModeBuffers(miRows, miCols int) {
 	miGridLen := miRows * miCols
 	resetLastSegMap := d.segMapMiRows != miRows || d.segMapMiCols != miCols
 	d.miGrid = buffers.EnsureLen(d.miGrid, miGridLen)
+	d.miIdx = buffers.EnsureLen(d.miIdx, miGridLen)
 	d.segMap = buffers.EnsureLen(d.segMap, miGridLen)
 	d.lastSegMap = buffers.EnsureLen(d.lastSegMap, miGridLen)
 	if resetLastSegMap {
@@ -2783,7 +2855,11 @@ func (d *VP9Decoder) vp9DecoderMiAt(miRows, miCols, r, c int) *vp9dec.NeighborMi
 	if r < 0 || c < 0 || r >= miRows || c >= miCols {
 		return nil
 	}
-	return &d.miGrid[r*miCols+c]
+	idx := r*miCols + c
+	if len(d.miIdx) > 0 {
+		idx = int(d.miIdx[idx])
+	}
+	return &d.miGrid[idx]
 }
 
 func (d *VP9Decoder) fillVP9DecoderMiGrid(miRows, miCols, r, c int,
@@ -2791,7 +2867,10 @@ func (d *VP9Decoder) fillVP9DecoderMiGrid(miRows, miCols, r, c int,
 ) {
 	rows := int(common.Num8x8BlocksHighLookup[bsize])
 	cols := int(common.Num8x8BlocksWideLookup[bsize])
+	rowBase := r*miCols + c
+	srcIdx := int32(rowBase)
 	if rows == 1 && cols == 1 {
+		d.miIdx[rowBase] = srcIdx
 		return
 	}
 	rEnd := min(r+rows, miRows)
@@ -2799,13 +2878,45 @@ func (d *VP9Decoder) fillVP9DecoderMiGrid(miRows, miCols, r, c int,
 	if r >= rEnd || c >= cEnd {
 		return
 	}
-	v := *mi
-	firstRow := d.miGrid[r*miCols+c : r*miCols+cEnd]
-	for cc := 1; cc < len(firstRow); cc++ {
-		firstRow[cc] = v
-	}
-	for rr := r + 1; rr < rEnd; rr++ {
-		copy(d.miGrid[rr*miCols+c:rr*miCols+cEnd], firstRow)
+	w := cEnd - c
+	switch w {
+	case 1:
+		for rr := r; rr < rEnd; rr++ {
+			d.miIdx[rr*miCols+c] = srcIdx
+		}
+	case 2:
+		for rr := r; rr < rEnd; rr++ {
+			off := rr*miCols + c
+			d.miIdx[off] = srcIdx
+			d.miIdx[off+1] = srcIdx
+		}
+	case 4:
+		for rr := r; rr < rEnd; rr++ {
+			row := d.miIdx[rr*miCols+c : rr*miCols+c+4]
+			row[0] = srcIdx
+			row[1] = srcIdx
+			row[2] = srcIdx
+			row[3] = srcIdx
+		}
+	case 8:
+		for rr := r; rr < rEnd; rr++ {
+			row := d.miIdx[rr*miCols+c : rr*miCols+c+8]
+			row[0] = srcIdx
+			row[1] = srcIdx
+			row[2] = srcIdx
+			row[3] = srcIdx
+			row[4] = srcIdx
+			row[5] = srcIdx
+			row[6] = srcIdx
+			row[7] = srcIdx
+		}
+	default:
+		for rr := r; rr < rEnd; rr++ {
+			row := d.miIdx[rr*miCols+c : rr*miCols+cEnd]
+			for cc := range row {
+				row[cc] = srcIdx
+			}
+		}
 	}
 }
 

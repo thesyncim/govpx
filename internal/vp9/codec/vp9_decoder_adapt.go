@@ -29,7 +29,7 @@ func (d *VP9Decoder) countVP9NewMv(mv, refMv vp9dec.MV) {
 func (d *VP9Decoder) readVP9SkipWithCounts(r *bitstream.Reader,
 	hdr *vp9dec.UncompressedHeader, segID int, above, left *vp9dec.NeighborMi,
 ) int {
-	if vp9dec.SegFeatureActive(&hdr.Seg, segID, vp9dec.SegLvlSkip) {
+	if hdr.Seg.Enabled && vp9dec.SegFeatureActive(&hdr.Seg, segID, vp9dec.SegLvlSkip) {
 		return 1
 	}
 	ctx := vp9dec.GetSkipContext(above, left)
@@ -43,7 +43,7 @@ func (d *VP9Decoder) readVP9SkipWithCounts(r *bitstream.Reader,
 func (d *VP9Decoder) readVP9IsInterBlockWithCounts(r *bitstream.Reader,
 	hdr *vp9dec.UncompressedHeader, segID int, above, left *vp9dec.NeighborMi,
 ) int {
-	if vp9dec.SegFeatureActive(&hdr.Seg, segID, vp9dec.SegLvlRefFrame) {
+	if hdr.Seg.Enabled && vp9dec.SegFeatureActive(&hdr.Seg, segID, vp9dec.SegLvlRefFrame) {
 		if int(vp9dec.GetSegData(&hdr.Seg, segID, vp9dec.SegLvlRefFrame)) != vp9dec.IntraFrame {
 			return 1
 		}
@@ -137,7 +137,7 @@ func (d *VP9Decoder) readVP9RefFramesWithCounts(r *bitstream.Reader,
 	signBias [vp9dec.MaxRefFrames]uint8, refs vp9dec.CompoundFrameRefs,
 	segID int, above, left *vp9dec.NeighborMi, out *[2]int8,
 ) {
-	if vp9dec.SegFeatureActive(&hdr.Seg, segID, vp9dec.SegLvlRefFrame) {
+	if hdr.Seg.Enabled && vp9dec.SegFeatureActive(&hdr.Seg, segID, vp9dec.SegLvlRefFrame) {
 		out[0] = int8(vp9dec.GetSegData(&hdr.Seg, segID, vp9dec.SegLvlRefFrame))
 		out[1] = vp9dec.NoRefFrame
 		return

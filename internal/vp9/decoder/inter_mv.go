@@ -15,17 +15,45 @@ func InterModeContext(miGrid []NeighborMi, miCols int,
 ) int {
 	contextCounter := 0
 	search := tables.MvRefBlocks[bsize]
+	tileInBounds := tile.MiColStart >= 0 && tile.MiColEnd <= miCols
 	for i := range 2 {
 		pos := search[i]
-		if !IsInside(tile, miRows, miRow, miCol, int(pos.Row), int(pos.Col)) {
-			continue
-		}
 		r := miRow + int(pos.Row)
 		c := miCol + int(pos.Col)
-		if r < 0 || c < 0 || r >= miRows || c >= miCols {
+		if r < 0 || r >= miRows || c < tile.MiColStart || c >= tile.MiColEnd {
+			continue
+		}
+		if !tileInBounds && (c < 0 || c >= miCols) {
 			continue
 		}
 		mode := miGrid[r*miCols+c].Mode
+		if int(mode) >= len(tables.Mode2Counter) {
+			continue
+		}
+		contextCounter += int(tables.Mode2Counter[mode])
+	}
+	return int(tables.CounterToContext[contextCounter])
+}
+
+// InterModeContextIdx is InterModeContext backed by a 4-byte miIdx indirection
+// grid (matching libvpx's mi_grid_visible pointer grid).
+func InterModeContextIdx(miGrid []NeighborMi, miIdx []int32, miCols int,
+	tile TileBounds, miRows, miRow, miCol int, bsize common.BlockSize,
+) int {
+	contextCounter := 0
+	search := tables.MvRefBlocks[bsize]
+	tileInBounds := tile.MiColStart >= 0 && tile.MiColEnd <= miCols
+	for i := range 2 {
+		pos := search[i]
+		r := miRow + int(pos.Row)
+		c := miCol + int(pos.Col)
+		if r < 0 || r >= miRows || c < tile.MiColStart || c >= tile.MiColEnd {
+			continue
+		}
+		if !tileInBounds && (c < 0 || c >= miCols) {
+			continue
+		}
+		mode := miGrid[miIdx[r*miCols+c]].Mode
 		if int(mode) >= len(tables.Mode2Counter) {
 			continue
 		}
