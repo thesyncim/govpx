@@ -24,7 +24,7 @@ func lfTruncSigned(v archsimd.Int16x8) archsimd.Int8x16 { return v.TruncToInt8()
 func lfByteNot(v archsimd.Mask8x16) archsimd.Mask8x16 { return v.Not() }
 
 func widenHi8(v archsimd.Uint8x16) archsimd.Uint16x8 {
-	return v.InterleaveHi(archsimd.BroadcastUint8x16(0)).ReshapeToUint16s()
+	return v.HiToLo().ExtendLo8ToUint16()
 }
 
 func sqSumInt32(acc archsimd.Int64x2, v archsimd.Int32x4) archsimd.Int64x2 {
